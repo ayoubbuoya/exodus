@@ -9,9 +9,10 @@
 //      creates 700 USYC for Alice and 300 USYC change for Bank, in one step.
 import type { ContractId } from "@daml/types";
 import type { LedgerClient } from "./client.ts";
-import { decimalToUnits, unitsToDecimal } from "./decimal.ts";
-import { getOwnedHoldings, getTransferFactory, type Contract } from "./queries.ts";
-import { emptyMetadata, TransferFactoryInterface, type HoldingInterface, type HoldingView } from "./templates.ts";
+import { decimalToUnits } from "./decimal.ts";
+import { pickInputs } from "./inputs.ts";
+import { getOwnedHoldings, getTransferFactory } from "./queries.ts";
+import { emptyMetadata, TransferFactoryInterface, type HoldingInterface } from "./templates.ts";
 
 export type SendRequest = {
   sender: string; // full party id, for example "Bank::1220ab..."
@@ -32,22 +33,7 @@ export async function sendHoldings(ledger: LedgerClient, request: SendRequest): 
   // 1. Pick input holdings of this instrument, biggest first.
   const owned = await getOwnedHoldings(ledger, request.sender);
   const candidates = owned.filter((holding) => holding.payload.instrumentId.id === request.instrument);
-  candidates.sort((a, b) => compareUnits(decimalToUnits(b.payload.amount), decimalToUnits(a.payload.amount)));
-
-  const inputs: Contract<HoldingView>[] = [];
-  let inputTotal = 0n;
-  for (const holding of candidates) {
-    if (inputTotal >= amountUnits) {
-      break;
-    }
-    inputs.push(holding);
-    inputTotal += decimalToUnits(holding.payload.amount);
-  }
-  if (inputTotal < amountUnits) {
-    throw new Error(
-      `Not enough ${request.instrument}: you have ${unitsToDecimal(inputTotal)}, you want to send ${request.amount}`,
-    );
-  }
+  const inputs = pickInputs(candidates, request.amount, request.instrument);
 
   // 2. The issuer (instrument admin) owns the factory. All inputs share it,
   //    because they are the same instrument.
@@ -79,13 +65,3 @@ export async function sendHoldings(ledger: LedgerClient, request: SendRequest): 
   });
 }
 
-// For sort(): negative if a < b, positive if a > b, 0 if equal.
-function compareUnits(a: bigint, b: bigint): number {
-  if (a < b) {
-    return -1;
-  }
-  if (a > b) {
-    return 1;
-  }
-  return 0;
-}

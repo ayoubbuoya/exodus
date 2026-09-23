@@ -132,7 +132,7 @@ A market is one asset plus one maturity date. Example: `PT-USYC-APR2027`.
 | Party | Role |
 |---|---|
 | **Operator** | Runs the markets and the vault. Settles redeem, claim, and merge requests. Runs as an automation bot. |
-| **UsycIssuer** | Issues the simulated USYC fund tokens. Admin of the USYC instrument and its transfer factory. |
+| **UsycIssuer** | Issues the simulated USYC fund tokens. Admin of the USYC instrument and its transfer factory. Runs the `UsycFund`: receives USDC and mints USYC to subscribers. |
 | **UsdcIssuer** | Issues the simulated USDC cash. Admin of the USDC instrument and its transfer factory. |
 | **Oracle** | Publishes the index and the demo clock. |
 | **Alice** (demo) | Wants a fixed rate. Buys PT. |
@@ -181,18 +181,20 @@ exodus-contract/
   main/                           # package exodus-contract-main
     daml.yaml
     daml/Exodus/
-      Holding.daml                # USYC + USDC holdings, roundDown6, CIP-56 Holding view   [done]
+      Holding.daml                # USYC + USDC holdings, roundDown6, payFrom, CIP-56 view  [done]
       TransferFactory.daml        # CIP-56 TransferFactory for our holdings                [done]
       Oracle.daml                 # RateIndex (index + demo clock)                          [done]
+      Fund.daml                   # UsycFund: Subscribe (pay USDC, get USYC atomically)     [done]
       Tokens.daml                 # MarketTerms, PT, YT, MaturitySnapshot, Redeem/Claim     [to do]
       Market.daml                 # Market (Split, Mature, RequestMerge), MergeRequest      [to do]
-      Rfq.daml                    # RfqRequest, Quote (private DvP), payFrom helper          [to do]
+      Rfq.daml                    # RfqRequest, Quote (private DvP, pays with payFrom)       [to do]
   test/                           # package exodus-contract-test
     daml.yaml
     daml/Exodus/
       HoldingTest.daml            # lifecycle, failures, privacy, roundDown6               [done]
       TokenStandardTest.daml      # wallet view + TransferFactory transfers                [done]
       OracleTest.daml             # publish, failures, privacy                              [done]
+      FundTest.daml               # subscribe, stale index, fake oracle/USDC, privacy       [done]
       DemoTest.daml               # the worked example in section 9                         [to do]
 ```
 
@@ -202,6 +204,7 @@ exodus-contract/
 |---|---|---|---|
 | `Holding` | issuer | owner | Simulated USYC or USDC. Choices: `Transfer`, `SplitOff`, `MergeWith`. Implements CIP-56 `Holding`. |
 | `HoldingTransferFactory` | admin (issuer) | users | One per issuer. Implements CIP-56 `TransferFactory` (`TransferFactory_Transfer`, `TransferFactory_PublicFetch`). |
+| `UsycFund` | usycIssuer | users | Nonconsuming `Subscribe`: the subscriber pays USDC (via `payFrom`) to UsycIssuer and gets `roundDown6 (usdc / index)` USYC in the same transaction. Checks the `RateIndex` comes from its trusted `oracle` and the USDC from its `usdcIssuer`. Users must also be `RateIndex` readers. |
 | `RateIndex` | oracle | operator, readers | Index + demo clock. Choice: `Publish` (index and time can only go up). |
 | `Market` | operator | members | Choices: `Split`, `Mature`, `RequestMerge`. All nonconsuming. |
 | `MaturitySnapshot` | operator | members | Frozen index at maturity. |
@@ -245,6 +248,16 @@ sequenceDiagram
 - `IndexSource`: `CurrentRate` (live oracle, before maturity) or `AtMaturity` (frozen snapshot, after maturity).
 
 ## 8. User flows
+
+### 8.0 Subscribe (get USYC with USDC)
+
+Like the real USYC, anyone on the fund's user list can buy USYC with USDC. It is one atomic transaction, like `deposit()` on an EVM vault:
+
+1. Alice calls `Subscribe` on the `UsycFund` with 500 USDC and the current `RateIndex` (index 1.025).
+2. `payFrom` merges her USDC holdings, splits off 500 and transfers it to UsycIssuer. She keeps the change.
+3. UsycIssuer's signature on the fund lets the choice mint `roundDown6 (500 / 1.025)` = **487.804878 USYC** for Alice.
+
+If any check fails (a fake oracle, fake USDC, not enough USDC, a stale `rateCid`), nothing moves. The client reads the `RateIndex` last, right before submitting, and retries once on a stale-contract error (gap 12). Redemption (USYC back to USDC) is not built yet (gap 13).
 
 ### 8.1 Split
 
@@ -414,7 +427,8 @@ Say these openly in the pitch. Judges respect honesty more than hidden problems.
 | 9 | Transfer factory is shared with an observer list (`users`) | New users need the factory recreated | Serve it through the off-ledger registry API with explicit disclosure, like real registries do |
 | 10 | No off-ledger registry API (`/registry/transfer-instruction/v1/...`, `/registry/metadata/v1/...`) | Real wallets cannot discover the factory or instrument metadata by themselves | Serve these endpoints from the NestJS backend |
 | 11 | No KYC allowlist (real USYC is permissioned) | Anyone can receive simulated USYC | Issuer-managed allowlist checked on transfer |
-| 12 | Stale `rateCid`: every `Publish` archives the `RateIndex`, so a command holding the old id fails (`CONTRACT_NOT_FOUND`, or `LOCAL_VERDICT_LOCKED_CONTRACTS` when two commands race). Found by the walking skeleton: the UI lost 6 of 6 races against a bot publishing every 0.3 s. | `Split` and `Claim` fail whenever the oracle publishes between the user's read and submit | Decide before writing `Split`: re-read the index right before submit and retry, publish less often, or have the operator settle a `SplitRequest` with the fresh index |
+| 12 | Stale `rateCid`: every `Publish` archives the `RateIndex`, so a command holding the old id fails (`CONTRACT_NOT_FOUND`, or `LOCAL_VERDICT_LOCKED_CONTRACTS` when two commands race). Found by the walking skeleton: the UI lost 6 of 6 races against a bot publishing every 0.3 s. | `Split` and `Claim` fail whenever the oracle publishes between the user's read and submit | First fix, used by `Subscribe`: the client reads the `RateIndex` last and retries once on a stale error (`exodus-app/ledger/src/subscribe.ts`). With the bot publishing every 1 s, 10 of 10 subscribes succeeded, all after one retry. Still to decide for `Split`: keep this, publish less often, or have the operator settle a `SplitRequest` with the fresh index |
+| 13 | No USYC redemption (USYC back to USDC) | Users cannot exit USYC to cash | Request + settle (`RedeemUsycRequest`), so many redeemers do not fight over the fund's USDC holdings |
 
 ## 13. Hackathon plan
 

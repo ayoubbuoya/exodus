@@ -9,13 +9,14 @@ Exodus: private fixed-rate yield markets on Canton, built for HackCanton Season 
 `docs/exodus.md` is the design spec. It covers the parties, templates, user flows, formulas with a worked example, the privacy model, design decisions and known gaps. Read it before changing contract logic.
 
 **Current state:** done so far:
-- `main/daml/Exodus/Holding.daml`: `Holding` (USYC/USDC, issuer signs, owner observes; `Transfer`/`SplitOff`/`MergeWith`), `roundDown6`, and a CIP-56 `HoldingV1.Holding` interface instance.
+- `main/daml/Exodus/Holding.daml`: `Holding` (USYC/USDC, issuer signs, owner observes; `Transfer`/`SplitOff`/`MergeWith`), `roundDown6`, `payFrom` (payer merges, splits and transfers an exact amount; reuse it in `Rfq`), and a CIP-56 `HoldingV1.Holding` interface instance.
 - `main/daml/Exodus/TransferFactory.daml`: `HoldingTransferFactory`, a CIP-56 v1 `TransferFactory` that completes transfers in one step.
 - `main/daml/Exodus/Oracle.daml`: `RateIndex` (oracle signs; index + demo clock `simTime`). `Publish` archives the old one and creates the new one; index and time can only go up. Callers pass the `rateCid` in and `fetch` it.
-- Tests in `test/daml/Exodus/HoldingTest.daml`, `TokenStandardTest.daml` and `OracleTest.daml`.
-- `exodus-app/` walking skeleton (npm workspaces, see `exodus-app/README.md`): `ledger/` (`@exodus/ledger`: typed JSON Ledger API v2 client, read helpers, CIP-56 `sendHoldings`, demo oracle schedule, `bootstrap` script), `oracle-bot/` (plain Node TS script) and `web/` (React + Vite UI: CIP-56 wallet, send form, oracle controls, per-party "what can I see?" table).
+- `main/daml/Exodus/Fund.daml`: `UsycFund` (UsycIssuer signs, users observe). Nonconsuming `Subscribe`: pay USDC via `payFrom`, get `roundDown6 (usdc / index)` USYC atomically. It checks the trusted `oracle` and `usdcIssuer`; users must be `RateIndex` readers.
+- Tests in `test/daml/Exodus/HoldingTest.daml`, `TokenStandardTest.daml`, `OracleTest.daml` and `FundTest.daml`.
+- `exodus-app/` walking skeleton (npm workspaces, see `exodus-app/README.md`): `ledger/` (`@exodus/ledger`: typed JSON Ledger API v2 client, read helpers, CIP-56 `sendHoldings`, demo oracle schedule, `bootstrap` script), `oracle-bot/` (plain Node TS script) and `web/` (React + Vite UI: CIP-56 wallet, USYC subscribe, send form, oracle controls, per-party "what can I see?" table). `subscribeUsyc` is the gap-12 pattern (read the `RateIndex` last, retry once on `isStaleContractError`); reuse it for `Split`/`Claim`.
 
-Still to do (see spec §7): `Tokens`, `Market`, `Rfq` (with `payFrom`) and the demo test. Put new code in `main/daml/Exodus/` and tests in `test/daml/Exodus/`, with module names `Exodus.<Name>`. Decide spec gap 12 (stale `rateCid`) before writing `Split`. Add a UI screen in `exodus-app/web` as each contract lands. Still planned off-ledger: NestJS operator bot and the CIP-56 registry API.
+Still to do (see spec §7): `Tokens`, `Market`, `Rfq` (with `payFrom`) and the demo test. Put new code in `main/daml/Exodus/` and tests in `test/daml/Exodus/`, with module names `Exodus.<Name>`. Decide the final fix for spec gap 12 (stale `rateCid`) before writing `Split`. Add a UI screen in `exodus-app/web` as each contract lands. Still planned off-ledger: NestJS operator bot and the CIP-56 registry API.
 
 "USYC"/"USDC" are simulations issued by the `UsycIssuer`/`UsdcIssuer` demo parties, not by Circle. Keep that clear in code comments, docs and UI.
 
@@ -56,6 +57,7 @@ npm run codegen:api    # regenerate JSON API types from ledger/openapi/*.yaml (c
 - The bot and bootstrap run `.ts` directly with Node type stripping: only erasable TS syntax (no `enum`, no parameter properties), and relative imports end in `.ts`.
 - `@daml/ledger` is not usable on SDK 3.x (JSON API v1 only). Use `@exodus/ledger`.
 - `openapi-typescript` needs TypeScript 5 as a peer, so `codegen:api` runs a pinned version through `npx`; the project itself uses TypeScript 7.
+- `npm run web` runs `vite --force`, so Vite re-bundles the regenerated `@daml.js` packages after a contract change.
 - Template ids are sent as `#package-name:Module:Entity` but come back as `package-hash:Module:Entity`; compare with `sameTemplateId()`.
 
 ## Daml design constraints (from the spec)

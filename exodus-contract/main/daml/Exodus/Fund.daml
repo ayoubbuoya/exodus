@@ -1,0 +1,93 @@
+-- | The simulated USYC fund: pay USDC, get USYC, in one atomic step.
+--
+-- The real USYC can be bought ("subscribed") with USDC. Here we SIMULATE it:
+-- "USYC" and "USDC" are issued by our own demo parties, not by Circle.
+--
+-- Example at index 1.025 (1 USYC = 1.025 USD):
+--   Alice subscribes 500 USDC.
+--   -> 500 USDC goes from Alice to UsycIssuer
+--   -> UsycIssuer mints roundDown6 (500 / 1.025) = 487.804878 USYC for Alice
+-- Both happen in ONE transaction. If anything fails, nothing moves.
+--
+-- How can this work without UsycIssuer clicking a button each time?
+-- UsycIssuer signs one 'UsycFund' contract up front. That signature means
+-- "I agree to mint USYC for these users when they pay me USDC at the oracle
+-- index". When Alice exercises 'Subscribe', the choice runs with:
+--   - Alice's authority (she is the controller): moves her USDC,
+--   - UsycIssuer's authority (it signed the fund): mints her USYC.
+-- This is the Canton version of an EVM vault's deposit() function.
+module Exodus.Fund where
+
+import Exodus.Holding
+import Exodus.Oracle
+
+
+-- | What 'Subscribe' gives back.
+--
+-- Example: Alice pays 500 USDC from a 1000 USDC holding at index 1.025.
+--   usycCid       -> Holding(owner = Alice, instrument = "USYC", amount = 487.804878)
+--   usdcChangeCid -> Some Holding(owner = Alice, instrument = "USDC", amount = 500)
+data SubscribeResult = SubscribeResult
+  with
+    usycCid       : ContractId Holding
+    usdcChangeCid : Optional (ContractId Holding)
+  deriving (Eq, Show)
+
+
+template UsycFund
+  with
+    usycIssuer : Party    -- issues USYC and receives the USDC (the fund)
+    usdcIssuer : Party    -- the only USDC issuer we accept, so nobody can pay with home-made "USDC"
+    oracle     : Party    -- the only oracle we trust for the index
+    users      : [Party]  -- who may subscribe, for example [Alice, Bank]
+  where
+    signatory usycIssuer
+
+    -- Users must see the fund to exercise 'Subscribe' on it.
+    observer users
+
+    -- ---------------------------------------------------------------------
+    -- Subscribe: pay 'usdcAmount' USDC, get USYC at the current index.
+    --
+    -- NONCONSUMING: the fund contract is NOT archived. So Alice and Bank can
+    -- subscribe at the same moment without fighting over this contract.
+    --
+    -- The subscriber passes the current RateIndex in ('rateCid'), because
+    -- Daml 3.x has no contract keys to look it up. If the oracle publishes a
+    -- new index first, this old 'rateCid' is archived and Subscribe fails.
+    -- The client must then read the new one and try again (spec gap 12).
+    -- ---------------------------------------------------------------------
+    nonconsuming choice Subscribe : SubscribeResult
+      with
+        subscriber : Party                -- who pays and receives, for example Alice
+        rateCid    : ContractId RateIndex  -- the current USYC index
+        usdcCids   : [ContractId Holding]  -- the USDC holdings to pay from
+        usdcAmount : Decimal               -- how much USDC to pay, for example 500.0
+      controller subscriber
+      do
+        assertMsg "subscriber is not a user of this fund" (subscriber `elem` users)
+        assertMsg "usdcAmount must be greater than 0" (usdcAmount > 0.0)
+
+        -- The most important check. Without it, Alice could create her OWN
+        -- RateIndex with index 0.0001 and mint 5,000,000 USYC for 500 USDC.
+        rate <- fetch rateCid
+        assertMsg "RateIndex is not from this fund's oracle" (rate.oracle == oracle)
+        assertMsg "RateIndex is not for USYC" (rate.instrument == "USYC")
+
+        -- Round DOWN, so the fund never gives out more USYC than was paid for.
+        let usycAmount = roundDown6 (usdcAmount / rate.index)
+        assertMsg "usdcAmount is too small: it buys less than 0.000001 USYC" (usycAmount > 0.0)
+
+        -- 1. Alice pays the USDC to the fund (UsycIssuer).
+        payment <- payFrom subscriber usdcIssuer "USDC" usdcAmount usycIssuer usdcCids
+
+        -- 2. The fund mints USYC for Alice.
+        usycCid <- create Holding with
+          issuer = usycIssuer
+          owner = subscriber
+          instrument = "USYC"
+          amount = usycAmount
+
+        pure SubscribeResult with
+          usycCid
+          usdcChangeCid = payment.changeCid

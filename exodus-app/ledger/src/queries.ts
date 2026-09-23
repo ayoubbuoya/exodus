@@ -11,6 +11,7 @@ import {
   HoldingView,
   RateIndex,
   sameTemplateId,
+  UsycFund,
 } from "./templates.ts";
 
 // A contract id plus its decoded payload.
@@ -100,6 +101,21 @@ export async function getTransferFactory(
     }
   }
   return null;
+}
+
+// The USYC fund, as seen by `party` (a fund user, or UsycIssuer itself).
+// Returns null if this party cannot see a fund.
+export async function getUsycFund(ledger: LedgerClient, party: string): Promise<Contract<UsycFund> | null> {
+  const events = await ledger.getActiveContracts(party, {
+    TemplateFilter: { value: { templateId: UsycFund.templateId } },
+  });
+  if (events.length === 0) {
+    return null;
+  }
+  return {
+    contractId: events[0].contractId,
+    payload: UsycFund.decoder.runWithException(events[0].createArgument),
+  };
 }
 
 // Every active contract `party` can see, of any template. Used by the

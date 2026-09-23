@@ -2,8 +2,10 @@
 // (bootstrap.ts is Node only, so it is not exported.)
 export * from "./client.ts";
 export * from "./decimal.ts";
+export * from "./inputs.ts";
 export * from "./oracle-schedule.ts";
 export * from "./parties.ts";
 export * from "./queries.ts";
+export * from "./subscribe.ts";
 export * from "./templates.ts";
 export * from "./transfers.ts";

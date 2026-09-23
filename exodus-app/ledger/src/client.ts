@@ -50,11 +50,18 @@ export class LedgerError extends Error {
 //
 // Example: the oracle bot publishes a new RateIndex (archiving the old one)
 // while Bank's command still points at the old one. Bank's command fails.
+//
+// Canton reports this with different codes, depending on WHEN it notices:
+//   UNKNOWN_CONTRACT_SYNCHRONIZERS   before running: "contracts have been archived"
+//   CONTRACT_NOT_FOUND               while running the Daml code
+//   LOCAL_VERDICT_LOCKED_CONTRACTS   at commit: another transaction is using it right now
+//   LOCAL_VERDICT_INACTIVE_CONTRACTS at commit: it was archived a moment ago
 export function isStaleContractError(error: unknown): boolean {
   if (!(error instanceof LedgerError)) {
     return false;
   }
   return (
+    error.code === "UNKNOWN_CONTRACT_SYNCHRONIZERS" ||
     error.code === "CONTRACT_NOT_FOUND" ||
     error.code === "LOCAL_VERDICT_LOCKED_CONTRACTS" ||
     error.code === "LOCAL_VERDICT_INACTIVE_CONTRACTS"

@@ -1,0 +1,291 @@
+-- | Tests for Exodus.Fund (Subscribe) and Exodus.Holding.payFrom.
+--
+-- Run them with:
+--   cd exodus-contract && dpm build --all
+--   cd test && dpm test --files daml/Exodus/FundTest.daml
+module Exodus.FundTest where
+
+import DA.Assert ((===))  -- 'a === b' fails the test if a and b are not equal
+import DA.Date (Month(..), date)
+import DA.Time (time)
+import Daml.Script
+import Exodus.Fund
+import Exodus.Holding
+import Exodus.Oracle
+
+
+-- | Everything the fund tests need.
+data FundSetup = FundSetup
+  with
+    usycIssuer : Party
+    usdcIssuer : Party
+    oracle     : Party
+    operator   : Party
+    alice      : Party
+    bank       : Party
+    fundCid    : ContractId UsycFund
+    rateCid    : ContractId RateIndex
+
+
+-- | Parties, a RateIndex at 1.025 (Jan 1 2027) and a fund for Alice and Bank.
+--
+-- Alice and Bank are also RateIndex readers: 'Subscribe' fetches the index
+-- as the subscriber, so the subscriber must be able to see it.
+setupFund : Script FundSetup
+setupFund = do
+  usycIssuer <- allocateParty "UsycIssuer"
+  usdcIssuer <- allocateParty "UsdcIssuer"
+  oracle     <- allocateParty "Oracle"
+  operator   <- allocateParty "Operator"
+  alice      <- allocateParty "Alice"
+  bank       <- allocateParty "Bank"
+
+  rateCid <- submit oracle do
+    createCmd RateIndex with
+      oracle = oracle
+      operator = operator
+      readers = [alice, bank]
+      instrument = "USYC"
+      index = 1.025
+      simTime = time (date 2027 Jan 1) 0 0 0
+
+  fundCid <- submit usycIssuer do
+    createCmd UsycFund with
+      usycIssuer = usycIssuer
+      usdcIssuer = usdcIssuer
+      oracle = oracle
+      users = [alice, bank]
+
+  pure FundSetup with ..
+
+
+-- | The issuer creates a holding for 'owner'.
+issue : Party -> Party -> Text -> Decimal -> Script (ContractId Holding)
+issue issuer owner instrument amount = submit issuer do
+  createCmd Holding with
+    issuer = issuer
+    owner = owner
+    instrument = instrument
+    amount = amount
+
+
+-- | All holdings of one instrument that 'owner' owns, as seen by 'owner'.
+ownedAmounts : Party -> Text -> Script [Decimal]
+ownedAmounts owner instrument = do
+  holdings <- query @Holding owner
+  pure [h.amount | (_, h) <- holdings, h.owner == owner, h.instrument == instrument]
+
+
+-- | The happy path from the plan: at index 1.025, Alice pays 500 USDC from
+-- holdings of 600 and 400 and gets 487.804878 USYC plus 500 USDC change.
+fundSubscribe : Script ()
+fundSubscribe = script do
+  s <- setupFund
+  usdc600 <- issue s.usdcIssuer s.alice "USDC" 600.0
+  usdc400 <- issue s.usdcIssuer s.alice "USDC" 400.0
+
+  result <- submit s.alice do
+    exerciseCmd s.fundCid Subscribe with
+      subscriber = s.alice
+      rateCid = s.rateCid
+      usdcCids = [usdc600, usdc400]
+      usdcAmount = 500.0
+
+  -- Alice got 500 / 1.025 = 487.8048780487..., rounded DOWN to 487.804878 USYC.
+  Some usyc <- queryContractId s.alice result.usycCid
+  usyc.issuer     === s.usycIssuer
+  usyc.owner      === s.alice
+  usyc.instrument === "USYC"
+  usyc.amount     === 487.804878
+
+  -- Alice kept 500 USDC as change, in one holding.
+  Some changeCid <- pure result.usdcChangeCid
+  Some change <- queryContractId s.alice changeCid
+  change.amount === 500.0
+  aliceUsdc <- ownedAmounts s.alice "USDC"
+  aliceUsdc === [500.0]
+
+  -- The fund (UsycIssuer) received the 500 USDC.
+  fundUsdc <- ownedAmounts s.usycIssuer "USDC"
+  fundUsdc === [500.0]
+
+  -- The input holdings were spent.
+  None <- queryContractId s.alice usdc600
+  None <- queryContractId s.alice usdc400
+
+  -- The fund contract is still there (nonconsuming), so Alice can subscribe again.
+  Some _ <- queryContractId s.alice s.fundCid
+  pure ()
+
+
+-- | Paying exactly the amount of the inputs leaves no change.
+fundSubscribeExact : Script ()
+fundSubscribeExact = script do
+  s <- setupFund
+  usdc500 <- issue s.usdcIssuer s.bank "USDC" 500.0
+
+  result <- submit s.bank do
+    exerciseCmd s.fundCid Subscribe with
+      subscriber = s.bank
+      rateCid = s.rateCid
+      usdcCids = [usdc500]
+      usdcAmount = 500.0
+
+  result.usdcChangeCid === None
+  bankUsdc <- ownedAmounts s.bank "USDC"
+  bankUsdc === []
+  bankUsyc <- ownedAmounts s.bank "USYC"
+  bankUsyc === [487.804878]
+  pure ()
+
+
+-- | After the oracle publishes, the old RateIndex id no longer works (spec
+-- gap 12). The client must read the new one and try again.
+fundStaleRate : Script ()
+fundStaleRate = script do
+  s <- setupFund
+  usdc <- issue s.usdcIssuer s.alice "USDC" 500.0
+
+  newRateCid <- submit s.oracle do
+    exerciseCmd s.rateCid Publish with
+      newIndex = 1.03
+      newSimTime = time (date 2027 Feb 1) 0 0 0
+
+  -- The old id is archived: Subscribe fails and nothing moves.
+  submitMustFail s.alice do
+    exerciseCmd s.fundCid Subscribe with
+      subscriber = s.alice
+      rateCid = s.rateCid
+      usdcCids = [usdc]
+      usdcAmount = 500.0
+  Some _ <- queryContractId s.alice usdc
+
+  -- With the fresh id it works, at the NEW price: 500 / 1.03 = 485.436893...
+  result <- submit s.alice do
+    exerciseCmd s.fundCid Subscribe with
+      subscriber = s.alice
+      rateCid = newRateCid
+      usdcCids = [usdc]
+      usdcAmount = 500.0
+  Some usyc <- queryContractId s.alice result.usycCid
+  usyc.amount === 485.436893
+  pure ()
+
+
+-- | Things that must NOT work. After each one, nothing has moved.
+fundFailures : Script ()
+fundFailures = script do
+  s <- setupFund
+  usdc <- issue s.usdcIssuer s.alice "USDC" 400.0
+
+  let subscribe rateCid usdcCids usdcAmount =
+        submitMustFail s.alice do
+          exerciseCmd s.fundCid Subscribe with
+            subscriber = s.alice
+            rateCid = rateCid
+            usdcCids = usdcCids
+            usdcAmount = usdcAmount
+
+  -- Not enough USDC: she has 400 and wants to pay 500.
+  subscribe s.rateCid [usdc] 500.0
+
+  -- Zero, and an amount so small it buys less than 0.000001 USYC.
+  subscribe s.rateCid [usdc] 0.0
+  subscribe s.rateCid [usdc] 0.0000001
+
+  -- No input holdings at all.
+  subscribe s.rateCid [] 100.0
+
+  -- A FAKE RateIndex: Alice publishes her own index of 0.0001 to mint
+  -- 1,000,000 USYC for 100 USDC. The fund only trusts its own oracle.
+  fakeRateCid <- submit s.alice do
+    createCmd RateIndex with
+      oracle = s.alice
+      operator = s.alice
+      readers = []
+      instrument = "USYC"
+      index = 0.0001
+      simTime = time (date 2027 Jan 1) 0 0 0
+  subscribe fakeRateCid [usdc] 100.0
+
+  -- A RateIndex from the right oracle, but for another instrument.
+  otherRateCid <- submit s.oracle do
+    createCmd RateIndex with
+      oracle = s.oracle
+      operator = s.operator
+      readers = [s.alice]
+      instrument = "OTHER"
+      index = 1.0
+      simTime = time (date 2027 Jan 1) 0 0 0
+  subscribe otherRateCid [usdc] 100.0
+
+  -- Paying with USYC instead of USDC.
+  aliceUsyc <- issue s.usycIssuer s.alice "USYC" 1000.0
+  subscribe s.rateCid [aliceUsyc] 100.0
+
+  -- Paying with home-made "USDC" from an unknown issuer.
+  fakeIssuer <- allocateParty "FakeIssuer"
+  fakeUsdc <- issue fakeIssuer s.alice "USDC" 1000.0
+  subscribe s.rateCid [fakeUsdc] 100.0
+
+  -- Paying with someone else's USDC (Bank's).
+  bankUsdc <- issue s.usdcIssuer s.bank "USDC" 1000.0
+  subscribe s.rateCid [bankUsdc] 100.0
+
+  -- A party that is not a user of the fund cannot subscribe.
+  carol <- allocateParty "Carol"
+  carolUsdc <- issue s.usdcIssuer carol "USDC" 1000.0
+  submitMustFail carol do
+    exerciseCmd s.fundCid Subscribe with
+      subscriber = carol
+      rateCid = s.rateCid
+      usdcCids = [carolUsdc]
+      usdcAmount = 100.0
+
+  -- Alice cannot subscribe in Bank's name.
+  submitMustFail s.alice do
+    exerciseCmd s.fundCid Subscribe with
+      subscriber = s.bank
+      rateCid = s.rateCid
+      usdcCids = [bankUsdc]
+      usdcAmount = 100.0
+
+  -- Nothing moved: Alice's real 400 USDC holding is untouched, and she has no
+  -- new USYC (only the 1000 USYC issued above). She also still owns the fake
+  -- "USDC", so we check the real holding by its id, not by instrument name.
+  Some aliceUsdc <- queryContractId s.alice usdc
+  aliceUsdc.amount === 400.0
+  aliceUsycAmounts <- ownedAmounts s.alice "USYC"
+  aliceUsycAmounts === [1000.0]
+  pure ()
+
+
+-- | Privacy: a subscription is visible only to the parties involved.
+fundPrivacy : Script ()
+fundPrivacy = script do
+  s <- setupFund
+  usdc <- issue s.usdcIssuer s.alice "USDC" 1000.0
+
+  result <- submit s.alice do
+    exerciseCmd s.fundCid Subscribe with
+      subscriber = s.alice
+      rateCid = s.rateCid
+      usdcCids = [usdc]
+      usdcAmount = 500.0
+
+  -- Bank sees none of Alice's holdings, old or new.
+  None <- queryContractId s.bank result.usycCid
+  bankHoldings <- query @Holding s.bank
+  bankHoldings === []
+
+  -- UsdcIssuer sees the USDC it issued, but not Alice's new USYC.
+  None <- queryContractId s.usdcIssuer result.usycCid
+  usdcIssuerHoldings <- query @Holding s.usdcIssuer
+  [h.instrument | (_, h) <- usdcIssuerHoldings] === ["USDC", "USDC"]
+
+  -- The Oracle and the Operator see no holdings at all.
+  oracleHoldings <- query @Holding s.oracle
+  oracleHoldings === []
+  operatorHoldings <- query @Holding s.operator
+  operatorHoldings === []
+  pure ()

@@ -27,6 +27,7 @@ module Exodus.Holding where
 -- own names (the standard also has a type called 'Transfer', like our choice).
 import qualified Splice.Api.Token.HoldingV1 as V1
 import Splice.Api.Token.MetadataV1 (emptyMetadata)
+import DA.Foldable (forA_)  -- run an action for every item in a list, e.g. check each input holding
 
 
 -- | What 'SplitOff' gives back: the piece you asked for and the change.
@@ -190,3 +191,70 @@ template Holding
 --   3. Turn it back into a Decimal and divide by 1,000,000  ->  24.390243
 roundDown6 : Decimal -> Decimal
 roundDown6 x = intToDecimal (floor (x * 1000000.0)) / 1000000.0
+
+
+-- | What 'payFrom' gives back.
+--
+-- Example: Alice pays 500 USDC to UsycIssuer from holdings of 600 and 400.
+--   paidCid   -> Holding(owner = UsycIssuer, amount = 500)
+--   changeCid -> Some Holding(owner = Alice, amount = 500)
+-- If the inputs add up to exactly the amount, there is no change: changeCid = None.
+data PayResult = PayResult
+  with
+    paidCid   : ContractId Holding
+    changeCid : Optional (ContractId Holding)
+  deriving (Eq, Show)
+
+
+-- | Pay 'amount' from the payer's holdings to 'receiver', in one go.
+--
+-- Used inside choices where the PAYER is the controller, for example
+-- 'Subscribe' in Exodus.Fund (and later 'Quote_Accept' in the RFQ).
+--
+--   payFrom alice usdcIssuer "USDC" 500.0 usycIssuer [cid600, cid400]
+--
+-- Steps:
+--   1. Check every input: owned by the payer, right issuer, right instrument.
+--      Without the issuer check, anyone could create their own "USDC" and pay with it.
+--   2. Merge all inputs into one holding (600 + 400 -> 1000).
+--   3. Split off the amount (1000 -> 500 + 500) and transfer that piece to the receiver.
+--
+-- It only uses the owner's own choices (MergeWith, SplitOff, Transfer), so it
+-- needs the payer's authority and nothing else. The issuer's authority comes
+-- from those choices, because the issuer signed the holdings.
+payFrom : Party -> Party -> Text -> Decimal -> Party -> [ContractId Holding] -> Update PayResult
+payFrom payer expectedIssuer expectedInstrument amount receiver inputCids = do
+  assertMsg "amount must be greater than 0" (amount > 0.0)
+
+  -- 1. Check every input.
+  forA_ inputCids \inputCid -> do
+    input <- fetch inputCid
+    assertMsg "input holding must be owned by the payer" (input.owner == payer)
+    assertMsg "input holding has the wrong issuer" (input.issuer == expectedIssuer)
+    assertMsg "input holding has the wrong instrument" (input.instrument == expectedInstrument)
+
+  -- 2. Merge all inputs into one holding.
+  mergedCid <- case inputCids of
+    [] -> abort "at least one input holding is required"
+    firstCid :: otherCids -> mergeAll firstCid otherCids
+  merged <- fetch mergedCid
+  assertMsg "input holdings do not cover the amount" (merged.amount >= amount)
+
+  -- 3. Pay the exact amount and keep the rest as change.
+  if merged.amount == amount
+    then do
+      paidCid <- exercise mergedCid Transfer with newOwner = receiver
+      pure PayResult with paidCid; changeCid = None
+    else do
+      SplitResult with splitCid; restCid <- exercise mergedCid SplitOff with splitAmount = amount
+      paidCid <- exercise splitCid Transfer with newOwner = receiver
+      pure PayResult with paidCid; changeCid = Some restCid
+
+
+-- | Merge a list of holdings into the first one, one by one.
+--   mergeAll a [b, c]  ==  (a MergeWith b) MergeWith c
+mergeAll : ContractId Holding -> [ContractId Holding] -> Update (ContractId Holding)
+mergeAll mergedCid [] = pure mergedCid
+mergeAll mergedCid (nextCid :: restCids) = do
+  newMergedCid <- exercise mergedCid MergeWith with otherCid = nextCid
+  mergeAll newMergedCid restCids

@@ -5,6 +5,7 @@ import { ErrorMessage } from './components/ErrorMessage.tsx'
 import { OracleCard } from './components/OracleCard.tsx'
 import { OracleControls } from './components/OracleControls.tsx'
 import { SendForm } from './components/SendForm.tsx'
+import { SubscribeCard } from './components/SubscribeCard.tsx'
 import { VisibleContracts } from './components/VisibleContracts.tsx'
 import { WalletCard } from './components/WalletCard.tsx'
 
@@ -77,6 +78,7 @@ function PartyView({ name, parties }: PartyViewProps) {
     <main className="grid">
       <OracleCard party={party} partyName={name} />
       <WalletCard party={party} partyName={name} />
+      {canSend && <SubscribeCard party={party} />}
       {canSend && <SendForm senderName={name} parties={parties} />}
       {name === 'Oracle' && <OracleControls oracle={party} />}
       <VisibleContracts party={party} partyName={name} />

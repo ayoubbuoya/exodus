@@ -2,7 +2,7 @@
 
 The off-ledger parts of Exodus: a shared JSON Ledger API client, the demo oracle bot and the web UI.
 
-This is a **walking skeleton**: a thin but real end-to-end slice (ledger, bot, UI) built on the contracts that exist today (`Holding`, `HoldingTransferFactory`, `RateIndex`). New screens get added as each new contract (`Tokens`, `Market`, `Rfq`) is written.
+This is a **walking skeleton**: a thin but real end-to-end slice (ledger, bot, UI) built on the contracts that exist today (`Holding`, `HoldingTransferFactory`, `RateIndex`, `UsycFund`). New screens get added as each new contract (`Tokens`, `Market`, `Rfq`) is written.
 
 > **Simulation notice.** "USYC" and "USDC" are simulated tokens issued by the `UsycIssuer` and `UsdcIssuer` demo parties. They are not issued by, connected to, or endorsed by Circle.
 
@@ -10,9 +10,9 @@ This is a **walking skeleton**: a thin but real end-to-end slice (ledger, bot, U
 
 | Folder | Package | What it does |
 |---|---|---|
-| `ledger/` | `@exodus/ledger` | Typed client for the Canton JSON Ledger API v2, read helpers (`getRateIndex`, `getOwnedHoldings`, ...), CIP-56 `sendHoldings`, the demo oracle schedule, and the `bootstrap` script. Shared by the bot and the UI. |
+| `ledger/` | `@exodus/ledger` | Typed client for the Canton JSON Ledger API v2, read helpers (`getRateIndex`, `getOwnedHoldings`, ...), CIP-56 `sendHoldings`, `subscribeUsyc` (USDC to USYC, with stale-index retry), the demo oracle schedule, and the `bootstrap` script. Shared by the bot and the UI. |
 | `oracle-bot/` | `@exodus/oracle-bot` | Moves the USYC index and the demo clock forward along the spec §9 path. |
-| `web/` | `@exodus/web` | React + Vite UI: party switcher, oracle card, CIP-56 wallet, send form, oracle controls and a "what can this party see?" privacy table. |
+| `web/` | `@exodus/web` | React + Vite UI: party switcher, oracle card, CIP-56 wallet, USYC subscribe card, send form, oracle controls and a "what can this party see?" privacy table. |
 | `generated/daml.js/` | `@daml.js/*` | TypeScript types for our Daml templates, from `dpm codegen-js`. Generated, not committed. |
 
 Where the types come from:
@@ -58,6 +58,7 @@ Other commands: `npm run typecheck` (all packages), `npm run lint -w @exodus/web
 | Parties | Operator, UsycIssuer, UsdcIssuer, Oracle, Alice, Bank |
 | `RateIndex` | USYC index 1.00 on 2026-10-01; readers Alice and Bank; operator Operator |
 | `HoldingTransferFactory` × 2 | one for UsycIssuer, one for UsdcIssuer; users Alice and Bank |
+| `UsycFund` | signed by UsycIssuer; accepts USDC from UsdcIssuer and the index from Oracle; users Alice and Bank |
 | `Holding` | 1000 USYC for Bank, 1000 USDC for Alice |
 
 ## What the skeleton checks (results from 2026-09-23)
@@ -69,6 +70,8 @@ Other commands: `npm run typecheck` (all packages), `npm run lint -w @exodus/web
 | 3 | Stale `RateIndex` contract id | Two bots at 0.2 s ticks; then the UI "Next step" button while the bot runs at 0.3 s | ⚠️ See below |
 | 4 | Clock drift (`requestedAt <= ledger time`) | Send uses this machine's clock for `requestedAt` | ✅ No failure on the local sandbox (same clock). Re-check on LocalNet/DevNet. |
 | 5 | Decimals | Amounts stay strings; sums use bigint units | ✅ |
+| 6 | Atomic USYC subscribe | Alice pays 500 USDC at index 1.025 in the UI | ✅ Alice: 487.804878 USYC + 500 USDC change; UsycIssuer: 500 USDC; Bank and UsdcIssuer see none of Alice's USYC |
+| 7 | Subscribe during oracle publishing | 10 subscribes while the bot publishes every 1 s | ✅ 10/10 succeeded, all after one retry (see below) |
 
 **Stale `RateIndex` (check 3).** Every `Publish` archives the old `RateIndex`, so any command holding the old contract id fails:
 
@@ -76,4 +79,6 @@ Other commands: `npm run typecheck` (all packages), `npm run lint -w @exodus/web
 - An id that is already archived: `CONTRACT_NOT_FOUND`.
 - The UI (which reads the id on a 2 s poll) lost **6 out of 6** times against a bot publishing every 0.3 s.
 
-`isStaleContractError()` in `@exodus/ledger` detects both codes. This is the same failure `Split` and `Claim` will hit, because they take a `rateCid`. It is tracked as known gap 12 in `docs/exodus.md`.
+`isStaleContractError()` in `@exodus/ledger` detects these, plus `UNKNOWN_CONTRACT_SYNCHRONIZERS` ("contracts have been archived", reported before the transaction even runs; found by check 7) and `LOCAL_VERDICT_INACTIVE_CONTRACTS`.
+
+**First fix (check 7).** `subscribeUsyc` reads the `RateIndex` last, right before submitting, and retries once on a stale error. A submit takes about 0.5–0.8 s on the sandbox, so with a 1 s oracle almost every first try is stale, and the retry saved all of them. With the default 5 s tick, retries are rare. This is the same failure `Split` and `Claim` will hit, because they take a `rateCid`. It is tracked as known gap 12 in `docs/exodus.md`.

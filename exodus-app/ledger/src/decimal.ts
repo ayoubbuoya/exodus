@@ -33,6 +33,24 @@ export function unitsToDecimal(units: bigint): string {
   return `${wholePart}.${fractionPart.toString().padStart(DECIMAL_PLACES, "0")}`;
 }
 
+// numerator / denominator, rounded DOWN to 6 decimals, like roundDown6 in the
+// contract. Example: divideRoundDown6("500", "1.025") -> "487.8048780000"
+// (500 / 1.025 = 487.80487804..., the digits after the 6th are dropped).
+//
+// Use it for PREVIEWS only. The contract's own result is the real one.
+export function divideRoundDown6(numerator: string, denominator: string): string {
+  const numeratorUnits = decimalToUnits(numerator);
+  const denominatorUnits = decimalToUnits(denominator);
+  if (denominatorUnits === 0n) {
+    throw new Error("Cannot divide by 0");
+  }
+  // bigint division always rounds down, which is what we want.
+  const quotientUnits = (numeratorUnits * UNITS_PER_ONE) / denominatorUnits;
+  // Keep 6 of the 10 decimals: drop the last 4 digits.
+  const droppedPart = quotientUnits % 10_000n;
+  return unitsToDecimal(quotientUnits - droppedPart);
+}
+
 // For display only: "1000.0000000000" -> "1,000", "24.3902430000" -> "24.390243".
 export function formatAmount(value: string | number, maxDecimals = 6): string {
   return Number(value).toLocaleString("en-US", { maximumFractionDigits: maxDecimals });

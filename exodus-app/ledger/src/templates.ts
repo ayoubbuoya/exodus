@@ -22,6 +22,10 @@ export const RateIndex = Exodus.Oracle.RateIndex;
 export type HoldingTransferFactory = Exodus.TransferFactory.HoldingTransferFactory;
 export const HoldingTransferFactory = Exodus.TransferFactory.HoldingTransferFactory;
 
+// The simulated USYC fund: pay USDC, get USYC (Exodus.Fund:UsycFund).
+export type UsycFund = Exodus.Fund.UsycFund;
+export const UsycFund = Exodus.Fund.UsycFund;
+
 // Canton Token Standard (CIP-56) v1 interfaces. Wallets only know these.
 export type HoldingView = SpliceHolding.Api.Token.HoldingV1.HoldingView;
 export const HoldingView = SpliceHolding.Api.Token.HoldingV1.HoldingView;
