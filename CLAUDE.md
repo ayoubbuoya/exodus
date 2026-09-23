@@ -87,6 +87,13 @@ These rules apply to every task in this repository.
 ### Code style
 - Prefer easy, boring, explicit code. A junior developer should be able to read it and understand it six months later.
 - Avoid clever tricks, deep abstractions and dense one-liners when a plain version works.
+- Always write explanatory comments so a junior developer can understand the code without asking anyone:
+  - Before each template, choice, function, React component and module, explain **what** it does and **why** it exists (the business reason, not just the mechanics).
+  - Explain any non-obvious line: formulas, rounding, signatory/observer choices, privacy decisions, retries, and workarounds for spec gaps (name the gap, for example "spec gap 12").
+  - When a formula or rule is hard to picture, add a small concrete example with real numbers, for example:
+    `-- Alice splits 100 USYC shares at index 1.02 → she gets 102 PT and 102 YT.`
+  - Keep comments true: update or delete them when the code changes. Don't restate what the code already says clearly (skip `-- add 1 to x`).
+  - Use the language's normal comment style (`--` and `{- -}` in Daml, `//` and `/** */` JSDoc in TypeScript).
 
 ### Versions and dependencies
 - Always use the latest stable version of packages, crates, SDKs and tools. Check the current version before adding or using one.
