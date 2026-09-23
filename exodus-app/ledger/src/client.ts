@@ -143,6 +143,48 @@ export function createLedgerClient(options: LedgerClientOptions) {
   }
 
   // ---------------------------------------------------------------------
+  // Ledger users
+  // ---------------------------------------------------------------------
+
+  // Makes sure the ledger user `ledgerUserId` exists and may act and read as `party`.
+  //
+  // A ledger user is the login that sends commands; a party is who signs them.
+  // The backend gives every approved client one of each, for example
+  //   ledger user "client-7f3a9c21e4b0"  --CanActAs/CanReadAs-->  party "client-7f3a9c21e4b0::1220ab..."
+  // and then submits the client's commands with that user id (custodial wallet).
+  //
+  // Safe to call twice: if the user already exists, we only (re)grant the rights.
+  async function ensureUserForParty(ledgerUserId: string, party: string): Promise<void> {
+    const rights: components["schemas"]["Right"][] = [
+      { kind: { CanActAs: { value: { party } } } },
+      { kind: { CanReadAs: { value: { party } } } },
+    ];
+    const created = await api.POST("/v2/users", {
+      body: {
+        user: { id: ledgerUserId, primaryParty: party, isDeactivated: false, identityProviderId: "" },
+        rights,
+      },
+    });
+    if (created.error === undefined) {
+      return;
+    }
+    const createError = toLedgerError(created.error, created.response);
+    if (createError.code !== "USER_ALREADY_EXISTS") {
+      throw createError;
+    }
+
+    // The user exists (for example a retry after a half-finished approval): add the rights.
+    // Granting a right the user already has is not an error.
+    const granted = await api.POST("/v2/users/{user-id}/rights", {
+      params: { path: { "user-id": ledgerUserId } },
+      body: { userId: ledgerUserId, rights, identityProviderId: "" },
+    });
+    if (granted.error !== undefined) {
+      throw toLedgerError(granted.error, granted.response);
+    }
+  }
+
+  // ---------------------------------------------------------------------
   // Packages
   // ---------------------------------------------------------------------
 
@@ -269,6 +311,7 @@ export function createLedgerClient(options: LedgerClientOptions) {
   return {
     listParties,
     allocateParty,
+    ensureUserForParty,
     uploadDar,
     getLedgerEnd,
     getActiveContracts,

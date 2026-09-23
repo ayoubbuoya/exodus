@@ -9,3 +9,8 @@ exodus-app/web/dist/
 
 # Canton sandbox logs (written in the folder where `dpm sandbox` runs)
 log/
+
+# exodus-app/api: local settings, build output and the generated Prisma client
+.env
+exodus-app/api/dist/
+exodus-app/api/src/generated/

@@ -1,6 +1,6 @@
 # exodus-app
 
-The off-ledger parts of Exodus: a shared JSON Ledger API client, the demo oracle bot and the web UI.
+The off-ledger parts of Exodus: a shared JSON Ledger API client, the demo oracle bot, the backend API and the web UI.
 
 This is a **walking skeleton**: a thin but real end-to-end slice (ledger, bot, UI) built on the contracts that exist today (`Holding`, `HoldingTransferFactory`, `RateIndex`, `UsycFund`). New screens get added as each new contract (`Tokens`, `Market`, `Rfq`) is written.
 
@@ -13,6 +13,7 @@ This is a **walking skeleton**: a thin but real end-to-end slice (ledger, bot, U
 | `ledger/` | `@exodus/ledger` | Typed client for the Canton JSON Ledger API v2, read helpers (`getRateIndex`, `getOwnedHoldings`, ...), CIP-56 `sendHoldings`, `subscribeUsyc` (USDC to USYC, with stale-index retry), the demo oracle schedule, and the `bootstrap` script. Shared by the bot and the UI. |
 | `oracle-bot/` | `@exodus/oracle-bot` | Moves the USYC index and the demo clock forward along the spec §9 path. |
 | `web/` | `@exodus/web` | React + Vite + Tailwind CSS 4 + shadcn/ui UI with React Router. `/` is the public landing page. `/lab` is the developer lab: party switcher, oracle card, CIP-56 wallet, USYC subscribe card, send form, oracle controls and a "what can this party see?" privacy table. Client pages (sign-up, onboarding, `/app`, `/admin`) are planned in `../docs/client-app.md`. |
+| `api/` | `@exodus/api` | NestJS + Prisma + PostgreSQL backend: email/password accounts (DB sessions), access applications, admin approval (allocates the client's custodial party + ledger user and creates their `ClientAccess` pass), the 100 test USDC faucet, custodial wallet commands (subscribe, send) and the USYC price history. Endpoints are listed in `../docs/client-app.md`; Swagger UI at `http://localhost:3000/api/docs`. |
 | `generated/daml.js/` | `@daml.js/*` | TypeScript types for our Daml templates, from `dpm codegen-js`. Generated, not committed. |
 
 Where the types come from:
@@ -24,6 +25,7 @@ Where the types come from:
 ## Requirements
 
 - Node.js 24 (runs the `.ts` files of the bot and bootstrap directly, no build step)
+- Docker (PostgreSQL for the backend API)
 - `dpm` with SDK 3.5.11 (see `../CLAUDE.md`)
 
 ## Run it
@@ -38,6 +40,23 @@ npm run bootstrap      # once per sandbox start (the sandbox keeps data in memor
 npm run oracle         # terminal 2: oracle bot (or `npm run oracle:hold` to move time by hand in the UI)
 npm run web            # terminal 3: UI on http://localhost:5173
 ```
+
+Backend API (needed by the client pages; `/lab` works without it):
+
+```bash
+cp api/.env.example api/.env   # once; change ADMIN_PASSWORD
+npm run db:up          # PostgreSQL 18 in Docker on :5432 (data kept in a Docker volume)
+npm run db:migrate     # apply the database migrations
+npm run db:seed        # create the admin from ADMIN_EMAIL / ADMIN_PASSWORD
+npm run api            # terminal 4: build and start the API on :3000 (Vite forwards /api to it)
+```
+
+The API checks every `.env` value at startup (see `api/.env.example`). It also polls the ledger:
+
+- every `PRICE_POLL_SECONDS` (5) it stores the USYC index when it changed, for the price chart;
+- every `WALLET_CHECK_SECONDS` (30) it re-creates client wallets whose party no longer exists. The sandbox forgets everything when it restarts, so after `npm run ledger` + `npm run bootstrap`, approved clients get a new, empty wallet on their own.
+
+To change the database schema: edit `api/prisma/schema.prisma`, then `npm run db:migrate:dev -w @exodus/api -- --name what_changed`.
 
 After a change in `exodus-contract/main`, run `npm run codegen:daml` again and restart the sandbox.
 

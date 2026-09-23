@@ -42,6 +42,10 @@ Example with Alice:
 | E | On-ledger whitelist | **E2: one `ClientAccess` pass per client** + **explicit disclosure** of shared contracts | See below |
 | F | Frontend stack | **Tailwind CSS 4** (`@tailwindcss/vite`) + **shadcn/ui** (Radix, code copied into `src/components/ui`) + **React Router** + **Recharts** + **lucide-react** | Accessible dialogs/tabs/toasts, readable code we own |
 | G | Theme | **"Exodus Night"**: dark first, light mode too, teal primary, gold for yield | See the palette below |
+| H | Session | **DB session**: random token in the httpOnly cookie, only its SHA-256 in `sessions` (agreed 2026-09-23) | Logout and revoking work at once; a JWT stays valid until it expires |
+| I | Sandbox restarts | **Auto re-provision**: every `WALLET_CHECK_SECONDS` the API re-creates wallets whose party is gone | The sandbox is in-memory; clients keep their account, balances restart at 0 and the faucet cooldown resets |
+| J | First admin | **Seed script** `npm run db:seed` from `ADMIN_EMAIL` / `ADMIN_PASSWORD` | Explicit; nobody can sign up as admin through the API |
+| K | Transfer receiver | **Party id**, not email | Looking clients up by email would leak who is a client |
 
 ### Why E2 (`ClientAccess`) and not E1 (adding clients to `users` lists)
 
@@ -97,9 +101,27 @@ Fonts: **Inter** for text, **JetBrains Mono** for numbers (tabular figures so am
 |---|---|---|
 | 1 | Frontend foundation: Tailwind, shadcn/ui, router, theme, landing page; the old screens moved to `/lab` with no behaviour change | Done (2026-09-23). Own `ThemeProvider` instead of `next-themes` (its inline script makes React 19 log an error) |
 | 2 | Contracts: `ClientAccess` template; `Subscribe` and the transfer factory take the pass; shared contracts read through disclosure; tests; bootstrap gives Alice and Bank passes; ledger client attaches disclosed contracts | Done (2026-09-23). Option B: transfers check sender and receiver passes. 24 Daml tests pass; checked in the browser on a fresh sandbox. Bootstrap now retries the DAR upload while the sandbox is still connecting to its synchronizer |
-| 3 | Backend `exodus-app/api`: NestJS + Prisma + Postgres; auth, applications, admin approve (allocate party + user, create pass), faucet, index-history recorder, custodial command endpoints | To do |
+| 3 | Backend `exodus-app/api`: NestJS + Prisma + Postgres; auth, applications, admin approve (allocate party + user, create pass), faucet, index-history recorder, custodial command endpoints | Done (2026-09-23). NestJS 12, Prisma 7.10 (the npm `latest` tag of the CLI is an 8.0 RC, so we pinned the stable 7.10), Postgres 18 in Docker. Built with plain `tsc` (TS 7 emits decorator metadata). Checked end to end through the Vite proxy: sign-up, apply, approve, faucet (+ 429 cooldown), subscribe, send to Bank, send to Operator refused, re-provisioning, price recording |
 | 4 | Pages: landing, signup/login, onboarding form, admin | To do |
 | 5 | `/app` dashboard: price strip, chart, subscribe, faucet, holdings, activity | To do |
 | 6 | Update README, CLAUDE.md and the spec; typecheck, lint, tests | To do |
 
 Update this table as steps land.
+
+## Backend API (step 3)
+
+Base path `/api` (Swagger UI at `http://localhost:3000/api/docs`). Every response is `{ statusCode, message, data }`; errors are `{ statusCode, message, errors? }`. Every route needs the session cookie unless marked public.
+
+| Method + path | Who | What |
+|---|---|---|
+| `POST /auth/signup`, `POST /auth/login` | Public (rate-limited) | Create account / log in; sets the `exodus_session` cookie |
+| `POST /auth/logout`, `GET /auth/me` | Signed in | End the session / profile with application status and wallet party (the web app routes on this) |
+| `GET`, `PUT /applications/me` | Signed in | Read / submit my access form (again after a rejection) |
+| `GET /admin/applications?status=&page=&limit=` | Admin | Review queue, oldest first |
+| `POST /admin/applications/:id/approval` | Admin | Allocate party `client-<12 hex of user id>` + ledger user, create the `ClientAccess` pass, save the wallet |
+| `POST /admin/applications/:id/rejection` | Admin | Reject with an optional reason |
+| `GET /wallet` | Approved client | Party id, balances, holdings, next faucet time |
+| `POST /wallet/faucet-claims` | Approved client | 100 test USDC, once per 24 h (429 otherwise) |
+| `POST /wallet/subscriptions` | Approved client | `{ usdcAmount }`, uses `subscribeUsyc` |
+| `POST /wallet/transfers` | Approved client | `{ receiverPartyId, instrument, amount }`, uses `sendHoldings` |
+| `GET /prices/usyc?limit=` | Public | Recorded index history for the chart (changes only, no heartbeats) |

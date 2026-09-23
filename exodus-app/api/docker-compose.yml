@@ -1,0 +1,24 @@
+# PostgreSQL for the Exodus backend (users, applications, wallets, faucet claims, price history).
+# Start it with `npm run db:up`. Data is kept in the named volume, so it survives restarts
+# (unlike the Canton sandbox, which starts empty every time).
+name: exodus
+
+services:
+  db:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: exodus
+      POSTGRES_PASSWORD: exodus
+      POSTGRES_DB: exodus
+    ports:
+      - "5432:5432"
+    volumes:
+      - exodus-db:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U exodus -d exodus"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+volumes:
+  exodus-db:

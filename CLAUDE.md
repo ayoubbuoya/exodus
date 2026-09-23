@@ -17,9 +17,11 @@ Exodus: private fixed-rate yield markets on Canton, built for HackCanton Season 
 - Tests in `test/daml/Exodus/HoldingTest.daml`, `TokenStandardTest.daml`, `OracleTest.daml`, `FundTest.daml` and `AccessTest.daml`.
 - `exodus-app/` walking skeleton (npm workspaces, see `exodus-app/README.md`): `ledger/` (`@exodus/ledger`: typed JSON Ledger API v2 client, read helpers, CIP-56 `sendHoldings`, demo oracle schedule, `bootstrap` script), `oracle-bot/` (plain Node TS script) and `web/` (React + Vite + Tailwind 4 + shadcn/ui + React Router: landing page at `/`; the developer lab at `/lab` with CIP-56 wallet, USYC subscribe, send form, oracle controls, per-party "what can I see?" table). shadcn components live in `web/src/components/ui` (add more with `npx shadcn@latest add <name>` inside `web/`); theme colours are CSS variables in `web/src/index.css`; import app code with the `@/` alias (`@/components/...`). `getRateIndex` returns the newest snapshot and `isRateValid` checks its window; `subscribeUsyc` also retries once on `isStaleContractError` as a safety net. Reuse this for `Split`.
 
+- `exodus-app/api/` (`@exodus/api`): NestJS 12 + Prisma 7.10 + PostgreSQL 18 (Docker) backend, built with plain `tsc` (no Nest CLI/SWC). Modules: `auth` (DB sessions, global `SessionGuard`, `@Public()`, `AdminGuard`), `applications`, `admin` (approve → `WalletProvisioningService` allocates party + ledger user + `ClientAccess` pass), `wallets` (`ApprovedClientGuard`, faucet, subscribe, transfers, `WalletReconcilerService` re-provisions after sandbox restarts), `prices` (index-history recorder). Responses are `{ statusCode, message, data }`; ledger failures map to HTTP errors in `wallets/wallet-errors.ts`. Endpoints are listed in `docs/client-app.md`.
+
 **Client app (in progress):** we are turning `exodus-app/web` into a real client app (Hashnote-style USYC dashboard). `docs/client-app.md` holds the agreed decisions, pages, theme and step-by-step status; read it before working on the app or backend and update its status table as steps land. Key decisions: NestJS + Prisma + PostgreSQL backend in `exodus-app/api`; email + password login; custodial Canton wallets allocated on admin approval; **one `ClientAccess` pass per client** (Operator signs, client observes) instead of `users`/`readers` lists, with shared contracts (`UsycFund`, factories, `RateIndex`) given to clients through explicit disclosure; faucet (100 test USDC) checked off-ledger; Tailwind 4 + shadcn/ui + React Router; the old skeleton lives on at `/lab`.
 
-Still to do (see spec §7): `Tokens`, `Market`, `Rfq` (with `payFrom`) and the demo test. Put new code in `main/daml/Exodus/` and tests in `test/daml/Exodus/`, with module names `Exodus.<Name>`. `Split` must read the price with `fetchValidRate`. Add a UI screen in `exodus-app/web` as each contract lands. Still planned off-ledger: NestJS operator bot and the CIP-56 registry API.
+Still to do (see spec §7): `Tokens`, `Market`, `Rfq` (with `payFrom`) and the demo test. Put new code in `main/daml/Exodus/` and tests in `test/daml/Exodus/`, with module names `Exodus.<Name>`. `Split` must read the price with `fetchValidRate`. Add a UI screen in `exodus-app/web` as each contract lands. Still planned off-ledger: the operator bot for `Market`/`Rfq` settlement (inside `exodus-app/api`) and the CIP-56 registry API.
 
 "USYC"/"USDC" are simulations issued by the `UsycIssuer`/`UsdcIssuer` demo parties, not by Circle. Keep that clear in code comments, docs and UI.
 
@@ -53,12 +55,15 @@ npm run ledger         # dpm sandbox with our DAR; JSON API on :7575, no auth, i
 npm run bootstrap      # parties, RateFeed + first snapshot, transfer factories, UsycFund, access passes for Alice and Bank, starting balances (idempotent; rerun after each sandbox start; retries while the sandbox connects)
 npm run oracle         # oracle bot: advance the clock + heartbeat + expire old snapshots (ORACLE_TICK_SECONDS, ORACLE_STEP_DAYS)
 npm run oracle:hold    # heartbeat only (move the clock by hand in the UI); npm run oracle:once for one tick
-npm run web            # UI on http://localhost:5173 (Vite proxies /v2 to :7575)
+npm run web            # UI on http://localhost:5173 (Vite proxies /v2 to :7575 and /api to :3000)
+npm run db:up          # PostgreSQL in Docker (api/docker-compose.yml); then db:migrate and db:seed (admin from api/.env)
+npm run api            # build (prisma generate + tsc) and start the backend on :3000, Swagger at /api/docs
 npm run typecheck      # all packages; npm run lint -w @exodus/web for oxlint
 npm run codegen:api    # regenerate JSON API types from ledger/openapi/*.yaml (committed; only when the SDK changes)
 ```
 
 - The bot and bootstrap run `.ts` directly with Node type stripping: only erasable TS syntax (no `enum`, no parameter properties), and relative imports end in `.ts`.
+- The API (`api/`) is compiled by `tsc` because NestJS needs decorators and their metadata, which Node type stripping cannot run. It keeps the `.ts` import style (`rewriteRelativeImportExtensions`). The Prisma client is generated into `api/src/generated/prisma` (gitignored). Prisma 7 does not load `.env` itself: `prisma.config.ts` and the seed script call `process.loadEnvFile`.
 - `@daml/ledger` is not usable on SDK 3.x (JSON API v1 only). Use `@exodus/ledger`.
 - `openapi-typescript` needs TypeScript 5 as a peer, so `codegen:api` runs a pinned version through `npx`; the project itself uses TypeScript 7.
 - Price snapshots expire after 30 s: keep `npm run oracle` or `npm run oracle:hold` running, or Subscribe fails with "No valid USYC price".
