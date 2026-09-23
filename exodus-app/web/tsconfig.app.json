@@ -17,6 +17,9 @@
     "noEmit": true,
     "jsx": "react-jsx",
 
+    /* "@/components/ui/button" means "src/components/ui/button" (used by shadcn/ui) */
+    "paths": { "@/*": ["./src/*"] },
+
     /* Linting */
     "noUnusedLocals": true,
     "noUnusedParameters": true,

@@ -1,6 +1,9 @@
 import { decimalToUnits, formatAmount, formatUsd, unitsToDecimal, type Contract, type HoldingView } from '@exodus/ledger'
-import { useOwnedHoldings, useRateIndex } from '../ledger.ts'
-import { ErrorMessage } from './ErrorMessage.tsx'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Skeleton } from '@/components/ui/skeleton'
+import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { ErrorMessage } from '@/components/ErrorMessage'
+import { useOwnedHoldings, useRateIndex } from '@/ledger'
 
 type WalletCardProps = {
   party: string
@@ -55,15 +58,22 @@ export function WalletCard({ party, partyName }: WalletCardProps) {
   const usycIndex = rate.data ? rate.data.payload.index : null
 
   return (
-    <section className="card">
-      <h2>{partyName}'s wallet (CIP-56 view)</h2>
-      {holdings.isPending && <p className="muted">Loading…</p>}
-      {holdings.isError && <ErrorMessage error={holdings.error} />}
-      {holdings.isSuccess && holdings.data.length === 0 && <p className="muted">{partyName} owns no holdings.</p>}
-      {holdings.isSuccess && holdings.data.length > 0 && (
-        <WalletTable rows={sumByInstrument(holdings.data)} usycIndex={usycIndex} />
-      )}
-    </section>
+    <Card>
+      <CardHeader>
+        <CardTitle>{partyName}'s wallet</CardTitle>
+        <CardDescription>Read only through the CIP-56 Holding interface, as any Canton wallet would.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {holdings.isPending && <Skeleton className="h-24" />}
+        {holdings.isError && <ErrorMessage error={holdings.error} />}
+        {holdings.isSuccess && holdings.data.length === 0 && (
+          <p className="text-muted-foreground">{partyName} owns no holdings.</p>
+        )}
+        {holdings.isSuccess && holdings.data.length > 0 && (
+          <WalletTable rows={sumByInstrument(holdings.data)} usycIndex={usycIndex} />
+        )}
+      </CardContent>
+    </Card>
   )
 }
 
@@ -86,34 +96,36 @@ function WalletTable({ rows, usycIndex }: WalletTableProps) {
   }
 
   return (
-    <table className="table">
-      <thead>
-        <tr>
-          <th>Asset</th>
-          <th className="num">Amount</th>
-          <th className="num">Holdings</th>
-          <th className="num">Value (USD)</th>
-        </tr>
-      </thead>
-      <tbody>
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>Asset</TableHead>
+          <TableHead className="text-right">Amount</TableHead>
+          <TableHead className="text-right">Holdings</TableHead>
+          <TableHead className="text-right">Value (USD)</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
         {rows.map((row) => {
           const price = usdPrice(row.instrument, usycIndex)
           return (
-            <tr key={row.instrument}>
-              <td>{row.instrument}</td>
-              <td className="num">{formatAmount(row.amount)}</td>
-              <td className="num">{row.holdingCount}</td>
-              <td className="num">{price === null ? '—' : formatUsd(Number(row.amount) * price)}</td>
-            </tr>
+            <TableRow key={row.instrument}>
+              <TableCell className="font-medium">{row.instrument}</TableCell>
+              <TableCell className="num text-right">{formatAmount(row.amount)}</TableCell>
+              <TableCell className="num text-right">{row.holdingCount}</TableCell>
+              <TableCell className="num text-right">
+                {price === null ? '—' : formatUsd(Number(row.amount) * price)}
+              </TableCell>
+            </TableRow>
           )
         })}
-      </tbody>
-      <tfoot>
-        <tr>
-          <td colSpan={3}>Total</td>
-          <td className="num">{totalKnown ? formatUsd(totalUsd) : '—'}</td>
-        </tr>
-      </tfoot>
-    </table>
+      </TableBody>
+      <TableFooter>
+        <TableRow>
+          <TableCell colSpan={3}>Total</TableCell>
+          <TableCell className="num text-right">{totalKnown ? formatUsd(totalUsd) : '—'}</TableCell>
+        </TableRow>
+      </TableFooter>
+    </Table>
   )
 }

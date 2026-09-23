@@ -1,9 +1,16 @@
+import { fileURLToPath } from 'node:url'
+import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react()],
+  // tailwindcss() turns the Tailwind classes we use into CSS (Tailwind v4 needs no config file).
+  plugins: [react(), tailwindcss()],
+  resolve: {
+    // "@/..." points to "src/...", the same alias as in tsconfig.app.json.
+    alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
+  },
   server: {
     // The browser calls /v2/... on this dev server, and Vite forwards it to the
     // Canton JSON Ledger API. Same origin for the browser, so no CORS setup.

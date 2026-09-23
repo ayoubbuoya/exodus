@@ -1,260 +1,142 @@
-/* Plain CSS for the walking skeleton. The real styling is decided in week 3. */
+/*
+ * Global styles and the "Exodus Night" theme (see docs/client-app.md, decision G).
+ *
+ * How theming works:
+ * - Tailwind v4 reads the `@theme inline` block below and creates utility
+ *   classes from it. For example `--color-primary` gives us `bg-primary`,
+ *   `text-primary`, `border-primary`, ...
+ * - Those point at plain CSS variables (`--primary`, ...). `:root` holds the
+ *   light values and `.dark` the dark values. The ThemeProvider in main.tsx
+ *   puts the `dark` class on <html>, so switching theme only swaps variables.
+ * - shadcn/ui components use the same variable names, so they follow the theme.
+ */
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+/* Fonts are bundled from npm (no request to Google): Inter for text,
+   JetBrains Mono for numbers so amounts line up in columns. */
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/jetbrains-mono";
 
-:root {
-  --bg: #f6f7f9;
-  --surface: #ffffff;
-  --text: #1b1f24;
-  --muted: #5f6b7a;
-  --border: #dde2e8;
-  --accent: #2456d6;
-  --accent-text: #ffffff;
-  --ok: #1d7a46;
-  --error-bg: #fdecec;
-  --error-text: #9b1c1c;
-  --notice-bg: #fff6db;
-  --notice-text: #6b4e00;
+/* `dark:` classes apply when an ancestor has the `dark` class. */
+@custom-variant dark (&:is(.dark *));
 
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  line-height: 1.5;
-  color: var(--text);
-  background: var(--bg);
+@theme inline {
+  --font-sans: "Inter Variable", system-ui, sans-serif;
+  --font-heading: var(--font-sans);
+  --font-mono: "JetBrains Mono Variable", ui-monospace, monospace;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+
+  /* Our own extra colours (not part of shadcn):
+     gold = yield / APY highlights, warning = "Simulated" badge, success = confirmations. */
+  --color-gold: var(--gold);
+  --color-warning: var(--warning);
+  --color-success: var(--success);
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #111418;
-    --surface: #1a1f25;
-    --text: #e6e9ed;
-    --muted: #97a3b1;
-    --border: #2c333c;
-    --accent: #6d95ff;
-    --accent-text: #0b1020;
-    --ok: #5fd08f;
-    --error-bg: #3a1717;
-    --error-text: #ffb4b4;
-    --notice-bg: #33290c;
-    --notice-text: #f3d98c;
+/* Light mode. */
+:root {
+  --radius: 0.625rem;
+
+  --background: #f7f8fa;
+  --foreground: #0f1720;
+  --card: #ffffff;
+  --card-foreground: #0f1720;
+  --popover: #ffffff;
+  --popover-foreground: #0f1720;
+  --primary: #0f9e8c; /* teal */
+  --primary-foreground: #ffffff;
+  --secondary: #eef1f5;
+  --secondary-foreground: #0f1720;
+  --muted: #eef1f5;
+  --muted-foreground: #5b6675;
+  --accent: #e6f6f3;
+  --accent-foreground: #0b6f63;
+  --destructive: #dc2626;
+  --border: #e3e7ed;
+  --input: #d5dbe3;
+  --ring: #0f9e8c;
+  --chart-1: #0f9e8c;
+  --chart-2: #b7862b;
+
+  --gold: #b7862b;
+  --warning: #b45309;
+  --success: #15803d;
+}
+
+/* Dark mode (the default). */
+.dark {
+  --background: #0a0e14;
+  --foreground: #e7ecf3;
+  --card: #111722;
+  --card-foreground: #e7ecf3;
+  --popover: #111722;
+  --popover-foreground: #e7ecf3;
+  --primary: #2dd4bf; /* teal */
+  --primary-foreground: #042f2a;
+  --secondary: #1a2230;
+  --secondary-foreground: #e7ecf3;
+  --muted: #161e2a;
+  --muted-foreground: #8b97a8;
+  --accent: #13302f;
+  --accent-foreground: #5eead4;
+  --destructive: #f87171;
+  --border: #1f2733;
+  --input: #263041;
+  --ring: #2dd4bf;
+  --chart-1: #2dd4bf;
+  --chart-2: #e8b75a;
+
+  --gold: #e8b75a;
+  --warning: #fbbf24;
+  --success: #34d399;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    @apply font-sans;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+  }
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
   }
 }
 
-* {
-  box-sizing: border-box;
-}
-
-body {
-  margin: 0;
-  background: var(--bg);
-}
-
-h1,
-h2 {
-  margin: 0;
-}
-
-h1 {
-  font-size: 1.5rem;
-}
-
-h2 {
-  font-size: 1rem;
-  margin-bottom: 12px;
-}
-
-code,
-pre {
-  font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
-  font-size: 0.85em;
-}
-
-.app {
-  max-width: 1100px;
-  margin: 0 auto;
-  padding: 24px 16px 48px;
-}
-
-.header {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.brand {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-}
-
-.tag {
-  font-size: 0.75rem;
-  color: var(--muted);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 2px 8px;
-}
-
-.party-switcher {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-button {
-  font: inherit;
-  cursor: pointer;
-  border: 1px solid var(--border);
-  background: var(--surface);
-  color: var(--text);
-  border-radius: 8px;
-  padding: 6px 12px;
-}
-
-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.6;
-}
-
-button[type='submit'],
-.party.active {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--accent-text);
-}
-
-.notice {
-  background: var(--notice-bg);
-  color: var(--notice-text);
-  border-radius: 8px;
-  padding: 8px 12px;
-  font-size: 0.875rem;
-}
-
-.grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-  gap: 16px;
-}
-
-.card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 16px;
-  min-width: 0;
-}
-
-.card.wide {
-  grid-column: 1 / -1;
-}
-
-.muted {
-  color: var(--muted);
-  font-size: 0.875rem;
-}
-
-.ok {
-  color: var(--ok);
-}
-
-.warn {
-  color: var(--error-text);
-}
-
-.error {
-  background: var(--error-bg);
-  color: var(--error-text);
-  border-radius: 8px;
-  padding: 8px 12px;
-  margin-top: 12px;
-}
-
-.error p {
-  margin: 0 0 4px;
-}
-
-.error pre {
-  margin: 0;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.facts {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 4px 16px;
-  margin: 0;
-}
-
-.facts dt {
-  color: var(--muted);
-}
-
-.facts dd {
-  margin: 0;
-}
-
-.facts .big {
-  font-size: 1.25rem;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-
-.table-scroll {
-  overflow-x: auto;
-}
-
-.table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.875rem;
-}
-
-.table th,
-.table td {
-  text-align: left;
-  padding: 6px 8px;
-  border-bottom: 1px solid var(--border);
-  vertical-align: top;
-}
-
-.table th {
-  color: var(--muted);
-  font-weight: 500;
-}
-
-.table tfoot td {
-  font-weight: 600;
-  border-bottom: none;
-}
-
-.table .num {
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
-
-.table .fields {
-  word-break: break-word;
-}
-
-.form {
-  display: grid;
-  gap: 10px;
-}
-
-.form label {
-  display: grid;
-  gap: 4px;
-  font-size: 0.875rem;
-  color: var(--muted);
-}
-
-.form input,
-.form select {
-  font: inherit;
-  color: var(--text);
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 6px 8px;
+@layer utilities {
+  /* Numbers in the same column line up (1,000.00 above 25.50). */
+  .num {
+    @apply font-mono tabular-nums;
+  }
 }
