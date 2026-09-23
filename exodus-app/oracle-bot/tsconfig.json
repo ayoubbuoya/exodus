@@ -1,0 +1,4 @@
+{
+  "extends": "../ledger/tsconfig.json",
+  "include": ["src"]
+}

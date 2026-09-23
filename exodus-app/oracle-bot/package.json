@@ -1,0 +1,15 @@
+{
+  "name": "@exodus/oracle-bot",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Demo oracle: moves the simulated USYC index and the demo clock forward.",
+  "scripts": {
+    "start": "node src/main.ts",
+    "once": "node src/main.ts --once",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "@exodus/ledger": "^0.0.1"
+  }
+}

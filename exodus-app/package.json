@@ -1,0 +1,26 @@
+{
+  "name": "exodus-app",
+  "private": true,
+  "type": "module",
+  "description": "Off-ledger parts of Exodus: shared JSON Ledger API client, oracle bot and web UI.",
+  "workspaces": [
+    "generated/daml.js/*",
+    "ledger",
+    "oracle-bot",
+    "web"
+  ],
+  "scripts": {
+    "codegen:daml": "cd ../exodus-contract && dpm build --all && rm -rf ../exodus-app/generated/daml.js && dpm codegen-js main/.daml/dist/exodus-contract-main-0.0.1.dar -o ../exodus-app/generated/daml.js",
+    "codegen:api": "npx --yes openapi-typescript@7.13.0 ledger/openapi/json-ledger-api-v2.yaml -o ledger/src/generated/json-ledger-api-v2.ts",
+    "ledger": "cd ../exodus-contract && dpm sandbox --json-api-port 7575 --dar main/.daml/dist/exodus-contract-main-0.0.1.dar",
+    "bootstrap": "npm run bootstrap --workspace=@exodus/ledger",
+    "oracle": "npm run start --workspace=@exodus/oracle-bot",
+    "oracle:once": "npm run once --workspace=@exodus/oracle-bot",
+    "web": "npm run dev --workspace=@exodus/web",
+    "typecheck": "npm run typecheck --workspace=@exodus/ledger --workspace=@exodus/oracle-bot --workspace=@exodus/web"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.6",
+    "typescript": "^7.0.2"
+  }
+}

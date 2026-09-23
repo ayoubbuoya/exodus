@@ -1,1 +1,11 @@
 .vscode
+dev-docs
+node_modules
+
+# exodus-app: generated Daml codegen and build output
+exodus-app/generated/
+exodus-app/web/dist/
+*.tsbuildinfo
+
+# Canton sandbox logs (written in the folder where `dpm sandbox` runs)
+log/

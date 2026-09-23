@@ -164,11 +164,11 @@ flowchart LR
   ORB[Oracle bot] -->|Publish index + simTime| RI
 ```
 
-Off-ledger components (planned):
+Off-ledger components (in `exodus-app/`, see its README):
 
-- **Operator bot (NestJS)**: watches `RedeemRequest`, `ClaimRequest`, and `MergeRequest`, then settles them. Merges vault pieces. Calls `Mature` once per market.
-- **Oracle bot**: moves the index and the demo clock for the simulation.
-- **Web UI**: shows PT price, implied fixed APY, YT yield, and a maturity countdown.
+- **Operator bot (NestJS)** (planned): watches `RedeemRequest`, `ClaimRequest`, and `MergeRequest`, then settles them. Merges vault pieces. Calls `Mature` once per market.
+- **Oracle bot** (done, plain Node script for now): moves the index and the demo clock along the section 9 path (1.00 on Oct 1, 1.025 on Jan 1, 1.05 on Apr 1).
+- **Web UI** (walking skeleton done): today it shows the index, the demo clock, CIP-56 balances with USD value, a CIP-56 send form and a per-party "what can I see?" privacy table. Later: PT price, implied fixed APY, YT yield, and a maturity countdown.
 
 ## 7. Smart contracts
 
@@ -414,6 +414,7 @@ Say these openly in the pitch. Judges respect honesty more than hidden problems.
 | 9 | Transfer factory is shared with an observer list (`users`) | New users need the factory recreated | Serve it through the off-ledger registry API with explicit disclosure, like real registries do |
 | 10 | No off-ledger registry API (`/registry/transfer-instruction/v1/...`, `/registry/metadata/v1/...`) | Real wallets cannot discover the factory or instrument metadata by themselves | Serve these endpoints from the NestJS backend |
 | 11 | No KYC allowlist (real USYC is permissioned) | Anyone can receive simulated USYC | Issuer-managed allowlist checked on transfer |
+| 12 | Stale `rateCid`: every `Publish` archives the `RateIndex`, so a command holding the old id fails (`CONTRACT_NOT_FOUND`, or `LOCAL_VERDICT_LOCKED_CONTRACTS` when two commands race). Found by the walking skeleton: the UI lost 6 of 6 races against a bot publishing every 0.3 s. | `Split` and `Claim` fail whenever the oracle publishes between the user's read and submit | Decide before writing `Split`: re-read the index right before submit and retry, publish less often, or have the operator settle a `SplitRequest` with the fresh index |
 
 ## 13. Hackathon plan
 
@@ -423,8 +424,9 @@ HackCanton Season 3 is a 5-week online hackathon. Two official posts give differ
 |---|---|---|
 | 1 | Daml core: Holding (USYC/USDC) with CIP-56 `Holding` + `TransferFactory` | Done (tests pass) |
 | 1-2 | Daml core: Oracle (done), Split, PT/YT, Claim, Redeem, Merge, RFQ, demo test | To do |
-| 2 | Fix known gaps 1, 2, 4. Operator bot (NestJS). Oracle bot. | To do |
-| 3 | Web UI: markets, RFQ screen, yield chart, maturity countdown | To do |
+| 2 | Walking skeleton in `exodus-app/`: sandbox, bootstrap, oracle bot, web UI (CIP-56 wallet, send, privacy table) | Done |
+| 2 | Fix known gaps 1, 2, 4, 12. Operator bot (NestJS). | To do |
+| 3 | Web UI: markets, RFQ screen, yield chart, maturity countdown (on top of the skeleton) | To do |
 | 4 | Deploy on LocalNet / DevNet. Record demo video. | To do |
 | 5 | Pitch deck. Stretch: token standard interfaces for PT/YT, registry API. | To do |
 
@@ -456,8 +458,10 @@ HackCanton Season 3 is a 5-week online hackathon. Two official posts give differ
 | Build tool | `dpm` | The old `daml` assistant is deprecated in favor of `dpm` |
 | Token standard | Splice CIP-56 v1 interfaces | `splice-api-token-{metadata,holding,transfer-instruction}-v1` **1.0.0**, from the Splice **v0.8.3** release bundle, in `exodus-contract/dars/splice/` |
 | Network | Canton LocalNet / DevNet | DevNet was listed at Canton 3.5.1 in June 2026. Match `sdk-version` to what the hackathon uses. |
-| Bots | NestJS (TypeScript) | Planned |
-| UI | Web frontend | Planned |
+| Ledger client | JSON Ledger API v2 | `openapi-fetch` 0.17 with types from the Canton 3.5.18 OpenAPI spec (`openapi-typescript` 7.13); Daml types from `dpm codegen-js` + `@daml/types` 3.5.3. `@daml/ledger` is not used (JSON API v1 only). |
+| Local ledger | `dpm sandbox` | Canton 3.5.18, JSON API on port 7575, no auth |
+| Bots | Oracle bot: Node.js 24 TypeScript script. Operator bot: NestJS | Oracle bot done (`exodus-app/oracle-bot`). Operator bot planned. |
+| UI | React 19.3 + Vite 8.3 + TypeScript 7.0 + TanStack Query 5 | Walking skeleton done (`exodus-app/web`) |
 
 Check the latest versions before you start each part. They change often.
 

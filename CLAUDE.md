@@ -13,8 +13,9 @@ Exodus: private fixed-rate yield markets on Canton, built for HackCanton Season 
 - `main/daml/Exodus/TransferFactory.daml`: `HoldingTransferFactory`, a CIP-56 v1 `TransferFactory` that completes transfers in one step.
 - `main/daml/Exodus/Oracle.daml`: `RateIndex` (oracle signs; index + demo clock `simTime`). `Publish` archives the old one and creates the new one; index and time can only go up. Callers pass the `rateCid` in and `fetch` it.
 - Tests in `test/daml/Exodus/HoldingTest.daml`, `TokenStandardTest.daml` and `OracleTest.daml`.
+- `exodus-app/` walking skeleton (npm workspaces, see `exodus-app/README.md`): `ledger/` (`@exodus/ledger`: typed JSON Ledger API v2 client, read helpers, CIP-56 `sendHoldings`, demo oracle schedule, `bootstrap` script), `oracle-bot/` (plain Node TS script) and `web/` (React + Vite UI: CIP-56 wallet, send form, oracle controls, per-party "what can I see?" table).
 
-Still to do (see spec §7): `Tokens`, `Market`, `Rfq` (with `payFrom`) and the demo test. Put new code in `main/daml/Exodus/` and tests in `test/daml/Exodus/`, with module names `Exodus.<Name>`. The off-ledger parts (NestJS operator bot, oracle bot, web UI, CIP-56 registry API) are planned but not started.
+Still to do (see spec §7): `Tokens`, `Market`, `Rfq` (with `payFrom`) and the demo test. Put new code in `main/daml/Exodus/` and tests in `test/daml/Exodus/`, with module names `Exodus.<Name>`. Decide spec gap 12 (stale `rateCid`) before writing `Split`. Add a UI screen in `exodus-app/web` as each contract lands. Still planned off-ledger: NestJS operator bot and the CIP-56 registry API.
 
 "USYC"/"USDC" are simulations issued by the `UsycIssuer`/`UsdcIssuer` demo parties, not by Circle. Keep that clear in code comments, docs and UI.
 
@@ -37,6 +38,25 @@ The `test` package depends on `main` through a `data-dependencies` path to `../m
 Canton Token Standard (CIP-56, v1) DARs are checked into `exodus-contract/dars/splice/` (pinned `1.0.0`, from the Splice v0.8.3 release bundle) and listed under `data-dependencies` in both `main/daml.yaml` and `test/daml.yaml`. They are not in the `dpm` OCI registry, so `dpm add dar` cannot fetch them. Their package IDs are in `dars/splice/README.md` and must not change.
 
 Lint rules are configured in `exodus-contract/.dlint.yaml`.
+
+### exodus-app (Node.js 24, npm workspaces)
+
+```bash
+cd exodus-app
+npm run codegen:daml   # dpm build --all + dpm codegen-js into generated/daml.js (gitignored); run before npm install and after contract changes
+npm install
+npm run ledger         # dpm sandbox with our DAR; JSON API on :7575, no auth, in-memory
+npm run bootstrap      # parties, RateIndex, transfer factories, starting balances (idempotent; rerun after each sandbox start)
+npm run oracle         # oracle bot (ORACLE_TICK_SECONDS, ORACLE_STEP_DAYS); npm run oracle:once for one step
+npm run web            # UI on http://localhost:5173 (Vite proxies /v2 to :7575)
+npm run typecheck      # all packages; npm run lint -w @exodus/web for oxlint
+npm run codegen:api    # regenerate JSON API types from ledger/openapi/*.yaml (committed; only when the SDK changes)
+```
+
+- The bot and bootstrap run `.ts` directly with Node type stripping: only erasable TS syntax (no `enum`, no parameter properties), and relative imports end in `.ts`.
+- `@daml/ledger` is not usable on SDK 3.x (JSON API v1 only). Use `@exodus/ledger`.
+- `openapi-typescript` needs TypeScript 5 as a peer, so `codegen:api` runs a pinned version through `npx`; the project itself uses TypeScript 7.
+- Template ids are sent as `#package-name:Module:Entity` but come back as `package-hash:Module:Entity`; compare with `sameTemplateId()`.
 
 ## Daml design constraints (from the spec)
 

@@ -1,0 +1,22 @@
+{
+  "name": "@exodus/ledger",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Small typed client for the Canton JSON Ledger API v2, shared by the oracle bot and the web UI.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "bootstrap": "node src/bootstrap.ts",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "@daml.js/exodus-contract-main-0.0.1": "^3.5.11",
+    "@daml.js/splice-api-token-holding-v1-1.0.0": "^3.5.11",
+    "@daml.js/splice-api-token-metadata-v1-1.0.0": "^3.5.11",
+    "@daml.js/splice-api-token-transfer-instruction-v1-1.0.0": "^3.5.11",
+    "@daml/types": "^3.5.3",
+    "openapi-fetch": "^0.17.0"
+  }
+}
