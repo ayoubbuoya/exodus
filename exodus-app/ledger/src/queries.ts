@@ -9,6 +9,7 @@ import {
   HoldingInterface,
   HoldingTransferFactory,
   HoldingView,
+  RateFeed,
   RateIndex,
   sameTemplateId,
   UsycFund,
@@ -20,30 +21,67 @@ export type Contract<T> = {
   payload: T;
 };
 
-// The current RateIndex, or null if this party cannot see one.
-//
-// Example: as Bank (a reader) this returns
-//   { contractId: "00c42e...", payload: { index: "1.0250000000", simTime: "2027-01-01T00:00:00Z", ... } }
-// As UsdcIssuer (not a reader) it returns null.
-export async function getRateIndex(ledger: LedgerClient, party: string): Promise<Contract<RateIndex> | null> {
+// All RateIndex price snapshots this party can see. Usually a few: every
+// Publish adds one, and the oracle bot archives them once they expire.
+export async function getRateSnapshots(ledger: LedgerClient, party: string): Promise<Contract<RateIndex>[]> {
   const events = await ledger.getActiveContracts(party, {
     TemplateFilter: { value: { templateId: RateIndex.templateId } },
+  });
+  return events.map((event) => ({
+    contractId: event.contractId,
+    payload: RateIndex.decoder.runWithException(event.createArgument),
+  }));
+}
+
+// The NEWEST price snapshot, or null if this party cannot see any.
+// "Newest" = latest demo time; for heartbeats (same demo time), the latest publish.
+//
+// Example: as Bank (a reader) this returns
+//   { contractId: "00c42e...", payload: { index: "1.0250000000", simTime: "2027-01-01T00:00:00Z",
+//                                         validUntil: "2026-09-23T10:00:30Z", ... } }
+// As UsdcIssuer (not a reader) it returns null.
+// It may be expired (if the oracle bot is stopped). Check with isRateValid.
+export async function getRateIndex(ledger: LedgerClient, party: string): Promise<Contract<RateIndex> | null> {
+  const snapshots = await getRateSnapshots(ledger, party);
+  if (snapshots.length === 0) {
+    return null;
+  }
+  let newest = snapshots[0];
+  for (const snapshot of snapshots) {
+    if (isNewer(snapshot.payload, newest.payload)) {
+      newest = snapshot;
+    }
+  }
+  return newest;
+}
+
+function isNewer(a: RateIndex, b: RateIndex): boolean {
+  const aSimTime = Date.parse(a.simTime);
+  const bSimTime = Date.parse(b.simTime);
+  if (aSimTime !== bSimTime) {
+    return aSimTime > bSimTime;
+  }
+  return Date.parse(a.publishedAt) > Date.parse(b.publishedAt);
+}
+
+// True while the contract still accepts this snapshot (now < validUntil).
+// Uses this machine's clock, so keep a small safety margin: by the time the
+// command reaches the ledger, a second or so has passed.
+export function isRateValid(rate: RateIndex, marginMs = 2000, nowMs = Date.now()): boolean {
+  return nowMs + marginMs < Date.parse(rate.validUntil);
+}
+
+// The oracle's private feed. Only the Oracle party can see it.
+export async function getRateFeed(ledger: LedgerClient, oracle: string): Promise<Contract<RateFeed> | null> {
+  const events = await ledger.getActiveContracts(oracle, {
+    TemplateFilter: { value: { templateId: RateFeed.templateId } },
   });
   if (events.length === 0) {
     return null;
   }
-
-  // There should be exactly one, because Publish archives the old one.
-  // If there are more (for example two were created by mistake), use the newest.
-  let newest = events[0];
-  for (const event of events) {
-    if (event.offset > newest.offset) {
-      newest = event;
-    }
-  }
   return {
-    contractId: newest.contractId,
-    payload: RateIndex.decoder.runWithException(newest.createArgument),
+    contractId: events[0].contractId,
+    payload: RateFeed.decoder.runWithException(events[0].createArgument),
   };
 }
 

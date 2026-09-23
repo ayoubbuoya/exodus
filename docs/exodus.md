@@ -106,7 +106,7 @@ Payments use simulated **USDC** (a stablecoin, 1 USDC = 1 USD).
 |---|---|
 | Issued by Hashnote/Circle | Issued by our `UsycIssuer` demo party |
 | Token count fixed, price rises daily | `Holding.amount` fixed, oracle index rises |
-| Price streamed by an oracle | `RateIndex` published by the `Oracle` party |
+| Price streamed by an oracle | The `Oracle` party publishes through a private `RateFeed`; each publish creates a short-lived `RateIndex` price snapshot |
 | Bought and redeemed with USDC | USDC is another `Holding` (`instrument = "USDC"`) |
 | Only KYC'd, non-US qualified investors | Not modelled (see known gaps) |
 | Implements the Canton Token Standard | Implements `Holding` + `TransferFactory` (v1) |
@@ -167,7 +167,7 @@ flowchart LR
 Off-ledger components (in `exodus-app/`, see its README):
 
 - **Operator bot (NestJS)** (planned): watches `RedeemRequest`, `ClaimRequest`, and `MergeRequest`, then settles them. Merges vault pieces. Calls `Mature` once per market.
-- **Oracle bot** (done, plain Node script for now): moves the index and the demo clock along the section 9 path (1.00 on Oct 1, 1.025 on Jan 1, 1.05 on Apr 1).
+- **Oracle bot** (done, plain Node script for now): moves the index and the demo clock along the section 9 path (1.00 on Oct 1, 1.025 on Jan 1, 1.05 on Apr 1), sends heartbeats so a valid price snapshot always exists, and archives expired snapshots.
 - **Web UI** (walking skeleton done): today it shows the index, the demo clock, CIP-56 balances with USD value, a CIP-56 send form and a per-party "what can I see?" privacy table. Later: PT price, implied fixed APY, YT yield, and a maturity countdown.
 
 ## 7. Smart contracts
@@ -183,7 +183,7 @@ exodus-contract/
     daml/Exodus/
       Holding.daml                # USYC + USDC holdings, roundDown6, payFrom, CIP-56 view  [done]
       TransferFactory.daml        # CIP-56 TransferFactory for our holdings                [done]
-      Oracle.daml                 # RateIndex (index + demo clock)                          [done]
+      Oracle.daml                 # RateFeed + RateIndex snapshots (index + demo clock)     [done]
       Fund.daml                   # UsycFund: Subscribe (pay USDC, get USYC atomically)     [done]
       Tokens.daml                 # MarketTerms, PT, YT, MaturitySnapshot, Redeem/Claim     [to do]
       Market.daml                 # Market (Split, Mature, RequestMerge), MergeRequest      [to do]
@@ -205,7 +205,8 @@ exodus-contract/
 | `Holding` | issuer | owner | Simulated USYC or USDC. Choices: `Transfer`, `SplitOff`, `MergeWith`. Implements CIP-56 `Holding`. |
 | `HoldingTransferFactory` | admin (issuer) | users | One per issuer. Implements CIP-56 `TransferFactory` (`TransferFactory_Transfer`, `TransferFactory_PublicFetch`). |
 | `UsycFund` | usycIssuer | users | Nonconsuming `Subscribe`: the subscriber pays USDC (via `payFrom`) to UsycIssuer and gets `roundDown6 (usdc / index)` USYC in the same transaction. Checks the `RateIndex` comes from its trusted `oracle` and the USDC from its `usdcIssuer`. Users must also be `RateIndex` readers. |
-| `RateIndex` | oracle | operator, readers | Index + demo clock. Choice: `Publish` (index and time can only go up). |
+| `RateFeed` | oracle | (none) | The oracle's private working state: latest index + demo clock + `validFor`. Choice: `Publish` (index and time can only go up; same values allowed as a heartbeat). Each `Publish` creates a new `RateIndex` snapshot. |
+| `RateIndex` | oracle | operator, readers | Read-only price snapshot with `publishedAt` and `validUntil` (ledger time, `validFor` = 30 s in the demo). Not archived when a newer one is published. Choice: `Expire` (oracle, after `validUntil`). Readers use `fetchValidRate`, which rejects expired snapshots. |
 | `Market` | operator | members | Choices: `Split`, `Mature`, `RequestMerge`. All nonconsuming. |
 | `MaturitySnapshot` | operator | members | Frozen index at maturity. |
 | `PrincipalToken` | operator | owner, lockedFor | Choices: `PT_Transfer`, `PT_SplitOff`, `PT_Lock`, `PT_Unlock`, `PT_DeliverLocked`, `PT_RequestRedeem`. |
@@ -253,11 +254,11 @@ sequenceDiagram
 
 Like the real USYC, anyone on the fund's user list can buy USYC with USDC. It is one atomic transaction, like `deposit()` on an EVM vault:
 
-1. Alice calls `Subscribe` on the `UsycFund` with 500 USDC and the current `RateIndex` (index 1.025).
+1. Alice calls `Subscribe` on the `UsycFund` with 500 USDC and a `RateIndex` price snapshot that has not expired (index 1.025).
 2. `payFrom` merges her USDC holdings, splits off 500 and transfers it to UsycIssuer. She keeps the change.
 3. UsycIssuer's signature on the fund lets the choice mint `roundDown6 (500 / 1.025)` = **487.804878 USYC** for Alice.
 
-If any check fails (a fake oracle, fake USDC, not enough USDC, a stale `rateCid`), nothing moves. The client reads the `RateIndex` last, right before submitting, and retries once on a stale-contract error (gap 12). Redemption (USYC back to USDC) is not built yet (gap 13).
+If any check fails (a fake oracle, fake USDC, not enough USDC, an expired snapshot), nothing moves. The snapshot stays usable for 30 s even if the oracle publishes a newer price meanwhile (gap 12). The client still retries once on a stale-contract error as a safety net. Redemption (USYC back to USDC) is not built yet (gap 13).
 
 ### 8.1 Split
 
@@ -409,7 +410,7 @@ Say these openly in the pitch. Judges respect honesty more than hidden problems.
 ### Trust assumptions
 
 - **Operator is trusted**: it settles requests and could delay them. Users can cancel.
-- **Oracle is trusted**: for the index and the demo clock.
+- **Oracle is trusted**: for the index and the demo clock. It must also stay online: price snapshots expire after 30 s, so the oracle bot sends a heartbeat (the same price again) when the clock is not moving.
 - **Issuers are trusted**: they sign holdings. `UsycIssuer` and `UsdcIssuer` stand in for Circle.
 
 ### Known gaps (to fix)
@@ -427,8 +428,9 @@ Say these openly in the pitch. Judges respect honesty more than hidden problems.
 | 9 | Transfer factory is shared with an observer list (`users`) | New users need the factory recreated | Serve it through the off-ledger registry API with explicit disclosure, like real registries do |
 | 10 | No off-ledger registry API (`/registry/transfer-instruction/v1/...`, `/registry/metadata/v1/...`) | Real wallets cannot discover the factory or instrument metadata by themselves | Serve these endpoints from the NestJS backend |
 | 11 | No KYC allowlist (real USYC is permissioned) | Anyone can receive simulated USYC | Issuer-managed allowlist checked on transfer |
-| 12 | Stale `rateCid`: every `Publish` archives the `RateIndex`, so a command holding the old id fails (`CONTRACT_NOT_FOUND`, or `LOCAL_VERDICT_LOCKED_CONTRACTS` when two commands race). Found by the walking skeleton: the UI lost 6 of 6 races against a bot publishing every 0.3 s. | `Split` and `Claim` fail whenever the oracle publishes between the user's read and submit | First fix, used by `Subscribe`: the client reads the `RateIndex` last and retries once on a stale error (`exodus-app/ledger/src/subscribe.ts`). With the bot publishing every 1 s, 10 of 10 subscribes succeeded, all after one retry. Still to decide for `Split`: keep this, publish less often, or have the operator settle a `SplitRequest` with the fresh index |
+| 12 | ~~Stale `rateCid`~~ **Fixed.** Every `Publish` used to archive the only `RateIndex`, so a command holding the old id failed (`CONTRACT_NOT_FOUND`, `UNKNOWN_CONTRACT_SYNCHRONIZERS`, `LOCAL_VERDICT_LOCKED_CONTRACTS`). The UI lost 6 of 6 races against a bot publishing every 0.3 s, and 8 of 10 subscribes needed a retry at 1 s. | `Subscribe` and `Split` failed whenever the oracle published between the user's read and submit | Done: the price has two templates. The oracle writes to a private `RateFeed`; each `Publish` creates a `RateIndex` snapshot that stays usable for 30 s and is not archived by the next publish (the Canton Coin `OpenMiningRound` pattern). Result: 10 of 10 subscribes with **0 retries** while the bot publishes every 1 s. The oracle bot sends heartbeats and archives expired snapshots. See gap 14 for the trade-off. |
 | 13 | No USYC redemption (USYC back to USDC) | Users cannot exit USYC to cash | Request + settle (`RedeemUsycRequest`), so many redeemers do not fight over the fund's USDC holdings |
+| 14 | While two snapshots are valid, a user may pick the older, lower price (the index only goes up) | `Subscribe` at an older index gives slightly more USYC: at most about one window of yield (in the demo, 30 s is a few demo days; in production, with a daily price, it is negligible). `Split` at an older index gives fewer PT/YT, so there is no gain. | Keep the window short. If needed: `Subscribe` could require `rate.simTime >= fund.lastSimTime`, tracked on a consuming fund record, at the cost of contention |
 
 ## 13. Hackathon plan
 
@@ -439,7 +441,8 @@ HackCanton Season 3 is a 5-week online hackathon. Two official posts give differ
 | 1 | Daml core: Holding (USYC/USDC) with CIP-56 `Holding` + `TransferFactory` | Done (tests pass) |
 | 1-2 | Daml core: Oracle (done), Split, PT/YT, Claim, Redeem, Merge, RFQ, demo test | To do |
 | 2 | Walking skeleton in `exodus-app/`: sandbox, bootstrap, oracle bot, web UI (CIP-56 wallet, send, privacy table) | Done |
-| 2 | Fix known gaps 1, 2, 4, 12. Operator bot (NestJS). | To do |
+| 2 | Fix known gap 12 (stale `rateCid`): `RateFeed` + short-lived `RateIndex` snapshots | Done |
+| 2 | Fix known gaps 1, 2, 4. Operator bot (NestJS). | To do |
 | 3 | Web UI: markets, RFQ screen, yield chart, maturity countdown (on top of the skeleton) | To do |
 | 4 | Deploy on LocalNet / DevNet. Record demo video. | To do |
 | 5 | Pitch deck. Stretch: token standard interfaces for PT/YT, registry API. | To do |

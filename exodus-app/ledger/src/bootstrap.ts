@@ -7,7 +7,8 @@
 // What it creates (spec sections 5 and 9):
 //   1. Uploads the Exodus DAR.
 //   2. Parties: Operator, UsycIssuer, UsdcIssuer, Oracle, Alice, Bank.
-//   3. RateIndex: USYC index 1.00 on Oct 1 2026, readable by Alice and Bank.
+//   3. RateFeed (the oracle's private feed): USYC index 1.00 on Oct 1 2026,
+//      plus the first RateIndex price snapshot, readable by Alice and Bank.
 //   4. One HoldingTransferFactory per issuer, usable by Alice and Bank.
 //   5. The USYC fund (UsycFund): Alice and Bank can pay USDC to get USYC.
 //   6. Starting balances: Bank gets 1000 USYC, Alice gets 1000 USDC.
@@ -18,8 +19,8 @@ import { readFile } from "node:fs/promises";
 import { createLedgerClient, type LedgerClient } from "./client.ts";
 import { DEMO_START } from "./oracle-schedule.ts";
 import { DEMO_PARTY_NAMES, partyName, type DemoParties, type DemoPartyName } from "./parties.ts";
-import { getOwnedHoldings, getRateIndex, getTransferFactory, getUsycFund } from "./queries.ts";
-import { Holding, HoldingTransferFactory, RateIndex, UsycFund } from "./templates.ts";
+import { getOwnedHoldings, getRateFeed, getTransferFactory, getUsycFund } from "./queries.ts";
+import { Holding, HoldingTransferFactory, RateFeed, UsycFund } from "./templates.ts";
 
 const LEDGER_URL = process.env.LEDGER_URL ?? "http://localhost:7575";
 const DAR_URL = new URL("../../../exodus-contract/main/.daml/dist/exodus-contract-main-0.0.1.dar", import.meta.url);
@@ -47,21 +48,36 @@ async function allocateParties(ledger: LedgerClient): Promise<DemoParties> {
   return parties as DemoParties;
 }
 
-async function createRateIndex(ledger: LedgerClient, parties: DemoParties): Promise<void> {
-  const current = await getRateIndex(ledger, parties.Oracle);
+// How long each price snapshot stays usable (spec gap 12). Daml RelTime is in microseconds.
+const SNAPSHOT_VALID_FOR_MICROSECONDS = String(30 * 1_000_000); // 30 seconds
+
+async function createRateFeed(ledger: LedgerClient, parties: DemoParties): Promise<void> {
+  const current = await getRateFeed(ledger, parties.Oracle);
   if (current !== null) {
-    console.log(`RateIndex exists: index ${current.payload.index} at ${current.payload.simTime}`);
+    console.log(`RateFeed exists: index ${current.payload.index} at ${current.payload.simTime}`);
     return;
   }
-  await ledger.create(parties.Oracle, RateIndex, {
+  await ledger.create(parties.Oracle, RateFeed, {
     oracle: parties.Oracle,
     operator: parties.Operator,
     readers: [parties.Alice, parties.Bank],
     instrument: "USYC",
     index: "1.0",
     simTime: DEMO_START,
+    validFor: { microseconds: SNAPSHOT_VALID_FOR_MICROSECONDS },
   });
-  console.log(`RateIndex created: index 1.0 at ${DEMO_START}`);
+
+  // Publish the same values once, to create the first price snapshot.
+  const feed = await getRateFeed(ledger, parties.Oracle);
+  if (feed === null) {
+    throw new Error("RateFeed was created but cannot be found");
+  }
+  await ledger.exercise(parties.Oracle, RateFeed.Publish, feed.contractId, {
+    newIndex: "1.0",
+    newSimTime: DEMO_START,
+  });
+  console.log(`RateFeed created: index 1.0 at ${DEMO_START}, first snapshot valid for 30 s`);
+  console.log("Keep `npm run oracle` (or `npm run oracle:hold`) running, or the price snapshot expires.");
 }
 
 async function createTransferFactory(ledger: LedgerClient, parties: DemoParties, issuer: DemoPartyName): Promise<void> {
@@ -125,7 +141,7 @@ async function main(): Promise<void> {
 
   await uploadDar(ledger);
   const parties = await allocateParties(ledger);
-  await createRateIndex(ledger, parties);
+  await createRateFeed(ledger, parties);
   await createTransferFactory(ledger, parties, "UsycIssuer");
   await createTransferFactory(ledger, parties, "UsdcIssuer");
   await createUsycFund(ledger, parties);

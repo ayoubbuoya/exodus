@@ -52,10 +52,10 @@ template UsycFund
     -- NONCONSUMING: the fund contract is NOT archived. So Alice and Bank can
     -- subscribe at the same moment without fighting over this contract.
     --
-    -- The subscriber passes the current RateIndex in ('rateCid'), because
-    -- Daml 3.x has no contract keys to look it up. If the oracle publishes a
-    -- new index first, this old 'rateCid' is archived and Subscribe fails.
-    -- The client must then read the new one and try again (spec gap 12).
+    -- The subscriber passes a RateIndex price snapshot in ('rateCid'),
+    -- because Daml 3.x has no contract keys to look it up. Snapshots stay
+    -- usable for a short window even after the oracle publishes a newer one,
+    -- so Alice's command does not fail just because the price moved (spec gap 12).
     -- ---------------------------------------------------------------------
     nonconsuming choice Subscribe : SubscribeResult
       with
@@ -68,9 +68,11 @@ template UsycFund
         assertMsg "subscriber is not a user of this fund" (subscriber `elem` users)
         assertMsg "usdcAmount must be greater than 0" (usdcAmount > 0.0)
 
+        -- 'fetchValidRate' fails if this price snapshot has expired.
+        rate <- fetchValidRate rateCid
+
         -- The most important check. Without it, Alice could create her OWN
         -- RateIndex with index 0.0001 and mint 5,000,000 USYC for 500 USDC.
-        rate <- fetch rateCid
         assertMsg "RateIndex is not from this fund's oracle" (rate.oracle == oracle)
         assertMsg "RateIndex is not for USYC" (rate.instrument == "USYC")
 

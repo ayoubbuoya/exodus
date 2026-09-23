@@ -1,5 +1,6 @@
-import { DEMO_MATURITY, daysToMaturity, formatAmount } from '@exodus/ledger'
+import { DEMO_MATURITY, daysToMaturity, formatAmount, isRateValid, type RateIndex } from '@exodus/ledger'
 import { useRateIndex } from '../ledger.ts'
+import { useNow } from '../useNow.ts'
 import { ErrorMessage } from './ErrorMessage.tsx'
 
 type OracleCardProps = {
@@ -31,8 +32,22 @@ export function OracleCard({ party, partyName }: OracleCardProps) {
           <dd>
             {DEMO_MATURITY.slice(0, 10)} ({daysToMaturity(rate.data.payload.simTime)} days left)
           </dd>
+          <dt>Price snapshot</dt>
+          <dd>
+            <SnapshotStatus rate={rate.data.payload} />
+          </dd>
         </dl>
       )}
     </section>
   )
+}
+
+// "valid for 23 more seconds", or a warning when the newest snapshot has expired.
+function SnapshotStatus({ rate }: { rate: RateIndex }) {
+  const now = useNow()
+  if (!isRateValid(rate, 0, now)) {
+    return <span className="warn">expired: start `npm run oracle` or `npm run oracle:hold`</span>
+  }
+  const secondsLeft = Math.floor((Date.parse(rate.validUntil) - now) / 1000)
+  return <span>valid for {secondsLeft} more seconds</span>
 }

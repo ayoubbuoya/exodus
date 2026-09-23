@@ -14,7 +14,12 @@ import type { Splice as SpliceMetadata } from "@daml.js/splice-api-token-metadat
 export type Holding = Exodus.Holding.Holding;
 export const Holding = Exodus.Holding.Holding;
 
-// The oracle's index + demo clock (Exodus.Oracle:RateIndex).
+// The oracle's private working state: latest index + demo clock (Exodus.Oracle:RateFeed).
+// Only the Oracle party sees it. Its Publish choice creates a new RateIndex snapshot.
+export type RateFeed = Exodus.Oracle.RateFeed;
+export const RateFeed = Exodus.Oracle.RateFeed;
+
+// A read-only price snapshot, usable until its validUntil (Exodus.Oracle:RateIndex).
 export type RateIndex = Exodus.Oracle.RateIndex;
 export const RateIndex = Exodus.Oracle.RateIndex;
 

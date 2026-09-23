@@ -157,6 +157,10 @@ button[type='submit'],
   color: var(--ok);
 }
 
+.warn {
+  color: var(--error-text);
+}
+
 .error {
   background: var(--error-bg);
   color: var(--error-text);

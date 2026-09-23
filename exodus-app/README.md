@@ -35,18 +35,26 @@ npm install            # 2. install packages
 
 npm run ledger         # terminal 1: Canton sandbox with our DAR, JSON API on :7575
 npm run bootstrap      # once per sandbox start (the sandbox keeps data in memory only)
-npm run oracle         # terminal 2: oracle bot (or `npm run oracle:once` for one step)
+npm run oracle         # terminal 2: oracle bot (or `npm run oracle:hold` to move time by hand in the UI)
 npm run web            # terminal 3: UI on http://localhost:5173
 ```
 
 After a change in `exodus-contract/main`, run `npm run codegen:daml` again and restart the sandbox.
+
+**Keep an oracle bot running.** Each price snapshot is usable for 30 s. The bot publishes the next step, sends a heartbeat (the same price again) when the clock is not moving, and archives expired snapshots. Without it, the index card shows "expired" and Subscribe fails with "No valid USYC price".
+
+| Command | What the oracle bot does |
+|---|---|
+| `npm run oracle` | advance the demo clock every tick + heartbeat + cleanup |
+| `npm run oracle:hold` | heartbeat + cleanup only; move the clock with the Oracle's "Next step" button |
+| `npm run oracle:once` | one tick, then exit |
 
 Oracle bot settings (environment variables):
 
 | Variable | Default | Meaning |
 |---|---|---|
 | `LEDGER_URL` | `http://localhost:7575` | JSON Ledger API |
-| `ORACLE_TICK_SECONDS` | `5` | real seconds between publishes |
+| `ORACLE_TICK_SECONDS` | `5` | real seconds between ticks |
 | `ORACLE_STEP_DAYS` | `7` | demo days per publish (never jumps over Jan 1 or Apr 1, so the spec values are hit exactly) |
 
 Other commands: `npm run typecheck` (all packages), `npm run lint -w @exodus/web`, `npm run build -w @exodus/web`.
@@ -56,7 +64,7 @@ Other commands: `npm run typecheck` (all packages), `npm run lint -w @exodus/web
 | Contract | Details |
 |---|---|
 | Parties | Operator, UsycIssuer, UsdcIssuer, Oracle, Alice, Bank |
-| `RateIndex` | USYC index 1.00 on 2026-10-01; readers Alice and Bank; operator Operator |
+| `RateFeed` + first `RateIndex` snapshot | USYC index 1.00 on 2026-10-01; snapshots valid for 30 s; readers Alice and Bank; operator Operator |
 | `HoldingTransferFactory` × 2 | one for UsycIssuer, one for UsdcIssuer; users Alice and Bank |
 | `UsycFund` | signed by UsycIssuer; accepts USDC from UsdcIssuer and the index from Oracle; users Alice and Bank |
 | `Holding` | 1000 USYC for Bank, 1000 USDC for Alice |
@@ -71,7 +79,8 @@ Other commands: `npm run typecheck` (all packages), `npm run lint -w @exodus/web
 | 4 | Clock drift (`requestedAt <= ledger time`) | Send uses this machine's clock for `requestedAt` | ✅ No failure on the local sandbox (same clock). Re-check on LocalNet/DevNet. |
 | 5 | Decimals | Amounts stay strings; sums use bigint units | ✅ |
 | 6 | Atomic USYC subscribe | Alice pays 500 USDC at index 1.025 in the UI | ✅ Alice: 487.804878 USYC + 500 USDC change; UsycIssuer: 500 USDC; Bank and UsdcIssuer see none of Alice's USYC |
-| 7 | Subscribe during oracle publishing | 10 subscribes while the bot publishes every 1 s | ✅ 10/10 succeeded, all after one retry (see below) |
+| 7 | Subscribe during oracle publishing | 10 subscribes while the bot publishes every 1 s | ✅ Before the gap 12 fix: 10/10, but all needed a retry. After: **10/10 with 0 retries** |
+| 8 | Oracle stopped / hold mode | No bot for 35 s, then `oracle:hold` and 3 manual "Next step" clicks | ✅ Card shows "expired" and Subscribe explains why; heartbeat restores it; manual steps work alongside `hold` |
 
 **Stale `RateIndex` (check 3).** Every `Publish` archives the old `RateIndex`, so any command holding the old contract id fails:
 
@@ -81,4 +90,4 @@ Other commands: `npm run typecheck` (all packages), `npm run lint -w @exodus/web
 
 `isStaleContractError()` in `@exodus/ledger` detects these, plus `UNKNOWN_CONTRACT_SYNCHRONIZERS` ("contracts have been archived", reported before the transaction even runs; found by check 7) and `LOCAL_VERDICT_INACTIVE_CONTRACTS`.
 
-**First fix (check 7).** `subscribeUsyc` reads the `RateIndex` last, right before submitting, and retries once on a stale error. A submit takes about 0.5–0.8 s on the sandbox, so with a 1 s oracle almost every first try is stale, and the retry saved all of them. With the default 5 s tick, retries are rare. This is the same failure `Split` and `Claim` will hit, because they take a `rateCid`. It is tracked as known gap 12 in `docs/exodus.md`.
+**The fix (gap 12, done).** A submit takes about 0.5–0.8 s on the sandbox, so with a 1 s oracle a retry-only approach needed a retry almost every time. The contract now splits the price in two: the oracle writes to a private `RateFeed`, and each publish creates a `RateIndex` snapshot that stays usable for 30 s and is not archived by the next publish. Readers never hold an id that dies on the next publish. The retry stays as a safety net. The trade-off (a user may pick the older of two valid snapshots) is gap 14 in `docs/exodus.md`.

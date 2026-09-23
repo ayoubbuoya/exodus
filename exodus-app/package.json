@@ -16,6 +16,7 @@
     "bootstrap": "npm run bootstrap --workspace=@exodus/ledger",
     "oracle": "npm run start --workspace=@exodus/oracle-bot",
     "oracle:once": "npm run once --workspace=@exodus/oracle-bot",
+    "oracle:hold": "npm run hold --workspace=@exodus/oracle-bot",
     "web": "npm run dev --workspace=@exodus/web",
     "typecheck": "npm run typecheck --workspace=@exodus/ledger --workspace=@exodus/oracle-bot --workspace=@exodus/web"
   },

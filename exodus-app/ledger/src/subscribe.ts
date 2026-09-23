@@ -3,16 +3,15 @@
 // Example at index 1.025: subscribeUsyc(ledger, { subscriber: alice, usdcAmount: "500" })
 //   -> Alice pays 500 USDC to UsycIssuer and gets 487.804878 USYC.
 //
-// This is also our first fix for spec gap 12 (stale RateIndex id):
-//   1. Read the RateIndex LAST, right before submitting, so the id is as fresh as possible.
-//   2. If the oracle still publishes in between (the id is archived), read
-//      everything again and retry ONCE.
-// Split and Claim will use the same pattern later.
+// Spec gap 12 (stale RateIndex id) is fixed in the contract: price snapshots
+// stay usable for 30 s, even after a newer one is published. We still retry
+// ONCE on a stale-contract error as a safety net, for example when two
+// subscribes by the same user race for the same USDC holding.
 import type { ContractId } from "@daml/types";
 import { isStaleContractError, type LedgerClient } from "./client.ts";
 import { decimalToUnits } from "./decimal.ts";
 import { pickInputs } from "./inputs.ts";
-import { getOwnedHoldings, getRateIndex, getUsycFund } from "./queries.ts";
+import { getOwnedHoldings, getRateIndex, getUsycFund, isRateValid } from "./queries.ts";
 import { UsycFund, type Holding, type RateIndex } from "./templates.ts";
 
 export type SubscribeRequest = {
@@ -58,10 +57,14 @@ async function subscribeOnce(ledger: LedgerClient, request: SubscribeRequest): P
   );
   const inputs = pickInputs(usdcHoldings, request.usdcAmount, "USDC");
 
-  // Read the index LAST, so the time between reading it and using it is as short as possible.
+  // Read the newest price snapshot last. It stays usable for its whole window
+  // (30 s), even if the oracle publishes a newer one meanwhile.
   const rate = await getRateIndex(ledger, request.subscriber);
   if (rate === null) {
     throw new Error("This party cannot see the USYC index (it must be a RateIndex reader).");
+  }
+  if (!isRateValid(rate.payload)) {
+    throw new Error("No valid USYC price right now. Start the oracle bot: `npm run oracle` or `npm run oracle:hold`.");
   }
 
   await ledger.exercise(request.subscriber, UsycFund.Subscribe, fund.contractId, {

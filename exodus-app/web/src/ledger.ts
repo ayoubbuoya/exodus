@@ -7,6 +7,7 @@ import {
   createLedgerClient,
   findDemoParties,
   getOwnedHoldings,
+  getRateFeed,
   getRateIndex,
   getVisibleContracts,
 } from '@exodus/ledger'
@@ -44,6 +45,15 @@ export function useVisibleContracts(party: string) {
   return useQuery({
     queryKey: ['visibleContracts', party],
     queryFn: () => getVisibleContracts(ledger, party),
+    refetchInterval: POLL_MS,
+  })
+}
+
+// The oracle's private feed. Only works for the Oracle party.
+export function useRateFeed(oracle: string) {
+  return useQuery({
+    queryKey: ['rateFeed', oracle],
+    queryFn: () => getRateFeed(ledger, oracle),
     refetchInterval: POLL_MS,
   })
 }

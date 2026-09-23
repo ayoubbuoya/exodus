@@ -1,13 +1,16 @@
--- | Tests for Exodus.Oracle.
+-- | Tests for Exodus.Oracle: the private RateFeed and the RateIndex price snapshots.
 --
 -- Run them with:
 --   cd exodus-contract && dpm build --all
 --   cd test && dpm test --files daml/Exodus/OracleTest.daml
+--
+-- Daml Script tests run on a ledger whose time only moves when we call
+-- 'passTime'. That lets us test the snapshot window (30 seconds) exactly.
 module Exodus.OracleTest where
 
 import DA.Assert ((===))  -- 'a === b' fails the test if a and b are not equal
 import DA.Date (Month(..), date)
-import DA.Time (addRelTime, days, time)
+import DA.Time (addRelTime, days, seconds, time)
 import Daml.Script
 import Exodus.Oracle
 
@@ -23,7 +26,24 @@ apr1 : Time
 apr1 = time (date 2027 Apr 1) 0 0 0
 
 
--- | The happy path: the oracle publishes 1.00 -> 1.025 -> 1.05.
+-- | The oracle creates its feed at index 1.00 on Oct 1 2026 and publishes the
+-- first snapshot. Returns (feed, first snapshot).
+startFeed : Party -> Party -> [Party] -> Script (ContractId RateFeed, ContractId RateIndex)
+startFeed oracle operator readers = do
+  feedCid <- submit oracle do
+    createCmd RateFeed with
+      oracle = oracle
+      operator = operator
+      readers = readers
+      instrument = "USYC"
+      index = 1.0
+      simTime = oct1
+      validFor = seconds 30
+  submit oracle do
+    exerciseCmd feedCid Publish with newIndex = 1.0; newSimTime = oct1
+
+
+-- | The happy path: publish 1.00 -> 1.025 -> 1.05. Old snapshots stay usable.
 oraclePublish : Script ()
 oraclePublish = script do
   oracle   <- allocateParty "Oracle"
@@ -31,46 +51,82 @@ oraclePublish = script do
   bank     <- allocateParty "Bank"
   alice    <- allocateParty "Alice"
 
-  -- 1. Oct 1 2026: the oracle starts the feed at index 1.00.
-  rate1 <- submit oracle do
-    createCmd RateIndex with
-      oracle = oracle
-      operator = operator
-      readers = [bank, alice]
-      instrument = "USYC"
-      index = 1.0
-      simTime = oct1
+  -- 1. Oct 1 2026: the first snapshot, usable for 30 seconds of ledger time.
+  (feed1, snap1) <- startFeed oracle operator [bank, alice]
+  now <- getTime
+  Some s1 <- queryContractId bank snap1
+  s1.index       === 1.0
+  s1.simTime     === oct1
+  s1.publishedAt === now
+  s1.validUntil  === addRelTime now (seconds 30)
 
   -- 2. Jan 1 2027: the fund has earned 2.5%.
-  rate2 <- submit oracle do
-    exerciseCmd rate1 Publish with newIndex = 1.025; newSimTime = jan1
+  (feed2, snap2) <- submit oracle do
+    exerciseCmd feed1 Publish with newIndex = 1.025; newSimTime = jan1
 
-  Some r2 <- queryContractId bank rate2
-  r2.index   === 1.025
-  r2.simTime === jan1
+  -- The feed moved forward (the old feed is archived) ...
+  None <- queryContractId oracle feed1
+  Some f2 <- queryContractId oracle feed2
+  f2.index   === 1.025
+  f2.simTime === jan1
 
-  -- The old contract is archived, so nobody can use the old 1.00 price.
-  None <- queryContractId bank rate1
+  -- ... but the OLD snapshot is NOT archived. Bank can still use it until it
+  -- expires. This is the fix for the stale rateCid problem (spec gap 12).
+  Some _ <- queryContractId bank snap1
+  Some s2 <- queryContractId bank snap2
+  s2.index   === 1.025
+  s2.simTime === jan1
+  bankView <- query @RateIndex bank
+  length bankView === 2
 
   -- 3. Apr 1 2027: maturity, index 1.05.
-  rate3 <- submit oracle do
-    exerciseCmd rate2 Publish with newIndex = 1.05; newSimTime = apr1
+  (feed3, _) <- submit oracle do
+    exerciseCmd feed2 Publish with newIndex = 1.05; newSimTime = apr1
 
-  Some r3 <- queryContractId operator rate3
-  r3.index   === 1.05
-  r3.simTime === apr1
-  None <- queryContractId operator rate2
+  -- 4. A heartbeat: the same values again, to get a fresh snapshot.
+  (feed4, snap4) <- submit oracle do
+    exerciseCmd feed3 Publish with newIndex = 1.05; newSimTime = apr1
+  Some s4 <- queryContractId bank snap4
+  s4.index === 1.05
 
-  -- 4. The clock can move while the index stays the same (and the reverse).
-  rate4 <- submit oracle do
-    exerciseCmd rate3 Publish with newIndex = 1.05; newSimTime = addRelTime apr1 (days 1)
+  -- 5. The clock can move while the index stays the same (and the reverse).
+  (feed5, _) <- submit oracle do
+    exerciseCmd feed4 Publish with newIndex = 1.05; newSimTime = addRelTime apr1 (days 1)
   _ <- submit oracle do
-    exerciseCmd rate4 Publish with newIndex = 1.051; newSimTime = addRelTime apr1 (days 1)
+    exerciseCmd feed5 Publish with newIndex = 1.051; newSimTime = addRelTime apr1 (days 1)
 
-  -- There is always exactly one live RateIndex.
-  bankView <- query @RateIndex bank
-  length bankView === 1
+  -- There is always exactly one live feed.
+  feeds <- query @RateFeed oracle
+  length feeds === 1
+  pure ()
 
+
+-- | A snapshot can be expired (archived) only after its window has passed,
+-- and only by the oracle.
+oracleExpiry : Script ()
+oracleExpiry = script do
+  oracle   <- allocateParty "Oracle"
+  operator <- allocateParty "Operator"
+  bank     <- allocateParty "Bank"
+
+  (_, snap) <- startFeed oracle operator [bank]
+
+  -- Right after publishing, and 29 seconds later, it is still valid.
+  submitMustFail oracle do
+    exerciseCmd snap Expire
+  passTime (seconds 29)
+  submitMustFail oracle do
+    exerciseCmd snap Expire
+
+  -- Bank cannot expire the oracle's snapshot, even after the window.
+  passTime (seconds 1)
+  submitMustFail bank do
+    exerciseCmd snap Expire
+
+  -- At exactly validUntil (30 seconds), the oracle can clean it up.
+  submit oracle do
+    exerciseCmd snap Expire
+  None <- queryContractId bank snap
   pure ()
 
 
@@ -80,28 +136,36 @@ oracleFailures = script do
   oracle   <- allocateParty "Oracle"
   operator <- allocateParty "Operator"
   bank     <- allocateParty "Bank"
+  now      <- getTime
 
-  -- A zero index is rejected by 'ensure'.
+  let feed = RateFeed with
+        oracle = oracle
+        operator = operator
+        readers = [bank]
+        instrument = "USYC"
+        index = 1.025
+        simTime = jan1
+        validFor = seconds 30
+
+  -- 'ensure' rejects a zero index, an empty instrument and an empty window.
+  submitMustFail oracle do createCmd feed with index = 0.0
+  submitMustFail oracle do createCmd feed with instrument = ""
+  submitMustFail oracle do createCmd feed with validFor = seconds 0
+
+  -- A snapshot must end after it starts.
   submitMustFail oracle do
     createCmd RateIndex with
       oracle = oracle
       operator = operator
       readers = [bank]
       instrument = "USYC"
-      index = 0.0
-      simTime = oct1
-
-  -- An empty instrument is rejected by 'ensure'.
-  submitMustFail oracle do
-    createCmd RateIndex with
-      oracle = oracle
-      operator = operator
-      readers = [bank]
-      instrument = ""
       index = 1.0
       simTime = oct1
+      publishedAt = now
+      validUntil = now
 
-  -- Bank cannot create a fake index: only the oracle can sign it.
+  -- Bank cannot create a fake feed or a fake snapshot: only the oracle signs them.
+  submitMustFail bank do createCmd feed
   submitMustFail bank do
     createCmd RateIndex with
       oracle = oracle
@@ -110,38 +174,31 @@ oracleFailures = script do
       instrument = "USYC"
       index = 2.0
       simTime = oct1
+      publishedAt = now
+      validUntil = addRelTime now (seconds 30)
 
-  rate <- submit oracle do
-    createCmd RateIndex with
-      oracle = oracle
-      operator = operator
-      readers = [bank]
-      instrument = "USYC"
-      index = 1.025
-      simTime = jan1
+  feedCid <- submit oracle do createCmd feed
 
-  -- The index cannot go down.
+  -- The index cannot go down, and the clock cannot go backwards.
   submitMustFail oracle do
-    exerciseCmd rate Publish with newIndex = 1.0; newSimTime = apr1
-
-  -- The clock cannot go backwards.
+    exerciseCmd feedCid Publish with newIndex = 1.0; newSimTime = apr1
   submitMustFail oracle do
-    exerciseCmd rate Publish with newIndex = 1.05; newSimTime = oct1
+    exerciseCmd feedCid Publish with newIndex = 1.05; newSimTime = oct1
 
-  -- Bank and the operator can see the index but cannot publish.
+  -- Bank and the operator cannot publish (they cannot even see the feed).
   submitMustFail bank do
-    exerciseCmd rate Publish with newIndex = 1.05; newSimTime = apr1
+    exerciseCmd feedCid Publish with newIndex = 1.05; newSimTime = apr1
   submitMustFail operator do
-    exerciseCmd rate Publish with newIndex = 1.05; newSimTime = apr1
+    exerciseCmd feedCid Publish with newIndex = 1.05; newSimTime = apr1
 
-  -- After all those failures, the original index is still live and unchanged.
-  Some r <- queryContractId bank rate
-  r.index === 1.025
-
+  -- After all those failures, the feed is still live and unchanged.
+  Some f <- queryContractId oracle feedCid
+  f.index === 1.025
   pure ()
 
 
--- | Privacy: only the oracle, the operator and the readers see the index.
+-- | Privacy: nobody but the oracle sees the feed. The operator and the readers
+-- see the snapshots. Everyone else sees nothing.
 oraclePrivacy : Script ()
 oraclePrivacy = script do
   oracle   <- allocateParty "Oracle"
@@ -149,22 +206,18 @@ oraclePrivacy = script do
   bank     <- allocateParty "Bank"
   outsider <- allocateParty "Outsider"
 
-  rate <- submit oracle do
-    createCmd RateIndex with
-      oracle = oracle
-      operator = operator
-      readers = [bank]
-      instrument = "USYC"
-      index = 1.0
-      simTime = oct1
+  (feedCid, snap) <- startFeed oracle operator [bank]
 
-  Some _ <- queryContractId oracle rate
-  Some _ <- queryContractId operator rate
-  Some _ <- queryContractId bank rate
+  Some _ <- queryContractId oracle feedCid
+  None   <- queryContractId operator feedCid
+  None   <- queryContractId bank feedCid
+
+  Some _ <- queryContractId oracle snap
+  Some _ <- queryContractId operator snap
+  Some _ <- queryContractId bank snap
 
   -- A party that is not a reader sees nothing.
-  None <- queryContractId outsider rate
+  None <- queryContractId outsider snap
   outsiderView <- query @RateIndex outsider
   outsiderView === []
-
   pure ()

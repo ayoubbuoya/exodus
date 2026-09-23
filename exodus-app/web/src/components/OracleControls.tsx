@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { nextOracleStep, RateIndex, type OracleStep } from '@exodus/ledger'
-import { ledger, useRateIndex } from '../ledger.ts'
+import { nextOracleStep, RateFeed, type OracleStep } from '@exodus/ledger'
+import { ledger, useRateFeed } from '../ledger.ts'
 import { ErrorMessage } from './ErrorMessage.tsx'
 
 type OracleControlsProps = {
@@ -10,31 +10,33 @@ type OracleControlsProps = {
 
 const STEP_DAYS = 7
 
-// Manual controls for the Oracle party. Useful to:
-// - move the demo by hand when the bot is not running,
-// - trigger the stale-RateIndex race on purpose: run the bot with a short tick
-//   and click "Publish" here. The contract id we hold may be archived already.
+// Manual controls for the Oracle party. They publish through the oracle's
+// private RateFeed. Useful to move the demo clock by hand: run the bot with
+// `npm run oracle:hold` (heartbeats only) and click "Next step" here.
+//
+// If the bot is ALSO advancing the clock, both write to the same RateFeed and
+// one of them can get a stale-contract error. That is expected: there should
+// be one writer at a time. Readers (Alice, Bank) are not affected.
 export function OracleControls({ oracle }: OracleControlsProps) {
-  const rate = useRateIndex(oracle)
+  const feed = useRateFeed(oracle)
   const [newIndex, setNewIndex] = useState('')
   const [newDate, setNewDate] = useState('') // "2027-01-01"
   const queryClient = useQueryClient()
 
   const publish = useMutation({
     mutationFn: (step: OracleStep) => {
-      if (!rate.data) {
-        throw new Error('No RateIndex to publish from')
+      if (!feed.data) {
+        throw new Error('No RateFeed to publish from. Run `npm run bootstrap`.')
       }
-      // Uses the contract id from the last poll (up to 2 seconds old) on purpose.
-      return ledger.exercise(oracle, RateIndex.Publish, rate.data.contractId, step)
+      return ledger.exercise(oracle, RateFeed.Publish, feed.data.contractId, step)
     },
     onSuccess: () => void queryClient.invalidateQueries(),
   })
 
-  if (!rate.data) {
+  if (!feed.data) {
     return null
   }
-  const current = rate.data.payload
+  const current = feed.data.payload
   const next = nextOracleStep(current.index, current.simTime, STEP_DAYS)
 
   function handleSubmit(event: FormEvent) {
