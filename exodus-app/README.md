@@ -12,7 +12,7 @@ This is a **walking skeleton**: a thin but real end-to-end slice (ledger, bot, U
 |---|---|---|
 | `ledger/` | `@exodus/ledger` | Typed client for the Canton JSON Ledger API v2, read helpers (`getRateIndex`, `getOwnedHoldings`, ...), CIP-56 `sendHoldings`, `subscribeUsyc` (USDC to USYC, with stale-index retry), the demo oracle schedule, and the `bootstrap` script. Shared by the bot and the UI. |
 | `oracle-bot/` | `@exodus/oracle-bot` | Moves the USYC index and the demo clock forward along the spec §9 path. |
-| `web/` | `@exodus/web` | React + Vite UI: party switcher, oracle card, CIP-56 wallet, USYC subscribe card, send form, oracle controls and a "what can this party see?" privacy table. |
+| `web/` | `@exodus/web` | React + Vite + Tailwind CSS 4 + shadcn/ui UI with React Router. `/` is the public landing page. `/lab` is the developer lab: party switcher, oracle card, CIP-56 wallet, USYC subscribe card, send form, oracle controls and a "what can this party see?" privacy table. Client pages (sign-up, onboarding, `/app`, `/admin`) are planned in `../docs/client-app.md`. |
 | `generated/daml.js/` | `@daml.js/*` | TypeScript types for our Daml templates, from `dpm codegen-js`. Generated, not committed. |
 
 Where the types come from:

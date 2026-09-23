@@ -137,6 +137,7 @@ A market is one asset plus one maturity date. Example: `PT-USYC-APR2027`.
 | **Oracle** | Publishes the index and the demo clock. |
 | **Alice** (demo) | Wants a fixed rate. Buys PT. |
 | **Bank** (demo) | Dealer. Splits USYC, sells PT, keeps YT. |
+| **Clients** (onboarded users) | Real users of the client app. Each approved client gets a custodial party (for example `alice-7f3a::1220…`) and one `ClientAccess` pass. See 8.A and [`client-app.md`](client-app.md). |
 
 ## 6. Architecture
 
@@ -168,7 +169,8 @@ Off-ledger components (in `exodus-app/`, see its README):
 
 - **Operator bot (NestJS)** (planned): watches `RedeemRequest`, `ClaimRequest`, and `MergeRequest`, then settles them. Merges vault pieces. Calls `Mature` once per market.
 - **Oracle bot** (done, plain Node script for now): moves the index and the demo clock along the section 9 path (1.00 on Oct 1, 1.025 on Jan 1, 1.05 on Apr 1), sends heartbeats so a valid price snapshot always exists, and archives expired snapshots.
-- **Web UI** (walking skeleton done): today it shows the index, the demo clock, CIP-56 balances with USD value, a CIP-56 send form and a per-party "what can I see?" privacy table. Later: PT price, implied fixed APY, YT yield, and a maturity countdown.
+- **Web UI** (walking skeleton done, client app in progress): the skeleton shows the index, the demo clock, CIP-56 balances with USD value, a CIP-56 send form and a per-party "what can I see?" privacy table; it moves to the `/lab` page. The client app adds a landing page, sign-up, an access form, an admin approval page and a Hashnote-style `/app` dashboard (price, chart, subscribe, faucet, holdings). Later: PT price, implied fixed APY, YT yield, and a maturity countdown. Plan and decisions: [`client-app.md`](client-app.md).
+- **API backend (NestJS + PostgreSQL, planned)** in `exodus-app/api`: user accounts, access applications, admin approval (allocates the client's custodial party and creates its `ClientAccess` pass), the USDC faucet, price history for the chart, and custodial command endpoints (it submits a client's commands with the shared contracts attached as disclosed contracts). The operator bot will live in the same service.
 
 ## 7. Smart contracts
 
@@ -206,6 +208,7 @@ exodus-contract/
 | `HoldingTransferFactory` | admin (issuer) | users | One per issuer. Implements CIP-56 `TransferFactory` (`TransferFactory_Transfer`, `TransferFactory_PublicFetch`). |
 | `UsycFund` | usycIssuer | users | Nonconsuming `Subscribe`: the subscriber pays USDC (via `payFrom`) to UsycIssuer and gets `roundDown6 (usdc / index)` USYC in the same transaction. Checks the `RateIndex` comes from its trusted `oracle` and the USDC from its `usdcIssuer`. Users must also be `RateIndex` readers. |
 | `RateFeed` | oracle | (none) | The oracle's private working state: latest index + demo clock + `validFor`. Choice: `Publish` (index and time can only go up; same values allowed as a heartbeat). Each `Publish` creates a new `RateIndex` snapshot. |
+| `ClientAccess` (planned) | operator | client | One pass per approved client: the on-ledger whitelist entry. Choices that clients use (`Subscribe`, transfers, later `Split`/RFQ) take the pass and check `client == caller`. Revoke = archive it. Replaces the `users`/`readers` lists (see 8.A and section 11). |
 | `RateIndex` | oracle | operator, readers | Read-only price snapshot with `publishedAt` and `validUntil` (ledger time, `validFor` = 30 s in the demo). Not archived when a newer one is published. Choice: `Expire` (oracle, after `validUntil`). Readers use `fetchValidRate`, which rejects expired snapshots. |
 | `Market` | operator | members | Choices: `Split`, `Mature`, `RequestMerge`. All nonconsuming. |
 | `MaturitySnapshot` | operator | members | Frozen index at maturity. |
@@ -249,6 +252,16 @@ sequenceDiagram
 - `IndexSource`: `CurrentRate` (live oracle, before maturity) or `AtMaturity` (frozen snapshot, after maturity).
 
 ## 8. User flows
+
+### 8.A Onboarding and faucet (client app)
+
+1. Alice signs up with email and password and sends a light access form: full name, country, and "I understand these are simulated test tokens".
+2. The platform admin approves her on `/admin`.
+3. The backend allocates her **custodial** Canton party and ledger user, and the Operator creates **one `ClientAccess` pass** for her. From now on she can do everything a client can do.
+4. **Faucet:** Alice clicks "Get 100 test USDC". The backend checks (in the database) that she is approved and her cooldown has passed, then `UsdcIssuer` creates a 100 USDC `Holding` for her. No pass is needed for this, because only the issuer signs.
+5. **Using the fund without being on its observer list:** the backend submits Alice's `Subscribe` with the `UsycFund`, the transfer factory and the newest `RateIndex` attached as **disclosed contracts**, plus her pass. The contract checks the pass on-ledger, so the whitelist is enforced by Canton, not only by our database.
+
+Why one pass instead of adding Alice to each contract's `users` list: see section 11.
 
 ### 8.0 Subscribe (get USYC with USDC)
 
@@ -402,6 +415,9 @@ The test script checks that `Operator` and `UsdcIssuer` see **zero** `Quote` con
 | Demo clock `simTime` | Ledger time cannot be moved forward on a real network, and the demo must show months of yield in minutes. |
 | Round down payouts to 6 decimals | Makes it impossible for the vault to go negative. |
 | PT price must be > 0 and <= 1 | With positive rates, PT always sells below par. |
+| One `ClientAccess` pass per client (not `users` lists on each contract) | With lists, every client can see the full client list (Alice learns Bank is a customer), each approval recreates the fund, factories and feed (in-flight commands fail with "contract not found"), and revoking means recreating them all again. A pass is one contract per client: private, no contention, and revoke = archive. Shared contracts reach the client through explicit disclosure. |
+| Custodial client wallets (for now) | The backend allocates a party + ledger user per client and submits for them after checking the session. Easy for users, like Hashnote. Self-custody (Canton external party, key in the browser) is a later step. |
+| Faucet checked off-ledger | Minting test USDC needs only the issuer's signature. The backend enforces "approved" and the cooldown in PostgreSQL. |
 
 ## 12. Trust assumptions and known gaps
 
@@ -425,9 +441,9 @@ Say these openly in the pitch. Judges respect honesty more than hidden problems.
 | 6 | Maturity uses `simTime`, not ledger time | Only OK for a demo | Check ledger time in production |
 | 7 | Only USYC/USDC implement the token standard (`Holding` + `TransferFactory` v1). PT and YT don't yet. | Canton wallets cannot show PT/YT | Add a `Holding` interface instance to `PrincipalToken` and `YieldToken` (use `lock` for locked PT) |
 | 8 | No quote expiry | Old quotes stay open | Add `validUntil` |
-| 9 | Transfer factory is shared with an observer list (`users`) | New users need the factory recreated | Serve it through the off-ledger registry API with explicit disclosure, like real registries do |
+| 9 | Transfer factory is shared with an observer list (`users`) | New users need the factory recreated | Serve it through the off-ledger registry API with explicit disclosure, like real registries do. Planned with `ClientAccess` (the backend attaches the factory as a disclosed contract) |
 | 10 | No off-ledger registry API (`/registry/transfer-instruction/v1/...`, `/registry/metadata/v1/...`) | Real wallets cannot discover the factory or instrument metadata by themselves | Serve these endpoints from the NestJS backend |
-| 11 | No KYC allowlist (real USYC is permissioned) | Anyone can receive simulated USYC | Issuer-managed allowlist checked on transfer |
+| 11 | No KYC allowlist (real USYC is permissioned) | Anyone can receive simulated USYC | Issuer-managed allowlist checked on transfer. Planned: the `ClientAccess` pass (8.A), created on admin approval |
 | 12 | ~~Stale `rateCid`~~ **Fixed.** Every `Publish` used to archive the only `RateIndex`, so a command holding the old id failed (`CONTRACT_NOT_FOUND`, `UNKNOWN_CONTRACT_SYNCHRONIZERS`, `LOCAL_VERDICT_LOCKED_CONTRACTS`). The UI lost 6 of 6 races against a bot publishing every 0.3 s, and 8 of 10 subscribes needed a retry at 1 s. | `Subscribe` and `Split` failed whenever the oracle published between the user's read and submit | Done: the price has two templates. The oracle writes to a private `RateFeed`; each `Publish` creates a `RateIndex` snapshot that stays usable for 30 s and is not archived by the next publish (the Canton Coin `OpenMiningRound` pattern). Result: 10 of 10 subscribes with **0 retries** while the bot publishes every 1 s. The oracle bot sends heartbeats and archives expired snapshots. See gap 14 for the trade-off. |
 | 13 | No USYC redemption (USYC back to USDC) | Users cannot exit USYC to cash | Request + settle (`RedeemUsycRequest`), so many redeemers do not fight over the fund's USDC holdings |
 | 14 | While two snapshots are valid, a user may pick the older, lower price (the index only goes up) | `Subscribe` at an older index gives slightly more USYC: at most about one window of yield (in the demo, 30 s is a few demo days; in production, with a daily price, it is negligible). `Split` at an older index gives fewer PT/YT, so there is no gain. | Keep the window short. If needed: `Subscribe` could require `rate.simTime >= fund.lastSimTime`, tracked on a consuming fund record, at the cost of contention |
@@ -443,7 +459,8 @@ HackCanton Season 3 is a 5-week online hackathon. Two official posts give differ
 | 2 | Walking skeleton in `exodus-app/`: sandbox, bootstrap, oracle bot, web UI (CIP-56 wallet, send, privacy table) | Done |
 | 2 | Fix known gap 12 (stale `rateCid`): `RateFeed` + short-lived `RateIndex` snapshots | Done |
 | 2 | Fix known gaps 1, 2, 4. Operator bot (NestJS). | To do |
-| 3 | Web UI: markets, RFQ screen, yield chart, maturity countdown (on top of the skeleton) | To do |
+| 3 | Client app: Tailwind/shadcn UI, landing, sign-up, access form, admin approval, custodial wallets, faucet, Hashnote-style dashboard; skeleton kept as `/lab` (see `client-app.md`) | In progress |
+| 3 | Web UI: markets, RFQ screen, yield chart, maturity countdown | To do |
 | 4 | Deploy on LocalNet / DevNet. Record demo video. | To do |
 | 5 | Pitch deck. Stretch: token standard interfaces for PT/YT, registry API. | To do |
 
@@ -478,7 +495,8 @@ HackCanton Season 3 is a 5-week online hackathon. Two official posts give differ
 | Ledger client | JSON Ledger API v2 | `openapi-fetch` 0.17 with types from the Canton 3.5.18 OpenAPI spec (`openapi-typescript` 7.13); Daml types from `dpm codegen-js` + `@daml/types` 3.5.3. `@daml/ledger` is not used (JSON API v1 only). |
 | Local ledger | `dpm sandbox` | Canton 3.5.18, JSON API on port 7575, no auth |
 | Bots | Oracle bot: Node.js 24 TypeScript script. Operator bot: NestJS | Oracle bot done (`exodus-app/oracle-bot`). Operator bot planned. |
-| UI | React 19.3 + Vite 8.3 + TypeScript 7.0 + TanStack Query 5 | Walking skeleton done (`exodus-app/web`) |
+| UI | React 19.3 + Vite 8.3 + TypeScript 7.0 + TanStack Query 5 + Tailwind CSS 4 + shadcn/ui + React Router + Recharts | Walking skeleton done (`exodus-app/web`); client app in progress |
+| API backend | NestJS + Prisma + PostgreSQL (Docker) | Planned (`exodus-app/api`): accounts, access applications, custodial wallets, faucet |
 
 Check the latest versions before you start each part. They change often.
 
