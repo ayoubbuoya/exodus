@@ -78,7 +78,7 @@ Oracle bot settings (environment variables):
 | `ORACLE_TICK_SECONDS` | `5` | real seconds between ticks |
 | `ORACLE_STEP_DAYS` | `7` | demo days per publish (never jumps over Jan 1 or Apr 1, so the spec values are hit exactly) |
 
-Other commands: `npm run typecheck` (all packages), `npm run lint -w @exodus/web`, `npm run build -w @exodus/web`.
+Other commands: `npm test` (unit tests of ledger, api and web, with Node's `node:test`), `npm run typecheck` (all packages), `npm run lint -w @exodus/web`, `npm run build -w @exodus/web`.
 
 ## What the bootstrap creates
 
@@ -114,3 +114,21 @@ Other commands: `npm run typecheck` (all packages), `npm run lint -w @exodus/web
 `isStaleContractError()` in `@exodus/ledger` detects these, plus `UNKNOWN_CONTRACT_SYNCHRONIZERS` ("contracts have been archived", reported before the transaction even runs; found by check 7) and `LOCAL_VERDICT_INACTIVE_CONTRACTS`.
 
 **The fix (gap 12, done).** A submit takes about 0.5–0.8 s on the sandbox, so with a 1 s oracle a retry-only approach needed a retry almost every time. The contract now splits the price in two: the oracle writes to a private `RateFeed`, and each publish creates a `RateIndex` snapshot that stays usable for 30 s and is not archived by the next publish. Readers never hold an id that dies on the next publish. The retry stays as a safety net. The trade-off (a user may pick the older of two valid snapshots) is gap 14 in `docs/exodus.md`.
+
+## What the client app checks (results from 2026-09-23)
+
+Run in headless Chromium through the Vite proxy, against the local sandbox and PostgreSQL.
+
+| # | Check | How | Result |
+|---|---|---|---|
+| 1 | Onboarding | Sign up (short password first) → access form (country search "ita") → unticked checkbox, then ticked → send | ✅ Field errors show under the right inputs; status "under review" |
+| 2 | Admin approval | Admin logs in (wrong password first) → Approve in the confirm dialog | ✅ Party `client-<12 hex>::1220…`, ledger user and `ClientAccess` pass created; the client's page switches to "You are approved" within 10 s without a reload |
+| 3 | Guards | Client opens `/admin`; logged-out user opens `/app`; logged-in user opens `/login` | ✅ Redirected to `/onboarding`, `/login` and their home page |
+| 4 | Faucet | Claim, then claim again | ✅ +100 USDC; second claim refused (429) with the next claim time; countdown shown |
+| 5 | Subscribe | 60 USDC at price 1.0095 | ✅ +59.434724 USYC (rounded down to 6 decimals), shown in Holdings and Activity |
+| 6 | Send | 10 USYC to Bank; 1 USYC to Operator | ✅ Bank receives; Operator (no pass) refused with "The receiver is not an approved Exodus client" |
+| 7 | Activity | After 4–6 | ✅ Received +100 USDC · Subscribed −60 USDC +59.43 USYC · Sent −10 USYC, rebuilt from the ledger history |
+| 8 | Sandbox restart | A wallet pointed at an unknown party | ✅ Re-provisioned within 30 s (`WalletReconcilerService`), faucet cooldown reset |
+| 9 | Themes and phones | Dark, light and 390 px wide | ✅ No horizontal scroll; actions come first on phones |
+| 10 | Unit tests | `npm test` | ✅ 43 pass. The environment test found that `COOKIE_SECURE=false` was read as `true` (now fixed) |
+

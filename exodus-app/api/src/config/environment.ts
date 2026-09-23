@@ -3,6 +3,10 @@
 // We check them all at startup: a typo such as LEDGER_URL=localhost:7575 should
 // stop the API right away with a clear message, not fail later in the middle
 // of Alice's approval. See .env.example for what each value means.
+// enableImplicitConversion (below) reads each field's TypeScript type ("PORT is
+// a number") from reflect-metadata. main.ts loads it too, but importing it here
+// makes this file work on its own (for example in its unit test).
+import "reflect-metadata";
 import { plainToInstance, Transform } from "class-transformer";
 import { IsBoolean, IsInt, IsOptional, IsString, IsUrl, Matches, Max, Min, validateSync } from "class-validator";
 
@@ -26,8 +30,10 @@ export class EnvironmentVariables {
   SESSION_TTL_HOURS: number = 168;
 
   // Environment variables are always text, so "false" must be turned into false
-  // by hand (Boolean("false") would be true).
-  @Transform(({ value }) => value === true || value === "true")
+  // by hand (Boolean("false") would be true). We read the raw text from `obj`:
+  // `value` has already gone through enableImplicitConversion, which turns the
+  // text "false" into true.
+  @Transform(({ obj }: { obj: Record<string, unknown> }) => obj.COOKIE_SECURE === true || obj.COOKIE_SECURE === "true")
   @IsBoolean()
   COOKIE_SECURE: boolean = false;
 

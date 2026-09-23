@@ -188,6 +188,7 @@ Then restart the ledger, run `npm run bootstrap`, and restart `npm run api` and 
 
 | Command | What it does |
 |---|---|
+| `npm test` | Run the off-ledger unit tests (ledger helpers, API, web); no sandbox or database needed |
 | `npm run typecheck` | Type-check all packages |
 | `npm run lint -w @exodus/web` | Lint the web app |
 | `cd ../exodus-contract/test && dpm test` | Run the Daml contract tests |

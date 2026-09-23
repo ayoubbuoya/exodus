@@ -23,7 +23,8 @@
     "api": "npm run start --workspace=@exodus/api",
     "db:up": "npm run db:up --workspace=@exodus/api",
     "db:migrate": "npm run db:migrate --workspace=@exodus/api",
-    "db:seed": "npm run db:seed --workspace=@exodus/api"
+    "db:seed": "npm run db:seed --workspace=@exodus/api",
+    "test": "npm run test --workspace=@exodus/ledger --workspace=@exodus/api --workspace=@exodus/web"
   },
   "devDependencies": {
     "@types/node": "^24.13.6",

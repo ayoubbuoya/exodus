@@ -4,6 +4,8 @@ This file is the working context for turning `exodus-app/web` from a developer s
 
 > **Simulation notice.** "USYC" and "USDC" are simulated tokens issued by our `UsycIssuer` and `UsdcIssuer` demo parties. They are not issued by, connected to, or endorsed by Circle or Hashnote. Say so in the UI (a visible "Simulated tokens" badge) and in all copy.
 
+> **Status (2026-09-23): all six steps are done.** How to run it: [`run-locally.md`](run-locally.md).
+
 ## Goal
 
 A usable product for real users, in the style of the Hashnote USYC app (dark dashboard, price and yield up top, one Subscribe/Redeem panel, holdings and activity below). Scope for now is **only the simulated yield asset** (faucet, subscribe, wallet). Later pages add split (PT/YT) and trading.
@@ -109,7 +111,7 @@ Fonts: **Inter** for text, **JetBrains Mono** for numbers (tabular figures so am
 | 3 | Backend `exodus-app/api`: NestJS + Prisma + Postgres; auth, applications, admin approve (allocate party + user, create pass), faucet, index-history recorder, custodial command endpoints | Done (2026-09-23). NestJS 12, Prisma 7.10 (the npm `latest` tag of the CLI is an 8.0 RC, so we pinned the stable 7.10), Postgres 18 in Docker. Built with plain `tsc` (TS 7 emits decorator metadata). Checked end to end through the Vite proxy: sign-up, apply, approve, faucet (+ 429 cooldown), subscribe, send to Bank, send to Operator refused, re-provisioning, price recording |
 | 4 | Pages: landing, signup/login, onboarding form, admin | Done (2026-09-23). Plain `useState` forms + React Query mutations, with API field errors under each input; `RequireStage` guard component (redirects by profile); searchable country combobox (`i18n-iso-countries` + shadcn Command). `/app` is a placeholder (party id + copy) until step 5. Checked in headless Chromium: sign-up → form → pending → admin approve → "You are approved" appears by itself → `/app` → log out |
 | 5 | `/app` dashboard: price strip, chart, subscribe, faucet, holdings, activity | Done (2026-09-23). Price strip (price, 30-day APY, demo date, days to maturity, Live/Paused), Recharts area chart with crosshair tooltip and a screen-reader table, Subscribe/Redeem panel (Redeem explained as spec gap 13), faucet with countdown, holdings with USD value and party id, send form, activity from the ledger history. Checked in headless Chromium (dark, light, 390 px): faucet, subscribe 40 USDC, send to Operator refused, send 5 USYC to Bank, activity rows |
-| 6 | Update README, CLAUDE.md and the spec; typecheck, lint, tests | To do |
+| 6 | Update README, CLAUDE.md and the spec; typecheck, lint, tests | Done (2026-09-23). Unit tests with `node:test` (43: ledger 19, API 15, web 9; `npm test` in `exodus-app`), root `README.md` with screenshots (`docs/images/`), spec updated (architecture, trust in the custodial backend, gaps 15–17), `run-locally.md`. The API test found and fixed a bug: `COOKIE_SECURE=false` was read as `true`. Final run: 24 Daml tests, 43 unit tests, typecheck, lint, web build, migrations on an empty database, full browser flow |
 
 Update this table as steps land.
 

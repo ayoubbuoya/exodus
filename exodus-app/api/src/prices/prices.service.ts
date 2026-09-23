@@ -4,6 +4,7 @@ import { Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { daysToMaturity, getRateIndex, isRateValid } from "@exodus/ledger";
 import { LedgerService } from "../ledger/ledger.service.ts";
 import { PrismaService } from "../prisma/prisma.service.ts";
+import { annualizedGrowthPercent } from "./apy.ts";
 import { toHttpError } from "../ledger/ledger-errors.ts";
 
 // One chart point, for example { index: "1.0250000000", simTime: 2027-01-01, publishedAt: ... }.
@@ -33,8 +34,6 @@ const INDEX_DECIMALS = 10;
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const APY_WINDOW_DAYS = 30;
-// Below this span the annualised number jumps around too much to be useful.
-const MIN_APY_SPAN_DAYS = 7;
 
 @Injectable()
 export class PricesService {
@@ -73,10 +72,7 @@ export class PricesService {
     }
   }
 
-  // APY from the last 30 demo days, annualised with compounding:
-  //   apy = (indexNow / indexThen) ^ (365 / days) - 1
-  // Example: 1.0125 on Nov 15 and 1.0043 on Oct 16 (30 days):
-  //   (1.0125 / 1.0043) ^ (365 / 30) - 1 = 0.1036 -> 10.36 %
+  // APY from the last 30 demo days (formula and example in apy.ts).
   // We take the newest stored point that is at least 30 days older; early in
   // the demo (less than 30 days of history) we use the oldest point instead.
   private async computeApy30d(indexNow: string, simTimeNow: Date): Promise<number | null> {
@@ -87,13 +83,7 @@ export class PricesService {
       return null;
     }
     const days = (simTimeNow.getTime() - reference.simTime.getTime()) / MS_PER_DAY;
-    if (days < MIN_APY_SPAN_DAYS) {
-      return null;
-    }
-    // Number is fine here: the result is only displayed, never used for money.
-    const growth = Number(indexNow) / reference.index.toNumber();
-    const apy = Math.pow(growth, 365 / days) - 1;
-    return Math.round(apy * 10_000) / 100;
+    return annualizedGrowthPercent(Number(indexNow), reference.index.toNumber(), days);
   }
 
   private async findPoint(simTime: { lte?: Date; lt?: Date }, order: "asc" | "desc") {

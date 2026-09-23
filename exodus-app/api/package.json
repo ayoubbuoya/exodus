@@ -11,7 +11,8 @@
     "db:migrate": "prisma migrate deploy",
     "db:migrate:dev": "prisma migrate dev",
     "db:reset": "prisma migrate reset --force",
-    "db:seed": "npm run build && node dist/scripts/seed-admin.js"
+    "db:seed": "npm run build && node dist/scripts/seed-admin.js",
+    "test": "npm run build && node --test \"dist/**/*.test.js\""
   },
   "type": "module",
   "private": true,

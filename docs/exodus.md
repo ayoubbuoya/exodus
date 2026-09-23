@@ -157,9 +157,13 @@ flowchart LR
   W[Any Canton wallet] -->|CIP-56 Holding view| H
   W -->|CIP-56 TransferFactory_Transfer| TF
   TF -->|archive inputs, create outputs| H
-  UI[Web UI] -->|JSON Ledger API| M
-  UI --> Q
-  OB[Operator bot - NestJS] -->|settle requests, call Mature| M
+  UI[Web app] -->|/api: session cookie| API[API backend - NestJS]
+  API --> DB[(PostgreSQL)]
+  API -->|JSON Ledger API: custodial commands + disclosure| H
+  API -->|create ClientAccess, faucet mint| TF
+  LAB[/lab page/] -->|JSON Ledger API, any demo party| RI
+  UI -. later .-> Q
+  OB[Operator bot - in the API, planned] -->|settle requests, call Mature| M
   OB --> PT
   OB --> YT
   ORB[Oracle bot] -->|Publish index + simTime| RI
@@ -169,8 +173,8 @@ Off-ledger components (in `exodus-app/`, see its README):
 
 - **Operator bot (NestJS)** (planned): watches `RedeemRequest`, `ClaimRequest`, and `MergeRequest`, then settles them. Merges vault pieces. Calls `Mature` once per market.
 - **Oracle bot** (done, plain Node script for now): moves the index and the demo clock along the section 9 path (1.00 on Oct 1, 1.025 on Jan 1, 1.05 on Apr 1), sends heartbeats so a valid price snapshot always exists, and archives expired snapshots.
-- **Web UI** (walking skeleton done, client app in progress): the skeleton shows the index, the demo clock, CIP-56 balances with USD value, a CIP-56 send form and a per-party "what can I see?" privacy table; it moves to the `/lab` page. The client app adds a landing page, sign-up, an access form, an admin approval page and a Hashnote-style `/app` dashboard (price, chart, subscribe, faucet, holdings). Later: PT price, implied fixed APY, YT yield, and a maturity countdown. Plan and decisions: [`client-app.md`](client-app.md).
-- **API backend (NestJS + PostgreSQL, planned)** in `exodus-app/api`: user accounts, access applications, admin approval (allocates the client's custodial party and creates its `ClientAccess` pass), the USDC faucet, price history for the chart, and custodial command endpoints (it submits a client's commands with the shared contracts attached as disclosed contracts). The operator bot will live in the same service.
+- **Web app** (done, `exodus-app/web`): landing page, sign-up and login, the access form with its review status, the admin review queue (`/admin`), and a Hashnote-style `/app` dashboard: price strip (price, 30-day APY, demo date, live status), price chart, Subscribe/Redeem panel, test USDC faucet, holdings with USD value, a send form and an activity list read from the ledger. The original walking skeleton lives on at `/lab`: act as any demo party, move the demo clock, and use the "what can this party see?" privacy table. Later: PT price, implied fixed APY, YT yield, and a maturity countdown. Plan and decisions: [`client-app.md`](client-app.md).
+- **API backend** (done, NestJS + Prisma + PostgreSQL, `exodus-app/api`): email/password accounts with database sessions, access applications, admin approval (allocates the client's custodial party and ledger user, and creates their `ClientAccess` pass), the test USDC faucet, the USYC price history, and custodial command endpoints (it submits a client's commands with the shared contracts attached as disclosed contracts). It re-creates client wallets after a sandbox restart. The operator bot will live in the same service.
 
 ## 7. Smart contracts
 
@@ -260,11 +264,13 @@ sequenceDiagram
 1. Alice signs up with email and password and sends a light access form: full name, country, and "I understand these are simulated test tokens".
 2. The platform admin approves her on `/admin`.
 3. The backend allocates her **custodial** Canton party and ledger user, and the Operator creates **one `ClientAccess` pass** for her. From now on she can do everything a client can do.
-4. **Faucet:** Alice clicks "Get 100 test USDC". The backend checks (in the database) that she is approved and her cooldown has passed, then `UsdcIssuer` creates a 100 USDC `Holding` for her. No pass is needed for this, because only the issuer signs.
+4. **Faucet:** Alice clicks "Claim 100 test USDC". The backend checks (in the database) that she is approved and her 24-hour cooldown has passed, then `UsdcIssuer` creates a 100 USDC `Holding` for her. No pass is needed for this, because only the issuer signs. The cooldown check is one conditional SQL update, so a double click cannot mint twice.
 5. **Using the fund without being on its observer list:** the backend submits Alice's `Subscribe` with the `UsycFund` and the newest `RateIndex` attached as **disclosed contracts** (read as UsycIssuer), plus her pass. The contract checks the pass on-ledger, so the whitelist is enforced by Canton, not only by our database.
 6. **Sending:** Alice sends 50 USYC to Bob through the CIP-56 factory. The app puts Alice's and Bob's passes into `extraArgs.context` and discloses the factory and Bob's pass (both read as UsycIssuer, which signs one and observes the other). If Bob has no pass, the transfer is refused: tokens only move between approved clients.
 
-Why one pass instead of adding Alice to each contract's `users` list: see section 11.
+7. **Activity:** the dashboard lists Alice's token movements ("Received +100 USDC", "Subscribed −40 USDC · +39.92 USYC", "Sent −10 USYC"). The backend rebuilds them from the ledger's transaction history for her party, so tokens that other clients send her show up too.
+
+Why one pass instead of adding Alice to each contract's `users` list: see section 11. Step-by-step instructions to run all of this locally: [`run-locally.md`](run-locally.md).
 
 ### 8.0 Subscribe (get USYC with USDC)
 
@@ -443,6 +449,7 @@ Say these openly in the pitch. Judges respect honesty more than hidden problems.
 - **Operator is trusted**: it settles requests and could delay them. Users can cancel.
 - **Oracle is trusted**: for the index and the demo clock. It must also stay online: price snapshots expire after 30 s, so the oracle bot sends a heartbeat (the same price again) when the clock is not moving.
 - **Issuers are trusted**: they sign holdings. `UsycIssuer` and `UsdcIssuer` stand in for Circle.
+- **The backend is trusted (custodial wallets)**: it holds every client's ledger user and submits commands for them after checking the login. It cannot bypass the contracts (a subscribe still needs a valid pass and price, a transfer needs both passes), but it could act for a client without asking. Self-custody (a Canton external party whose key stays in the user's browser) is the later step.
 
 ### Known gaps (to fix)
 
@@ -462,6 +469,9 @@ Say these openly in the pitch. Judges respect honesty more than hidden problems.
 | 12 | ~~Stale `rateCid`~~ **Fixed.** Every `Publish` used to archive the only `RateIndex`, so a command holding the old id failed (`CONTRACT_NOT_FOUND`, `UNKNOWN_CONTRACT_SYNCHRONIZERS`, `LOCAL_VERDICT_LOCKED_CONTRACTS`). The UI lost 6 of 6 races against a bot publishing every 0.3 s, and 8 of 10 subscribes needed a retry at 1 s. | `Subscribe` and `Split` failed whenever the oracle published between the user's read and submit | Done: the price has two templates. The oracle writes to a private `RateFeed`; each `Publish` creates a `RateIndex` snapshot that stays usable for 30 s and is not archived by the next publish (the Canton Coin `OpenMiningRound` pattern). Result: 10 of 10 subscribes with **0 retries** while the bot publishes every 1 s. The oracle bot sends heartbeats and archives expired snapshots. See gap 14 for the trade-off. |
 | 13 | No USYC redemption (USYC back to USDC) | Users cannot exit USYC to cash | Request + settle (`RedeemUsycRequest`), so many redeemers do not fight over the fund's USDC holdings |
 | 14 | While two snapshots are valid, a user may pick the older, lower price (the index only goes up) | `Subscribe` at an older index gives slightly more USYC: at most about one window of yield (in the demo, 30 s is a few demo days; in production, with a daily price, it is negligible). `Split` at an older index gives fewer PT/YT, so there is no gain. | Keep the window short. If needed: `Subscribe` could require `rate.simTime >= fund.lastSimTime`, tracked on a consuming fund record, at the cost of contention |
+| 15 | Subscribe and send read the disclosed contracts (fund, price, factory, receiver's pass) with the **client's** ledger user | Works only on a ledger without authentication (the local sandbox). With auth, a client's user cannot read as UsycIssuer | Read disclosures with the backend's ledger user and submit with the client's: give `subscribeUsyc` / `sendHoldings` two ledger clients |
+| 16 | The activity list re-reads the party's whole ledger history on every request | Slow on a long-lived ledger | Store the last offset per client and read only new transactions (or stream `/v2/updates`) |
+| 17 | The price chart samples the newest price every 5 s and keeps only changes | Steps published faster than that (for example several "+1 week" clicks) are missing from the chart | Record every `RateIndex` from the Oracle's transaction stream instead of polling |
 
 ## 13. Hackathon plan
 
@@ -475,7 +485,7 @@ HackCanton Season 3 is a 5-week online hackathon. Two official posts give differ
 | 2 | Fix known gap 12 (stale `rateCid`): `RateFeed` + short-lived `RateIndex` snapshots | Done |
 | 3 | `ClientAccess` passes + explicit disclosure (fixes gap 9, most of gap 11, and the client-list leak) | Done |
 | 2 | Fix known gaps 1, 2, 4. Operator bot (NestJS). | To do |
-| 3 | Client app: Tailwind/shadcn UI, landing, sign-up, access form, admin approval, custodial wallets, faucet, Hashnote-style dashboard; skeleton kept as `/lab` (see `client-app.md`) | In progress |
+| 3 | Client app: Tailwind/shadcn UI, landing, sign-up, access form, admin approval, custodial wallets, faucet, Hashnote-style dashboard; skeleton kept as `/lab` (see `client-app.md`) | Done |
 | 3 | Web UI: markets, RFQ screen, yield chart, maturity countdown | To do |
 | 4 | Deploy on LocalNet / DevNet. Record demo video. | To do |
 | 5 | Pitch deck. Stretch: token standard interfaces for PT/YT, registry API. | To do |
@@ -511,8 +521,9 @@ HackCanton Season 3 is a 5-week online hackathon. Two official posts give differ
 | Ledger client | JSON Ledger API v2 | `openapi-fetch` 0.17 with types from the Canton 3.5.18 OpenAPI spec (`openapi-typescript` 7.13); Daml types from `dpm codegen-js` + `@daml/types` 3.5.3. `@daml/ledger` is not used (JSON API v1 only). |
 | Local ledger | `dpm sandbox` | Canton 3.5.18, JSON API on port 7575, no auth |
 | Bots | Oracle bot: Node.js 24 TypeScript script. Operator bot: NestJS | Oracle bot done (`exodus-app/oracle-bot`). Operator bot planned. |
-| UI | React 19.3 + Vite 8.3 + TypeScript 7.0 + TanStack Query 5 + Tailwind CSS 4 + shadcn/ui + React Router + Recharts | Walking skeleton done (`exodus-app/web`); client app in progress |
-| API backend | NestJS + Prisma + PostgreSQL (Docker) | Planned (`exodus-app/api`): accounts, access applications, custodial wallets, faucet |
+| UI | React 19.3 + Vite 8.3 + TypeScript 7.0 + TanStack Query 5 + Tailwind CSS 4.3 + shadcn/ui + React Router 8 + Recharts 3.10 | Done (`exodus-app/web`) |
+| API backend | NestJS 12 + Prisma 7.10 (`@prisma/adapter-pg`) + PostgreSQL 18 (Docker), Argon2id passwords | Done (`exodus-app/api`). Built with plain `tsc` (TypeScript 7 emits the decorator metadata NestJS needs) |
+| Off-ledger tests | Node's built-in test runner (`node:test`) | `npm test` in `exodus-app`: ledger helpers (decimal maths, activity, oracle path), API (APY, ledger error mapping, env check), web helpers |
 
 Check the latest versions before you start each part. They change often.
 
@@ -524,6 +535,10 @@ dpm build --all      # builds main, then test
 
 cd test
 dpm test             # runs every Daml Script test (HoldingTest, TokenStandardTest, ...)
+
+cd ../../exodus-app
+npm test             # off-ledger unit tests (ledger client helpers, API, web)
+npm run typecheck    # all TypeScript packages
 ```
 
 ## 16. Glossary
