@@ -11,15 +11,14 @@ import {
   ShieldCheckIcon,
   WalletIcon,
 } from 'lucide-react'
+import { useProfile } from '@/api/hooks'
+import { homePathFor } from '@/auth/home-path'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
 // The public home page. It explains Exodus to a first-time visitor and leads
 // them to "Request access" (the onboarding flow in docs/client-app.md).
-//
-// "Request access" is disabled until the backend (sign-up + access form) lands.
 export function LandingPage() {
   return (
     <div className="mx-auto max-w-6xl px-4">
@@ -59,21 +58,18 @@ function Hero() {
   )
 }
 
-// Disabled for now, with a tooltip saying why (a disabled button with no reason is confusing).
+// Visitors go to sign-up. A logged-in user goes on where they left off
+// (onboarding, their wallet, or the admin queue).
 function RequestAccessButton() {
+  const { data: profile } = useProfile()
+  const isLoggedIn = profile !== undefined && profile !== null
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        {/* A disabled <button> does not fire hover events, so the tooltip listens on this <span>. */}
-        <span tabIndex={0}>
-          <Button size="lg" disabled>
-            Request access
-            <ArrowRightIcon data-icon="inline-end" />
-          </Button>
-        </span>
-      </TooltipTrigger>
-      <TooltipContent>Opening soon: sign-up and access requests are being built.</TooltipContent>
-    </Tooltip>
+    <Button asChild size="lg">
+      <Link to={isLoggedIn ? homePathFor(profile) : '/signup'}>
+        {isLoggedIn ? 'Continue' : 'Request access'}
+        <ArrowRightIcon data-icon="inline-end" />
+      </Link>
+    </Button>
   )
 }
 

@@ -1,21 +1,36 @@
 import { NavLink, Outlet } from 'react-router'
 import { cn } from 'cn'
+import { useProfile } from '@/api/hooks'
+import type { Profile } from '@/api/types'
 import { SimulatedBadge } from '@/components/SimulatedBadge'
 import { Logo } from './Logo.tsx'
 import { ThemeToggle } from './ThemeToggle.tsx'
+import { UserMenu } from './UserMenu.tsx'
 
-// Links in the top bar. More are added as pages land (App, Admin, ...).
-const NAV_LINKS = [{ to: '/lab', label: 'Lab' }]
+// Links in the top bar, depending on who is logged in:
+//   everyone: Lab · approved clients: App · admins: Admin
+function navLinksFor(profile: Profile | null | undefined): { to: string; label: string }[] {
+  const links: { to: string; label: string }[] = []
+  if (profile?.wallet != null) {
+    links.push({ to: '/app', label: 'App' })
+  }
+  if (profile?.role === 'ADMIN') {
+    links.push({ to: '/admin', label: 'Admin' })
+  }
+  links.push({ to: '/lab', label: 'Lab' })
+  return links
+}
 
 // The frame around every page: sticky top bar, the page itself (<Outlet />), footer.
 export function SiteLayout() {
+  const { data: profile } = useProfile()
   return (
     <div className="flex min-h-svh flex-col">
       <header className="sticky top-0 z-40 border-b bg-background/80 backdrop-blur">
-        <div className="mx-auto flex h-14 max-w-6xl items-center gap-4 px-4">
+        <div className="mx-auto flex h-14 max-w-6xl items-center gap-2 px-4 sm:gap-4">
           <Logo />
           <nav aria-label="Main" className="flex items-center gap-1">
-            {NAV_LINKS.map((link) => (
+            {navLinksFor(profile).map((link) => (
               <NavLink
                 key={link.to}
                 to={link.to}
@@ -31,9 +46,10 @@ export function SiteLayout() {
               </NavLink>
             ))}
           </nav>
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex items-center gap-1 sm:gap-2">
             <SimulatedBadge />
             <ThemeToggle />
+            <UserMenu />
           </div>
         </div>
       </header>

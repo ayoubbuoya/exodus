@@ -22,7 +22,11 @@ const DEFAULT_RATE_LIMIT = { ttl: 60_000, limit: 120 };
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true, validate: validateEnvironment }),
-    ThrottlerModule.forRoot([DEFAULT_RATE_LIMIT]),
+    ThrottlerModule.forRoot({
+      throttlers: [DEFAULT_RATE_LIMIT],
+      // Shown to the user (the default is "ThrottlerException: Too Many Requests").
+      errorMessage: "Too many attempts. Please wait a minute and try again.",
+    }),
     ScheduleModule.forRoot(),
     PrismaModule,
     LedgerModule,

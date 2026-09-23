@@ -46,6 +46,9 @@ Example with Alice:
 | I | Sandbox restarts | **Auto re-provision**: every `WALLET_CHECK_SECONDS` the API re-creates wallets whose party is gone | The sandbox is in-memory; clients keep their account, balances restart at 0 and the faucet cooldown resets |
 | J | First admin | **Seed script** `npm run db:seed` from `ADMIN_EMAIL` / `ADMIN_PASSWORD` | Explicit; nobody can sign up as admin through the API |
 | K | Transfer receiver | **Party id**, not email | Looking clients up by email would leak who is a client |
+| L | Forms | **Plain state** (`useState` + React Query mutation); the API validates and its field errors show under each input | No form library for 2–3 field forms |
+| M | Page guards | **`<RequireStage stage=…>`** component reading `useProfile()` | Same data style as the rest of the app |
+| N | Country field | **Searchable combobox**, ISO codes from `i18n-iso-countries` | Same codes the API validates |
 
 ### Why E2 (`ClientAccess`) and not E1 (adding clients to `users` lists)
 
@@ -102,11 +105,17 @@ Fonts: **Inter** for text, **JetBrains Mono** for numbers (tabular figures so am
 | 1 | Frontend foundation: Tailwind, shadcn/ui, router, theme, landing page; the old screens moved to `/lab` with no behaviour change | Done (2026-09-23). Own `ThemeProvider` instead of `next-themes` (its inline script makes React 19 log an error) |
 | 2 | Contracts: `ClientAccess` template; `Subscribe` and the transfer factory take the pass; shared contracts read through disclosure; tests; bootstrap gives Alice and Bank passes; ledger client attaches disclosed contracts | Done (2026-09-23). Option B: transfers check sender and receiver passes. 24 Daml tests pass; checked in the browser on a fresh sandbox. Bootstrap now retries the DAR upload while the sandbox is still connecting to its synchronizer |
 | 3 | Backend `exodus-app/api`: NestJS + Prisma + Postgres; auth, applications, admin approve (allocate party + user, create pass), faucet, index-history recorder, custodial command endpoints | Done (2026-09-23). NestJS 12, Prisma 7.10 (the npm `latest` tag of the CLI is an 8.0 RC, so we pinned the stable 7.10), Postgres 18 in Docker. Built with plain `tsc` (TS 7 emits decorator metadata). Checked end to end through the Vite proxy: sign-up, apply, approve, faucet (+ 429 cooldown), subscribe, send to Bank, send to Operator refused, re-provisioning, price recording |
-| 4 | Pages: landing, signup/login, onboarding form, admin | To do |
+| 4 | Pages: landing, signup/login, onboarding form, admin | Done (2026-09-23). Plain `useState` forms + React Query mutations, with API field errors under each input; `RequireStage` guard component (redirects by profile); searchable country combobox (`i18n-iso-countries` + shadcn Command). `/app` is a placeholder (party id + copy) until step 5. Checked in headless Chromium: sign-up → form → pending → admin approve → "You are approved" appears by itself → `/app` → log out |
 | 5 | `/app` dashboard: price strip, chart, subscribe, faucet, holdings, activity | To do |
 | 6 | Update README, CLAUDE.md and the spec; typecheck, lint, tests | To do |
 
 Update this table as steps land.
+
+## Web app structure (step 4)
+
+- `web/src/api/`: `client.ts` (`apiRequest`, `ApiError` with `fieldErrors`), `types.ts` (response shapes, written by hand to match the API), `hooks.ts` (one React Query hook per call), `query-client.ts` (any 401 clears the cached profile, so guards send the user to `/login`).
+- `web/src/auth/`: `RequireStage` (`signed-out` for /login and /signup, `signed-in` for /onboarding, `approved` for /app, `admin` for /admin) and `homePathFor` (admin → /admin, wallet → /app, else /onboarding).
+- Logging out reloads `/` with `window.location.assign`. A router navigation would lose the race against the guard of the current page, which would jump to /login.
 
 ## Backend API (step 3)
 
