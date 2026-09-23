@@ -387,8 +387,8 @@ HackCanton Season 3 is a 5-week online hackathon. Two official posts give differ
 
 | Part | Tech | Version notes |
 |---|---|---|
-| Smart contracts | Daml | Tested with **Daml SDK 3.4.11** (GitHub release, Feb 2026) |
-| Build tool | `daml` CLI now, `dpm` later | The old `daml` assistant is deprecated in favor of `dpm` |
+| Smart contracts | Daml | **Daml SDK 3.5.11** (`dpm version --active`) |
+| Build tool | `dpm` | The old `daml` assistant is deprecated in favor of `dpm` |
 | Network | Canton LocalNet / DevNet | DevNet was listed at Canton 3.5.1 in June 2026. Match `sdk-version` to what the hackathon uses. |
 | Bots | NestJS (TypeScript) | Planned |
 | UI | Web frontend | Planned |
@@ -398,11 +398,9 @@ Check the latest versions before you start each part. They change often.
 ### Run the tests
 
 ```bash
-daml build
-daml test    # runs Test.Demo:demo and Test.Demo:mergeTest
+dpm build
+dpm test    # runs Test.Demo:demo and Test.Demo:mergeTest
 ```
-
-With dpm: `dpm build` and `dpm test`.
 
 ## 16. Glossary
 
