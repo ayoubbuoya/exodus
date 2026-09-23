@@ -11,9 +11,10 @@ Exodus: private fixed-rate yield markets on Canton, built for HackCanton Season 
 **Current state:** done so far:
 - `main/daml/Exodus/Holding.daml`: `Holding` (USYC/USDC, issuer signs, owner observes; `Transfer`/`SplitOff`/`MergeWith`), `roundDown6`, and a CIP-56 `HoldingV1.Holding` interface instance.
 - `main/daml/Exodus/TransferFactory.daml`: `HoldingTransferFactory`, a CIP-56 v1 `TransferFactory` that completes transfers in one step.
-- Tests in `test/daml/Exodus/HoldingTest.daml` and `TokenStandardTest.daml`.
+- `main/daml/Exodus/Oracle.daml`: `RateIndex` (oracle signs; index + demo clock `simTime`). `Publish` archives the old one and creates the new one; index and time can only go up. Callers pass the `rateCid` in and `fetch` it.
+- Tests in `test/daml/Exodus/HoldingTest.daml`, `TokenStandardTest.daml` and `OracleTest.daml`.
 
-Still to do (see spec §7): `Oracle`, `Tokens`, `Market`, `Rfq` (with `payFrom`) and the demo test. Put new code in `main/daml/Exodus/` and tests in `test/daml/Exodus/`, with module names `Exodus.<Name>`. The off-ledger parts (NestJS operator bot, oracle bot, web UI, CIP-56 registry API) are planned but not started.
+Still to do (see spec §7): `Tokens`, `Market`, `Rfq` (with `payFrom`) and the demo test. Put new code in `main/daml/Exodus/` and tests in `test/daml/Exodus/`, with module names `Exodus.<Name>`. The off-ledger parts (NestJS operator bot, oracle bot, web UI, CIP-56 registry API) are planned but not started.
 
 "USYC"/"USDC" are simulations issued by the `UsycIssuer`/`UsdcIssuer` demo parties, not by Circle. Keep that clear in code comments, docs and UI.
 

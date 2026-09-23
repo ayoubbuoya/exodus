@@ -183,7 +183,7 @@ exodus-contract/
     daml/Exodus/
       Holding.daml                # USYC + USDC holdings, roundDown6, CIP-56 Holding view   [done]
       TransferFactory.daml        # CIP-56 TransferFactory for our holdings                [done]
-      Oracle.daml                 # RateIndex (index + demo clock)                          [to do]
+      Oracle.daml                 # RateIndex (index + demo clock)                          [done]
       Tokens.daml                 # MarketTerms, PT, YT, MaturitySnapshot, Redeem/Claim     [to do]
       Market.daml                 # Market (Split, Mature, RequestMerge), MergeRequest      [to do]
       Rfq.daml                    # RfqRequest, Quote (private DvP), payFrom helper          [to do]
@@ -192,6 +192,7 @@ exodus-contract/
     daml/Exodus/
       HoldingTest.daml            # lifecycle, failures, privacy, roundDown6               [done]
       TokenStandardTest.daml      # wallet view + TransferFactory transfers                [done]
+      OracleTest.daml             # publish, failures, privacy                              [done]
       DemoTest.daml               # the worked example in section 9                         [to do]
 ```
 
@@ -421,7 +422,7 @@ HackCanton Season 3 is a 5-week online hackathon. Two official posts give differ
 | Week | Goal | Status |
 |---|---|---|
 | 1 | Daml core: Holding (USYC/USDC) with CIP-56 `Holding` + `TransferFactory` | Done (tests pass) |
-| 1-2 | Daml core: Oracle, Split, PT/YT, Claim, Redeem, Merge, RFQ, demo test | To do |
+| 1-2 | Daml core: Oracle (done), Split, PT/YT, Claim, Redeem, Merge, RFQ, demo test | To do |
 | 2 | Fix known gaps 1, 2, 4. Operator bot (NestJS). Oracle bot. | To do |
 | 3 | Web UI: markets, RFQ screen, yield chart, maturity countdown | To do |
 | 4 | Deploy on LocalNet / DevNet. Record demo video. | To do |

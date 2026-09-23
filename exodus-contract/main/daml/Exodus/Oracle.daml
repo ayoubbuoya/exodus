@@ -1,0 +1,69 @@
+-- | The oracle price feed for the Exodus demo: the USYC index and the demo clock.
+--
+-- Real USYC publishes its price through an oracle feed. Here the 'Oracle' demo
+-- party publishes it instead. One 'RateIndex' contract holds the CURRENT values:
+--
+--   RateIndex { oracle = Oracle, instrument = "USYC", index = 1.025, simTime = Jan 1 2027 }
+--
+-- index 1.025 means 1 USYC = 1.025 USD. The index only goes up, because the fund
+-- only earns interest.
+--
+-- simTime is a DEMO clock. Ledger time cannot be moved forward on a real
+-- network, but the demo must show 6 months of yield in 3 minutes. So maturity
+-- logic uses simTime, not ledger time (spec known gap 6).
+--
+-- How other contracts read the current index (there are no contract keys in
+-- Daml 3.x, so nobody can look it up by name):
+--   The caller passes the RateIndex contract ID in, for example
+--   Split(holdingCid, rateCid), and the choice 'fetch'es it.
+--   Every 'Publish' ARCHIVES the old RateIndex and creates a new one. So an old
+--   contract ID stops working: if the index went from 1.00 to 1.05, Bank cannot
+--   pass the old 1.00 contract to get more PT. The 'fetch' would fail.
+module Exodus.Oracle where
+
+
+template RateIndex
+  with
+    oracle     : Party    -- who publishes the index and signs it (the Oracle demo party)
+    operator   : Party    -- runs the markets; reads the index to settle claims and call Mature
+    readers    : [Party]  -- other parties that may read it, for example [Bank, Alice]
+    instrument : Text     -- which asset this index is for, for example "USYC"
+    index      : Decimal  -- price of 1 token in USD, for example 1.025
+    simTime    : Time     -- the demo clock, for example Jan 1 2027
+  where
+    -- A zero or negative price makes no sense, and later formulas divide by
+    -- the index (for example 'ptAmount / maturityIndex').
+    ensure index > 0.0 && instrument /= ""
+
+    -- Only the oracle vouches for the price.
+    signatory oracle
+
+    -- The operator and the readers can see the index. This matters: in Daml, a
+    -- party can only 'fetch' a contract it can see. When Bank calls 'Split',
+    -- the choice fetches the RateIndex as Bank, so Bank must be a reader.
+    observer operator, readers
+
+    -- ---------------------------------------------------------------------
+    -- Publish: replace the index and the demo clock with newer values.
+    --
+    -- Example: on Jan 1 2027 the fund has earned 2.5%.
+    --   Before: RateIndex(index = 1.00,  simTime = Oct 1 2026)
+    --   Publish 1.025, Jan 1 2027
+    --   After:  RateIndex(index = 1.025, simTime = Jan 1 2027)  (the old one is archived)
+    -- ---------------------------------------------------------------------
+    choice Publish : ContractId RateIndex
+      with
+        newIndex   : Decimal
+        newSimTime : Time
+      controller oracle
+      do
+        -- We use >= and not >, so the oracle can move the clock forward while
+        -- the index stays the same (or the other way around).
+        assertMsg "index can only go up" (newIndex >= index)
+        assertMsg "simTime can only go forward" (newSimTime >= simTime)
+
+        -- Publish is consuming (the default), so this contract is already
+        -- archived. Create the replacement with the new values.
+        create this with
+          index = newIndex
+          simTime = newSimTime

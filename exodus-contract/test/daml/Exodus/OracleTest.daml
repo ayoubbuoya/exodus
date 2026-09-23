@@ -1,0 +1,170 @@
+-- | Tests for Exodus.Oracle.
+--
+-- Run them with:
+--   cd exodus-contract && dpm build --all
+--   cd test && dpm test --files daml/Exodus/OracleTest.daml
+module Exodus.OracleTest where
+
+import DA.Assert ((===))  -- 'a === b' fails the test if a and b are not equal
+import DA.Date (Month(..), date)
+import DA.Time (addRelTime, days, time)
+import Daml.Script
+import Exodus.Oracle
+
+
+-- Demo clock dates from the worked example in docs/exodus.md section 9.
+oct1 : Time
+oct1 = time (date 2026 Oct 1) 0 0 0
+
+jan1 : Time
+jan1 = time (date 2027 Jan 1) 0 0 0
+
+apr1 : Time
+apr1 = time (date 2027 Apr 1) 0 0 0
+
+
+-- | The happy path: the oracle publishes 1.00 -> 1.025 -> 1.05.
+oraclePublish : Script ()
+oraclePublish = script do
+  oracle   <- allocateParty "Oracle"
+  operator <- allocateParty "Operator"
+  bank     <- allocateParty "Bank"
+  alice    <- allocateParty "Alice"
+
+  -- 1. Oct 1 2026: the oracle starts the feed at index 1.00.
+  rate1 <- submit oracle do
+    createCmd RateIndex with
+      oracle = oracle
+      operator = operator
+      readers = [bank, alice]
+      instrument = "USYC"
+      index = 1.0
+      simTime = oct1
+
+  -- 2. Jan 1 2027: the fund has earned 2.5%.
+  rate2 <- submit oracle do
+    exerciseCmd rate1 Publish with newIndex = 1.025; newSimTime = jan1
+
+  Some r2 <- queryContractId bank rate2
+  r2.index   === 1.025
+  r2.simTime === jan1
+
+  -- The old contract is archived, so nobody can use the old 1.00 price.
+  None <- queryContractId bank rate1
+
+  -- 3. Apr 1 2027: maturity, index 1.05.
+  rate3 <- submit oracle do
+    exerciseCmd rate2 Publish with newIndex = 1.05; newSimTime = apr1
+
+  Some r3 <- queryContractId operator rate3
+  r3.index   === 1.05
+  r3.simTime === apr1
+  None <- queryContractId operator rate2
+
+  -- 4. The clock can move while the index stays the same (and the reverse).
+  rate4 <- submit oracle do
+    exerciseCmd rate3 Publish with newIndex = 1.05; newSimTime = addRelTime apr1 (days 1)
+  _ <- submit oracle do
+    exerciseCmd rate4 Publish with newIndex = 1.051; newSimTime = addRelTime apr1 (days 1)
+
+  -- There is always exactly one live RateIndex.
+  bankView <- query @RateIndex bank
+  length bankView === 1
+
+  pure ()
+
+
+-- | Things that must NOT work.
+oracleFailures : Script ()
+oracleFailures = script do
+  oracle   <- allocateParty "Oracle"
+  operator <- allocateParty "Operator"
+  bank     <- allocateParty "Bank"
+
+  -- A zero index is rejected by 'ensure'.
+  submitMustFail oracle do
+    createCmd RateIndex with
+      oracle = oracle
+      operator = operator
+      readers = [bank]
+      instrument = "USYC"
+      index = 0.0
+      simTime = oct1
+
+  -- An empty instrument is rejected by 'ensure'.
+  submitMustFail oracle do
+    createCmd RateIndex with
+      oracle = oracle
+      operator = operator
+      readers = [bank]
+      instrument = ""
+      index = 1.0
+      simTime = oct1
+
+  -- Bank cannot create a fake index: only the oracle can sign it.
+  submitMustFail bank do
+    createCmd RateIndex with
+      oracle = oracle
+      operator = operator
+      readers = [bank]
+      instrument = "USYC"
+      index = 2.0
+      simTime = oct1
+
+  rate <- submit oracle do
+    createCmd RateIndex with
+      oracle = oracle
+      operator = operator
+      readers = [bank]
+      instrument = "USYC"
+      index = 1.025
+      simTime = jan1
+
+  -- The index cannot go down.
+  submitMustFail oracle do
+    exerciseCmd rate Publish with newIndex = 1.0; newSimTime = apr1
+
+  -- The clock cannot go backwards.
+  submitMustFail oracle do
+    exerciseCmd rate Publish with newIndex = 1.05; newSimTime = oct1
+
+  -- Bank and the operator can see the index but cannot publish.
+  submitMustFail bank do
+    exerciseCmd rate Publish with newIndex = 1.05; newSimTime = apr1
+  submitMustFail operator do
+    exerciseCmd rate Publish with newIndex = 1.05; newSimTime = apr1
+
+  -- After all those failures, the original index is still live and unchanged.
+  Some r <- queryContractId bank rate
+  r.index === 1.025
+
+  pure ()
+
+
+-- | Privacy: only the oracle, the operator and the readers see the index.
+oraclePrivacy : Script ()
+oraclePrivacy = script do
+  oracle   <- allocateParty "Oracle"
+  operator <- allocateParty "Operator"
+  bank     <- allocateParty "Bank"
+  outsider <- allocateParty "Outsider"
+
+  rate <- submit oracle do
+    createCmd RateIndex with
+      oracle = oracle
+      operator = operator
+      readers = [bank]
+      instrument = "USYC"
+      index = 1.0
+      simTime = oct1
+
+  Some _ <- queryContractId oracle rate
+  Some _ <- queryContractId operator rate
+  Some _ <- queryContractId bank rate
+
+  -- A party that is not a reader sees nothing.
+  None <- queryContractId outsider rate
+  outsiderView <- query @RateIndex outsider
+  outsiderView === []
+
+  pure ()
