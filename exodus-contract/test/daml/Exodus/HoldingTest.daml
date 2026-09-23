@@ -1,0 +1,160 @@
+-- | Tests for Exodus.Holding.
+--
+-- Run them with:
+--   cd exodus-contract && dpm build --all
+--   cd test && dpm test --files daml/Exodus/HoldingTest.daml
+module Exodus.HoldingTest where
+
+import DA.Assert ((===))  -- 'a === b' fails the test if a and b are not equal
+import Daml.Script
+import Exodus.Holding
+
+
+-- | The happy path: issue, split, merge, transfer.
+holdingLifecycle : Script ()
+holdingLifecycle = script do
+  -- Create the parties. In a script this is like creating test users.
+  fundIssuer <- allocateParty "FundIssuer"
+  bank       <- allocateParty "Bank"
+  alice      <- allocateParty "Alice"
+
+  -- 1. FundIssuer issues 1000 TBILL shares to Bank.
+  --    Only the issuer submits, because only the issuer is a signatory.
+  bankShares <- submit fundIssuer do
+    createCmd Holding with
+      issuer = fundIssuer
+      owner = bank
+      instrument = "TBILL"
+      amount = 1000.0
+
+  -- 2. Bank splits 400 off: it now has 400 + 600.
+  SplitResult with splitCid; restCid <- submit bank do
+    exerciseCmd bankShares SplitOff with splitAmount = 400.0
+
+  Some piece <- queryContractId bank splitCid
+  Some rest  <- queryContractId bank restCid
+  piece.amount === 400.0
+  rest.amount  === 600.0
+
+  -- The old 1000 holding was archived by SplitOff (a consuming choice).
+  None <- queryContractId bank bankShares
+
+  -- 3. Bank merges the two pieces back into one holding of 1000.
+  merged <- submit bank do
+    exerciseCmd splitCid MergeWith with otherCid = restCid
+
+  Some mergedHolding <- queryContractId bank merged
+  mergedHolding.amount === 1000.0
+
+  -- 4. Bank transfers the 1000 TBILL to Alice. Alice does not need to accept.
+  aliceShares <- submit bank do
+    exerciseCmd merged Transfer with newOwner = alice
+
+  Some aliceHolding <- queryContractId alice aliceShares
+  aliceHolding.owner  === alice
+  aliceHolding.amount === 1000.0
+
+  -- Bank no longer sees anything: its holding was archived.
+  bankView <- query @Holding bank
+  bankView === []
+
+  pure ()
+
+
+-- | Things that must NOT work.
+holdingFailures : Script ()
+holdingFailures = script do
+  fundIssuer <- allocateParty "FundIssuer"
+  cashIssuer <- allocateParty "CashIssuer"
+  bank       <- allocateParty "Bank"
+  alice      <- allocateParty "Alice"
+
+  bankShares <- submit fundIssuer do
+    createCmd Holding with
+      issuer = fundIssuer
+      owner = bank
+      instrument = "TBILL"
+      amount = 1000.0
+
+  bankCash <- submit cashIssuer do
+    createCmd Holding with
+      issuer = cashIssuer
+      owner = bank
+      instrument = "USD"
+      amount = 500.0
+
+  -- A holding with zero amount cannot be created ('ensure' fails).
+  submitMustFail fundIssuer do
+    createCmd Holding with
+      issuer = fundIssuer
+      owner = bank
+      instrument = "TBILL"
+      amount = 0.0
+
+  -- Bank cannot create shares out of thin air: it is not the issuer.
+  submitMustFail bank do
+    createCmd Holding with
+      issuer = fundIssuer
+      owner = bank
+      instrument = "TBILL"
+      amount = 1000000.0
+
+  -- Split of 0, and split of more than (or exactly) the amount, are rejected.
+  submitMustFail bank do
+    exerciseCmd bankShares SplitOff with splitAmount = 0.0
+  submitMustFail bank do
+    exerciseCmd bankShares SplitOff with splitAmount = 1000.0
+  submitMustFail bank do
+    exerciseCmd bankShares SplitOff with splitAmount = 1500.0
+
+  -- Cannot merge USD into TBILL.
+  submitMustFail bank do
+    exerciseCmd bankShares MergeWith with otherCid = bankCash
+
+  -- Cannot merge a holding with itself.
+  submitMustFail bank do
+    exerciseCmd bankShares MergeWith with otherCid = bankShares
+
+  -- Alice cannot move Bank's shares: she is not the owner (controller).
+  submitMustFail alice do
+    exerciseCmd bankShares Transfer with newOwner = alice
+
+  pure ()
+
+
+-- | Privacy: a party only sees holdings they are a stakeholder of.
+holdingPrivacy : Script ()
+holdingPrivacy = script do
+  fundIssuer <- allocateParty "FundIssuer"
+  bank       <- allocateParty "Bank"
+  alice      <- allocateParty "Alice"
+
+  bankShares <- submit fundIssuer do
+    createCmd Holding with
+      issuer = fundIssuer
+      owner = bank
+      instrument = "TBILL"
+      amount = 1000.0
+
+  -- Bank (owner) and FundIssuer (issuer) see it.
+  Some _ <- queryContractId bank bankShares
+  Some _ <- queryContractId fundIssuer bankShares
+
+  -- Alice sees nothing.
+  None <- queryContractId alice bankShares
+  aliceView <- query @Holding alice
+  aliceView === []
+
+  pure ()
+
+
+-- | roundDown6 always rounds down to 6 decimals.
+-- The values come from the worked example in docs/exodus.md section 9.
+roundDown6Test : Script ()
+roundDown6Test = script do
+  roundDown6 24.3902439024  === 24.390243
+  roundDown6 23.2288037     === 23.228803
+  roundDown6 476.1904761904 === 476.190476
+  roundDown6 5.0            === 5.0
+  roundDown6 0.0000009      === 0.0
+  pure ()
