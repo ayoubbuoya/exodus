@@ -7,7 +7,9 @@
 import { Injectable, Logger } from "@nestjs/common";
 import {
   decimalToUnits,
+  getHoldingActivity,
   getOwnedHoldings,
+  type ActivityRow,
   sendHoldings,
   subscribeUsyc,
   unitsToDecimal,
@@ -16,7 +18,7 @@ import type { ClientWallet } from "../common/request-context.ts";
 import { LedgerService } from "../ledger/ledger.service.ts";
 import type { SubscribeDto, TransferDto } from "./dto/wallet-commands.dto.ts";
 import { FaucetService } from "./faucet.service.ts";
-import { toWalletError } from "./wallet-errors.ts";
+import { toHttpError } from "../ledger/ledger-errors.ts";
 
 export type WalletOverview = {
   partyId: string;
@@ -50,6 +52,17 @@ export class WalletService {
     };
   }
 
+  // The client's recent token movements, newest first, rebuilt from the ledger
+  // history (see getHoldingActivity in @exodus/ledger). Includes tokens other
+  // clients sent to them, which our own database would not know about.
+  async getActivity(wallet: ClientWallet, limit: number): Promise<ActivityRow[]> {
+    try {
+      return await getHoldingActivity(this.ledger.clientFor(wallet.ledgerUserId), wallet.partyId, limit);
+    } catch (error) {
+      throw toHttpError(error, "Reading activity", this.logger);
+    }
+  }
+
   // The client's holdings, read through the CIP-56 Holding interface (as /lab does).
   private async readHoldings(wallet: ClientWallet): Promise<WalletOverview["holdings"]> {
     try {
@@ -60,7 +73,7 @@ export class WalletService {
         amount: holding.payload.amount,
       }));
     } catch (error) {
-      throw toWalletError(error, "Reading holdings", this.logger);
+      throw toHttpError(error, "Reading holdings", this.logger);
     }
   }
 
@@ -76,7 +89,7 @@ export class WalletService {
       this.logger.log(`User ${wallet.userId} subscribed ${dto.usdcAmount} USDC`);
       return { usdcAmount: dto.usdcAmount, retried: outcome.retried };
     } catch (error) {
-      throw toWalletError(error, "Subscribe", this.logger);
+      throw toHttpError(error, "Subscribe", this.logger);
     }
   }
 
@@ -92,7 +105,7 @@ export class WalletService {
       this.logger.log(`User ${wallet.userId} sent ${dto.amount} ${dto.instrument}`);
       return dto;
     } catch (error) {
-      throw toWalletError(error, "Transfer", this.logger);
+      throw toHttpError(error, "Transfer", this.logger);
     }
   }
 }

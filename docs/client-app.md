@@ -49,6 +49,8 @@ Example with Alice:
 | L | Forms | **Plain state** (`useState` + React Query mutation); the API validates and its field errors show under each input | No form library for 2–3 field forms |
 | M | Page guards | **`<RequireStage stage=…>`** component reading `useProfile()` | Same data style as the rest of the app |
 | N | Country field | **Searchable combobox**, ISO codes from `i18n-iso-countries` | Same codes the API validates |
+| O | Activity list | **Ledger history**: `getHoldingActivity` reads the party's `Holding` creates/archives from `/v2/updates` and nets them per transaction | Shows incoming transfers too; always matches the ledger. A faucet mint and a transfer from another client both show as "Received" |
+| P | APY | **Last 30 demo days**, annualised with compounding: `(indexNow / indexThen)^(365 / days) − 1` | Like a fund's 30-day yield; "—" until 7 demo days of history |
 
 ### Why E2 (`ClientAccess`) and not E1 (adding clients to `users` lists)
 
@@ -106,7 +108,7 @@ Fonts: **Inter** for text, **JetBrains Mono** for numbers (tabular figures so am
 | 2 | Contracts: `ClientAccess` template; `Subscribe` and the transfer factory take the pass; shared contracts read through disclosure; tests; bootstrap gives Alice and Bank passes; ledger client attaches disclosed contracts | Done (2026-09-23). Option B: transfers check sender and receiver passes. 24 Daml tests pass; checked in the browser on a fresh sandbox. Bootstrap now retries the DAR upload while the sandbox is still connecting to its synchronizer |
 | 3 | Backend `exodus-app/api`: NestJS + Prisma + Postgres; auth, applications, admin approve (allocate party + user, create pass), faucet, index-history recorder, custodial command endpoints | Done (2026-09-23). NestJS 12, Prisma 7.10 (the npm `latest` tag of the CLI is an 8.0 RC, so we pinned the stable 7.10), Postgres 18 in Docker. Built with plain `tsc` (TS 7 emits decorator metadata). Checked end to end through the Vite proxy: sign-up, apply, approve, faucet (+ 429 cooldown), subscribe, send to Bank, send to Operator refused, re-provisioning, price recording |
 | 4 | Pages: landing, signup/login, onboarding form, admin | Done (2026-09-23). Plain `useState` forms + React Query mutations, with API field errors under each input; `RequireStage` guard component (redirects by profile); searchable country combobox (`i18n-iso-countries` + shadcn Command). `/app` is a placeholder (party id + copy) until step 5. Checked in headless Chromium: sign-up → form → pending → admin approve → "You are approved" appears by itself → `/app` → log out |
-| 5 | `/app` dashboard: price strip, chart, subscribe, faucet, holdings, activity | To do |
+| 5 | `/app` dashboard: price strip, chart, subscribe, faucet, holdings, activity | Done (2026-09-23). Price strip (price, 30-day APY, demo date, days to maturity, Live/Paused), Recharts area chart with crosshair tooltip and a screen-reader table, Subscribe/Redeem panel (Redeem explained as spec gap 13), faucet with countdown, holdings with USD value and party id, send form, activity from the ledger history. Checked in headless Chromium (dark, light, 390 px): faucet, subscribe 40 USDC, send to Operator refused, send 5 USYC to Bank, activity rows |
 | 6 | Update README, CLAUDE.md and the spec; typecheck, lint, tests | To do |
 
 Update this table as steps land.
@@ -133,4 +135,6 @@ Base path `/api` (Swagger UI at `http://localhost:3000/api/docs`). Every respons
 | `POST /wallet/faucet-claims` | Approved client | 100 test USDC, once per 24 h (429 otherwise) |
 | `POST /wallet/subscriptions` | Approved client | `{ usdcAmount }`, uses `subscribeUsyc` |
 | `POST /wallet/transfers` | Approved client | `{ receiverPartyId, instrument, amount }`, uses `sendHoldings` |
+| `GET /wallet/activity?limit=` | Approved client | Latest token movements from the ledger: `RECEIVED`, `SENT`, `SUBSCRIBED` with net change per token |
+| `GET /prices/usyc/latest` | Public | Newest price snapshot, `isLive`, days to maturity, 30-day APY |
 | `GET /prices/usyc?limit=` | Public | Recorded index history for the chart (changes only, no heartbeats) |

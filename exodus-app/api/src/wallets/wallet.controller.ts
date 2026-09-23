@@ -1,6 +1,7 @@
 // /api/wallet: the approved client's custodial wallet.
 // SessionGuard (global) checks the login; ApprovedClientGuard checks the approval.
-import { Body, Controller, Get, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Post, Query, UseGuards } from "@nestjs/common";
+import type { ActivityRow } from "@exodus/ledger";
 import {
   ApiCookieAuth,
   ApiCreatedResponse,
@@ -15,7 +16,7 @@ import { SESSION_COOKIE } from "../auth/session.constants.ts";
 import { CurrentWallet, type ClientWallet } from "../common/request-context.ts";
 import { ResponseMessage } from "../common/response-envelope.ts";
 import { ApprovedClientGuard } from "./approved-client.guard.ts";
-import { SubscribeDto, TransferDto } from "./dto/wallet-commands.dto.ts";
+import { ActivityQueryDto, SubscribeDto, TransferDto } from "./dto/wallet-commands.dto.ts";
 import { FaucetService, type FaucetClaimResult } from "./faucet.service.ts";
 import { WalletService, type SubscribeResult, type WalletOverview } from "./wallet.service.ts";
 
@@ -36,6 +37,17 @@ export class WalletController {
   @ApiOkResponse({ description: "The wallet" })
   async getOverview(@CurrentWallet() wallet: ClientWallet): Promise<WalletOverview> {
     return this.wallets.getOverview(wallet);
+  }
+
+  @Get("activity")
+  @ResponseMessage("Activity loaded")
+  @ApiOperation({ summary: "My recent token movements (received, sent, subscribed), newest first, from the ledger" })
+  @ApiOkResponse({ description: "{ items: [{ updateId, kind, at, changes: { USDC: \"-40\", USYC: \"39.9\" } }] }" })
+  async getActivity(
+    @CurrentWallet() wallet: ClientWallet,
+    @Query() query: ActivityQueryDto,
+  ): Promise<{ items: ActivityRow[] }> {
+    return { items: await this.wallets.getActivity(wallet, query.limit) };
   }
 
   @Post("faucet-claims")

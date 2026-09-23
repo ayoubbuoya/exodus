@@ -17,6 +17,8 @@ import type { components, paths } from "./generated/json-ledger-api-v2.ts";
 
 export type CreatedEvent = components["schemas"]["CreatedEvent"];
 export type IdentifierFilter = components["schemas"]["IdentifierFilter"];
+// One committed transaction: when it happened and its events (created / archived contracts).
+export type Transaction = components["schemas"]["JsTransaction"];
 
 // A contract we attach to a command so the submitter can use it without
 // seeing it on the ledger ("explicit disclosure"). Example: Alice cannot see
@@ -247,6 +249,50 @@ export function createLedgerClient(options: LedgerClientOptions) {
     return events;
   }
 
+  // Every transaction `party` saw, oldest first, keeping only the events that
+  // match `filter` ("ACS delta" shape: which contracts were created and archived).
+  //
+  // Example: Alice's holding history. The faucet shows as one transaction that
+  // creates a 100 USDC holding; a subscribe as one that archives her USDC
+  // holding and creates USYC (and her USDC change).
+  //
+  // Reads from the start of the ledger up to its current end, so the request
+  // finishes instead of waiting for new transactions. Fine for the demo sandbox;
+  // a long-lived ledger would need paging or a stored checkpoint.
+  async function getTransactions(party: string, filter: IdentifierFilter): Promise<Transaction[]> {
+    const ledgerEnd = await getLedgerEnd();
+    if (ledgerEnd === 0) {
+      return [];
+    }
+    const { data, error, response } = await api.POST("/v2/updates", {
+      body: {
+        beginExclusive: 0,
+        endInclusive: ledgerEnd,
+        updateFormat: {
+          includeTransactions: {
+            eventFormat: {
+              filtersByParty: { [party]: { cumulative: [{ identifierFilter: filter }] } },
+              verbose: true,
+            },
+            transactionShape: "TRANSACTION_SHAPE_ACS_DELTA",
+          },
+        },
+      },
+    });
+    if (error !== undefined) {
+      throw toLedgerError(error, response);
+    }
+
+    const transactions: Transaction[] = [];
+    for (const item of data) {
+      const update = item.update;
+      if (update !== undefined && "Transaction" in update) {
+        transactions.push(update.Transaction.value);
+      }
+    }
+    return transactions;
+  }
+
   // ---------------------------------------------------------------------
   // Writing: create a contract or exercise a choice
   // ---------------------------------------------------------------------
@@ -315,6 +361,7 @@ export function createLedgerClient(options: LedgerClientOptions) {
     uploadDar,
     getLedgerEnd,
     getActiveContracts,
+    getTransactions,
     create,
     exercise,
   };

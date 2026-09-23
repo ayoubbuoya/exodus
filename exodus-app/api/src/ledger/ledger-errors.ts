@@ -1,4 +1,5 @@
 // Turns a failed ledger action into an HTTP error the client can understand.
+// Used by every service that talks to the ledger (wallet commands, faucet, price).
 //
 // Examples:
 //   Daml assertion "The receiver is not an approved Exodus client"  -> 422 with that text
@@ -17,7 +18,7 @@ import {
 } from "@nestjs/common";
 import { isStaleContractError, LedgerError } from "@exodus/ledger";
 
-export function toWalletError(error: unknown, action: string, logger: Logger): HttpException {
+export function toHttpError(error: unknown, action: string, logger: Logger): HttpException {
   if (error instanceof HttpException) {
     return error;
   }

@@ -1,5 +1,7 @@
 # exodus-app
 
+> New here? Follow [`../docs/run-locally.md`](../docs/run-locally.md): every step to run the whole app on your machine.
+
 The off-ledger parts of Exodus: a shared JSON Ledger API client, the demo oracle bot, the backend API and the web UI.
 
 This is a **walking skeleton**: a thin but real end-to-end slice (ledger, bot, UI) built on the contracts that exist today (`Holding`, `HoldingTransferFactory`, `RateIndex`, `UsycFund`). New screens get added as each new contract (`Tokens`, `Market`, `Rfq`) is written.
@@ -12,7 +14,7 @@ This is a **walking skeleton**: a thin but real end-to-end slice (ledger, bot, U
 |---|---|---|
 | `ledger/` | `@exodus/ledger` | Typed client for the Canton JSON Ledger API v2, read helpers (`getRateIndex`, `getOwnedHoldings`, ...), CIP-56 `sendHoldings`, `subscribeUsyc` (USDC to USYC, with stale-index retry), the demo oracle schedule, and the `bootstrap` script. Shared by the bot and the UI. |
 | `oracle-bot/` | `@exodus/oracle-bot` | Moves the USYC index and the demo clock forward along the spec §9 path. |
-| `web/` | `@exodus/web` | React + Vite + Tailwind CSS 4 + shadcn/ui UI with React Router. `/` is the public landing page; `/signup`, `/login`, `/onboarding` (access form and review status), `/admin` (review queue) and `/app` (approved clients; the dashboard lands in step 5) talk to the backend API. `/lab` is the developer lab: party switcher, oracle card, CIP-56 wallet, USYC subscribe card, send form, oracle controls and a "what can this party see?" privacy table. |
+| `web/` | `@exodus/web` | React + Vite + Tailwind CSS 4 + shadcn/ui UI with React Router. `/` is the public landing page; `/signup`, `/login`, `/onboarding` (access form and review status), `/admin` (review queue) and `/app` (the approved client's dashboard: price, APY, chart, subscribe, faucet, holdings, send, activity) talk to the backend API. `/lab` is the developer lab: party switcher, oracle card, CIP-56 wallet, USYC subscribe card, send form, oracle controls and a "what can this party see?" privacy table. |
 | `api/` | `@exodus/api` | NestJS + Prisma + PostgreSQL backend: email/password accounts (DB sessions), access applications, admin approval (allocates the client's custodial party + ledger user and creates their `ClientAccess` pass), the 100 test USDC faucet, custodial wallet commands (subscribe, send) and the USYC price history. Endpoints are listed in `../docs/client-app.md`; Swagger UI at `http://localhost:3000/api/docs`. |
 | `generated/daml.js/` | `@daml.js/*` | TypeScript types for our Daml templates, from `dpm codegen-js`. Generated, not committed. |
 

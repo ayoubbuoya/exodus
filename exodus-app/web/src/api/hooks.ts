@@ -5,7 +5,19 @@
 // they change, for example approving an application reloads the admin table.
 import { keepPreviousData, useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { apiRequest, isUnauthorized } from './client.ts'
-import type { ApplicationForm, ApplicationForReview, ApplicationStatus, Page, Profile } from './types.ts'
+import type {
+  ActivityRow,
+  ApplicationForm,
+  ApplicationForReview,
+  ApplicationStatus,
+  FaucetClaimResult,
+  LatestPrice,
+  Page,
+  PricePoint,
+  Profile,
+  TransferRequest,
+  WalletOverview,
+} from './types.ts'
 
 export const PROFILE_QUERY_KEY = ['profile']
 const ADMIN_APPLICATIONS_KEY = ['admin', 'applications']
@@ -138,5 +150,85 @@ export function useRejectApplication() {
         reason: input.reason.trim() === '' ? undefined : input.reason,
       }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ADMIN_APPLICATIONS_KEY }),
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Dashboard (/app): price, wallet, activity and the wallet commands
+// ---------------------------------------------------------------------------
+
+const WALLET_KEY = ['wallet']
+const ACTIVITY_KEY = ['wallet', 'activity']
+
+// How often the dashboard refreshes. The oracle bot publishes every 5 s by
+// default, and a snapshot is valid for 30 s, so a few seconds keeps it "live".
+const PRICE_POLL_MS = 3_000
+const HISTORY_POLL_MS = 10_000
+const WALLET_POLL_MS = 5_000
+
+// Rows shown in the Activity card.
+const ACTIVITY_ROWS = 10
+
+export function useLatestPrice() {
+  return useQuery({
+    queryKey: ['prices', 'usyc', 'latest'],
+    queryFn: () => apiRequest<LatestPrice>('GET', '/prices/usyc/latest'),
+    refetchInterval: PRICE_POLL_MS,
+  })
+}
+
+export function usePriceHistory() {
+  return useQuery({
+    queryKey: ['prices', 'usyc', 'history'],
+    queryFn: () => apiRequest<{ instrument: string; points: PricePoint[] }>('GET', '/prices/usyc'),
+    refetchInterval: HISTORY_POLL_MS,
+  })
+}
+
+export function useWallet() {
+  return useQuery({
+    queryKey: WALLET_KEY,
+    queryFn: () => apiRequest<WalletOverview>('GET', '/wallet'),
+    refetchInterval: WALLET_POLL_MS,
+  })
+}
+
+// Also polls, so tokens that another client sends show up by themselves.
+export function useActivity() {
+  return useQuery({
+    queryKey: ACTIVITY_KEY,
+    queryFn: () => apiRequest<{ items: ActivityRow[] }>('GET', `/wallet/activity?limit=${ACTIVITY_ROWS}`),
+    refetchInterval: WALLET_POLL_MS,
+  })
+}
+
+// After any wallet command, balances and activity changed: reload both.
+// (WALLET_KEY is a prefix of ACTIVITY_KEY, so one call covers both.)
+function refreshWallet(queryClient: QueryClient): Promise<void> {
+  return queryClient.invalidateQueries({ queryKey: WALLET_KEY })
+}
+
+export function useClaimFaucet() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => apiRequest<FaucetClaimResult>('POST', '/wallet/faucet-claims'),
+    onSuccess: () => refreshWallet(queryClient),
+  })
+}
+
+export function useSubscribe() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (usdcAmount: string) =>
+      apiRequest<{ usdcAmount: string; retried: boolean }>('POST', '/wallet/subscriptions', { usdcAmount }),
+    onSuccess: () => refreshWallet(queryClient),
+  })
+}
+
+export function useSendTokens() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (request: TransferRequest) => apiRequest<TransferRequest>('POST', '/wallet/transfers', request),
+    onSuccess: () => refreshWallet(queryClient),
   })
 }

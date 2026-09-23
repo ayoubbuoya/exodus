@@ -1,6 +1,7 @@
 // Request bodies for the custodial wallet commands.
-import { ApiProperty } from "@nestjs/swagger";
-import { IsIn, IsString, Matches, MaxLength } from "class-validator";
+import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
+import { Type } from "class-transformer";
+import { IsIn, IsInt, IsString, Matches, Max, MaxLength, Min } from "class-validator";
 import { DECIMAL_PATTERN } from "../../config/environment.ts";
 
 // The simulated tokens a client can hold and send (issued by our demo issuers, not by Circle).
@@ -35,4 +36,17 @@ export class TransferDto {
   @ApiProperty({ example: "50" })
   @Matches(DECIMAL_PATTERN, { message: AMOUNT_MESSAGE })
   amount!: string;
+}
+
+export const MAX_ACTIVITY_ROWS = 100;
+
+// GET /api/wallet/activity?limit=20: the newest `limit` rows. A capped list
+// rather than pages: the dashboard only shows the recent movements.
+export class ActivityQueryDto {
+  @ApiPropertyOptional({ default: 20, minimum: 1, maximum: MAX_ACTIVITY_ROWS })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(MAX_ACTIVITY_ROWS)
+  limit: number = 20;
 }

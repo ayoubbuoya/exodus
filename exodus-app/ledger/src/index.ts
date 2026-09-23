@@ -1,5 +1,6 @@
 // Public API of @exodus/ledger. Everything here works in Node and in the browser.
 // (bootstrap.ts is Node only, so it is not exported.)
+export * from "./activity.ts";
 export * from "./client.ts";
 export * from "./decimal.ts";
 export * from "./inputs.ts";

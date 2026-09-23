@@ -11,7 +11,7 @@ import type { ClientWallet } from "../common/request-context.ts";
 import type { EnvironmentVariables } from "../config/environment.ts";
 import { LedgerService } from "../ledger/ledger.service.ts";
 import { PrismaService } from "../prisma/prisma.service.ts";
-import { toWalletError } from "./wallet-errors.ts";
+import { toHttpError } from "../ledger/ledger-errors.ts";
 
 const MS_PER_HOUR = 60 * 60 * 1000;
 
@@ -53,7 +53,7 @@ export class FaucetService {
         where: { id: wallet.userId, lastFaucetAt: now },
         data: { lastFaucetAt: previousClaimAt },
       });
-      throw toWalletError(error, "Faucet mint", this.logger);
+      throw toHttpError(error, "Faucet mint", this.logger);
     }
 
     await this.prisma.faucetClaim.create({ data: { userId: wallet.userId, amount: this.amount } });

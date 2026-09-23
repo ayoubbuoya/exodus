@@ -1,57 +1,45 @@
-// /app: the approved client's home. For now it only shows the wallet's party id;
-// the full dashboard (price, chart, faucet, subscribe, holdings) is step 5 in docs/client-app.md.
-import { useState } from 'react'
-import { Link } from 'react-router'
-import { CheckIcon, CopyIcon } from 'lucide-react'
-import { useProfile } from '@/api/hooks'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
+// /app: the approved client's dashboard, in the style of the real USYC app.
+//
+//   price strip (price, APY, demo date, live)
+//   chart                          | Subscribe / Redeem
+//   holdings                       | faucet
+//   activity                       | send
+//
+// Every card loads and refreshes on its own (React Query), so a slow ledger
+// call only greys out its own card. "USYC" and "USDC" are simulated tokens.
+import { ActivityCard } from '@/components/app/ActivityCard'
+import { FaucetCard } from '@/components/app/FaucetCard'
+import { HoldingsCard } from '@/components/app/HoldingsCard'
+import { PriceChart } from '@/components/app/PriceChart'
+import { PriceStrip } from '@/components/app/PriceStrip'
+import { SendCard } from '@/components/app/SendCard'
+import { SubscribePanel } from '@/components/app/SubscribePanel'
 
 export function AppPage() {
-  const { data: profile } = useProfile()
-  // RequireStage("approved") only renders this page for a profile with a wallet.
-  if (profile?.wallet == null) {
-    return null
-  }
   return (
-    <div className="mx-auto max-w-xl px-4 py-12">
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-xl">Your wallet</CardTitle>
-          <CardDescription>
-            The dashboard (USYC price, faucet, subscribe, holdings) is coming next. Meanwhile, this is your Canton
-            party id: other approved clients use it to send you tokens.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <PartyId partyId={profile.wallet.partyId} />
-        </CardContent>
-        <CardFooter>
-          <Button asChild variant="outline">
-            <Link to="/lab">Explore the lab</Link>
-          </Button>
-        </CardFooter>
-      </Card>
-    </div>
-  )
-}
+    <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-8">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">Simulated USYC</h1>
+        <p className="text-sm text-muted-foreground">
+          A tokenized T-bill money market fund on Canton. Test tokens only, not issued by Circle or Hashnote.
+        </p>
+      </div>
 
-// The party id with a Copy button (it is too long to type).
-function PartyId({ partyId }: { partyId: string }) {
-  const [copied, setCopied] = useState(false)
+      <PriceStrip />
 
-  async function copy() {
-    await navigator.clipboard.writeText(partyId)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1500)
-  }
-
-  return (
-    <div className="flex items-start gap-2 rounded-lg border bg-muted/40 p-3">
-      <code className="flex-1 font-mono text-xs break-all">{partyId}</code>
-      <Button size="icon" variant="ghost" aria-label="Copy party id" onClick={() => void copy()}>
-        {copied ? <CheckIcon /> : <CopyIcon />}
-      </Button>
+      <div className="grid gap-6 lg:grid-cols-3">
+        {/* On phones the action column (subscribe, faucet, send) comes first, right under the price. */}
+        <div className="order-2 flex flex-col gap-6 lg:order-1 lg:col-span-2">
+          <PriceChart />
+          <HoldingsCard />
+          <ActivityCard />
+        </div>
+        <div className="order-1 flex flex-col gap-6 lg:order-2">
+          <SubscribePanel />
+          <FaucetCard />
+          <SendCard />
+        </div>
+      </div>
     </div>
   )
 }

@@ -58,3 +58,56 @@ export type Page<T> = {
   limit: number
   totalPages: number
 }
+
+// ---------------------------------------------------------------------------
+// Dashboard (/app)
+// ---------------------------------------------------------------------------
+
+// GET /api/prices/usyc/latest: the price strip.
+export type LatestPrice = {
+  index: string // for example "1.0125000000" (USD per USYC)
+  simTime: string // the demo date of this price
+  publishedAt: string
+  validUntil: string
+  // false = the oracle bot is stopped and Subscribe would fail ("No valid USYC price").
+  isLive: boolean
+  daysToMaturity: number
+  apy30dPercent: number | null // 10.31 means 10.31 %
+}
+
+// GET /api/prices/usyc: one point of the chart.
+export type PricePoint = {
+  index: string
+  simTime: string
+  publishedAt: string
+}
+
+// GET /api/wallet
+export type WalletOverview = {
+  partyId: string
+  balances: Record<string, string> // { USDC: "60.0000000000", USYC: "30.0000000000" }
+  holdings: { contractId: string; instrument: string; amount: string }[]
+  nextFaucetClaimAt: string | null // null = the faucet can be used now
+}
+
+export type Instrument = 'USYC' | 'USDC'
+
+// GET /api/wallet/activity: one token movement, rebuilt from the ledger history.
+export type ActivityRow = {
+  updateId: string
+  kind: 'RECEIVED' | 'SENT' | 'SUBSCRIBED' | 'OTHER'
+  at: string
+  changes: Record<string, string> // { USDC: "-40.0000000000", USYC: "39.9201590000" }
+}
+
+export type FaucetClaimResult = {
+  amount: string
+  instrument: 'USDC'
+  nextClaimAt: string
+}
+
+export type TransferRequest = {
+  receiverPartyId: string
+  instrument: Instrument
+  amount: string
+}
