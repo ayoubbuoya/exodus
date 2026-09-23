@@ -1,0 +1,143 @@
+-- | Canton Token Standard (CIP-56) transfers for our 'Holding' tokens.
+--
+-- Our 'Holding' template already has its own 'Transfer' choice, which the rest
+-- of Exodus uses (RFQ, vault payouts). But a Canton WALLET does not know that
+-- choice. A wallet only knows the standard 'V1.TransferFactory' interface.
+--
+-- So each issuer creates one 'HoldingTransferFactory' contract. A wallet then
+-- sends tokens by calling the standard 'TransferFactory_Transfer' choice on it:
+--
+--   Bank has two USYC holdings: 600 and 400.
+--   Bank's wallet asks: "send 700 USYC to Alice, pay with those two holdings".
+--   The factory:
+--     1. checks the request,
+--     2. archives the 600 and the 400 holdings (1000 in total),
+--     3. creates 700 USYC for Alice,
+--     4. creates 300 USYC "change" for Bank.
+--
+-- The transfer is finished in ONE step. Alice does not need to accept, just
+-- like with our own 'Transfer' choice. The standard allows this: the result
+-- is 'TransferInstructionResult_Completed'. (Two-step registries return
+-- 'TransferInstructionResult_Pending' instead, and need an extra
+-- 'TransferInstruction' contract. We don't.)
+module Exodus.TransferFactory where
+
+import qualified Splice.Api.Token.HoldingV1 as V1
+import qualified Splice.Api.Token.TransferInstructionV1 as V1
+import Splice.Api.Token.MetadataV1 (emptyMetadata)
+
+import Exodus.Holding
+
+
+template HoldingTransferFactory
+  with
+    admin : Party    -- the issuer of the tokens, for example UsycIssuer
+    users : [Party]  -- parties allowed to see and use this factory, for example [Bank, Alice]
+  where
+    -- The issuer signs the factory. Because of that, when a user exercises a
+    -- choice on the factory, the choice also has the ISSUER's authority.
+    -- That is what lets it archive and create Holdings (which the issuer signs).
+    signatory admin
+
+    -- A party can only exercise a choice on a contract it can see.
+    -- In production, a registry app would share the factory with each wallet
+    -- through "explicit disclosure" instead. A plain observer list is simpler
+    -- for the demo.
+    observer users
+
+    interface instance V1.TransferFactory for HoldingTransferFactory where
+      -- What a wallet sees when it looks at the factory.
+      view = V1.TransferFactoryView with
+        admin = admin
+        meta = emptyMetadata
+
+      -- 'TransferFactory_PublicFetch': lets a wallet read the factory and
+      -- check that it belongs to the issuer it expects.
+      transferFactory_publicFetchImpl _self arg = do
+        assertMsg "expectedAdmin must match the factory admin" (arg.expectedAdmin == admin)
+        pure V1.TransferFactoryView with
+          admin = admin
+          meta = emptyMetadata
+
+      -- 'TransferFactory_Transfer': the actual transfer.
+      -- The standard interface already says the controller is 'transfer.sender',
+      -- so only the sender (for example Bank) can call this.
+      transferFactory_transferImpl _self arg = do
+        let transfer = arg.transfer
+
+        -- 1. Check the request.
+        assertMsg "expectedAdmin must match the factory admin" (arg.expectedAdmin == admin)
+        assertMsg "instrument admin must match the factory admin" (transfer.instrumentId.admin == admin)
+        assertMsg "amount must be greater than 0" (transfer.amount > 0.0)
+        -- The standard lets a registry pick the input holdings itself when the
+        -- list is empty. We don't support that, so the wallet must list them.
+        assertMsg "at least one input holding is required" (not (null transfer.inputHoldingCids))
+
+        -- The wallet gives a time window: requestedAt must already have
+        -- passed, and executeBefore must still be in the future.
+        now <- getTime
+        assertMsg "requestedAt must be in the past" (transfer.requestedAt <= now)
+        assertMsg "executeBefore must be in the future" (now < transfer.executeBefore)
+
+        -- 2. Archive all input holdings and add up their amounts.
+        inputTotal <- archiveInputHoldings transfer.sender transfer.instrumentId transfer.inputHoldingCids
+        assertMsg "input holdings do not cover the transfer amount" (inputTotal >= transfer.amount)
+
+        -- 3. Create the receiver's new holding.
+        receiverCid <- create Holding with
+          issuer = admin
+          owner = transfer.receiver
+          instrument = transfer.instrumentId.id
+          amount = transfer.amount
+
+        -- 4. Give the sender their change, if there is any.
+        --    Example: inputs 1000, transfer 700 -> change 300.
+        let change = inputTotal - transfer.amount
+        senderChangeCids <-
+          if change > 0.0
+            then do
+              changeCid <- create Holding with
+                issuer = admin
+                owner = transfer.sender
+                instrument = transfer.instrumentId.id
+                amount = change
+              pure [toInterfaceContractId @V1.Holding changeCid]
+            else
+              pure []
+
+        -- Tell the wallet the transfer is already complete.
+        -- 'toInterfaceContractId' turns "ID of our Holding" into
+        -- "ID of a V1.Holding", which is the type the standard expects.
+        pure V1.TransferInstructionResult with
+          output = V1.TransferInstructionResult_Completed with
+            receiverHoldingCids = [toInterfaceContractId @V1.Holding receiverCid]
+          senderChangeCids = senderChangeCids
+          meta = emptyMetadata
+
+
+-- | Archive every input holding of a transfer and return their total amount.
+--
+-- Each input must be one of OUR Holdings, owned by the sender, of the right
+-- instrument. Example: Bank cannot pay a USYC transfer with a USDC holding,
+-- and cannot use Alice's holding.
+archiveInputHoldings : Party -> V1.InstrumentId -> [ContractId V1.Holding] -> Update Decimal
+archiveInputHoldings sender instrumentId inputCids = do
+  -- 'forA' runs the block below once for each input and collects the results,
+  -- so 'amounts' is a list like [600.0, 400.0].
+  amounts <- forA inputCids \inputCid -> do
+    -- The wallet gives us "ID of some V1.Holding". Turn it into "ID of our
+    -- Holding template". If it is really a different token (for example
+    -- Canton Coin), the 'fetch' below fails and the whole transfer is rejected.
+    let holdingCid = fromInterfaceContractId @Holding inputCid
+    holding <- fetch holdingCid
+
+    assertMsg "input holding must be owned by the sender" (holding.owner == sender)
+    assertMsg "input holding must have the transfer's issuer" (holding.issuer == instrumentId.admin)
+    assertMsg "input holding must have the transfer's instrument" (holding.instrument == instrumentId.id)
+
+    -- Archiving the same holding twice fails, so listing one input twice
+    -- cannot be used to pay double.
+    archive holdingCid
+    pure holding.amount
+
+  pure (sum amounts)

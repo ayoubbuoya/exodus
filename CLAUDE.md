@@ -4,11 +4,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Exodus: private fixed-rate yield markets on Canton, built for HackCanton Season 3. It splits a yield-bearing asset (a mock tokenized T-bill fund) into a PT (Principal Token, fixed rate) and a YT (Yield Token, floating yield), with PTs traded through private RFQ and atomic DvP. It is inspired by Pendle but uses no AMM.
+Exodus: private fixed-rate yield markets on Canton, built for HackCanton Season 3. It splits a yield-bearing asset (a **simulated USYC**, the price-accreting tokenized T-bill money market fund that is live on Canton; cash is simulated **USDC**) into a PT (Principal Token, fixed rate) and a YT (Yield Token, floating yield), with PTs traded through private RFQ and atomic DvP. It is inspired by Pendle but uses no AMM.
 
 `docs/exodus.md` is the design spec. It covers the parties, templates, user flows, formulas with a worked example, the privacy model, design decisions and known gaps. Read it before changing contract logic.
 
-**Current state:** `exodus-contract/` only holds the Daml starter skeleton (the `Asset`/`Give` template in `main/daml/Main.daml` and a `setup` script in `test/daml/Test.daml`). The spec describes modules under `daml/YieldSplit/` (Holding, Oracle, Tokens, Market, Rfq) and `Test/Demo.daml`, plus a `yield-split` package that is to be renamed `exodus`. None of that code is in this repo yet. Put new contract code in the `main`/`test` packages of this multi-package layout, not in a new top-level `daml/` directory. The off-ledger parts (NestJS operator bot, oracle bot, web UI) are planned but not started.
+**Current state:** done so far:
+- `main/daml/Exodus/Holding.daml`: `Holding` (USYC/USDC, issuer signs, owner observes; `Transfer`/`SplitOff`/`MergeWith`), `roundDown6`, and a CIP-56 `HoldingV1.Holding` interface instance.
+- `main/daml/Exodus/TransferFactory.daml`: `HoldingTransferFactory`, a CIP-56 v1 `TransferFactory` that completes transfers in one step.
+- Tests in `test/daml/Exodus/HoldingTest.daml` and `TokenStandardTest.daml`.
+
+Still to do (see spec §7): `Oracle`, `Tokens`, `Market`, `Rfq` (with `payFrom`) and the demo test. Put new code in `main/daml/Exodus/` and tests in `test/daml/Exodus/`, with module names `Exodus.<Name>`. The off-ledger parts (NestJS operator bot, oracle bot, web UI, CIP-56 registry API) are planned but not started.
+
+"USYC"/"USDC" are simulations issued by the `UsycIssuer`/`UsdcIssuer` demo parties, not by Circle. Keep that clear in code comments, docs and UI.
 
 ## Commands
 
@@ -26,6 +33,8 @@ dpm test --files daml/Test.daml  # run tests in one file
 
 The `test` package depends on `main` through a `data-dependencies` path to `../main/.daml/dist/exodus-contract-main-0.0.1.dar`. Rebuild `main` (or run `dpm build --all`) before testing after any change in `main`. If you bump `main`'s version, update that DAR path.
 
+Canton Token Standard (CIP-56, v1) DARs are checked into `exodus-contract/dars/splice/` (pinned `1.0.0`, from the Splice v0.8.3 release bundle) and listed under `data-dependencies` in both `main/daml.yaml` and `test/daml.yaml`. They are not in the `dpm` OCI registry, so `dpm add dar` cannot fetch them. Their package IDs are in `dars/splice/README.md` and must not change.
+
 Lint rules are configured in `exodus-contract/.dlint.yaml`.
 
 ## Daml design constraints (from the spec)
@@ -37,6 +46,7 @@ Lint rules are configured in `exodus-contract/.dlint.yaml`.
 - **Demo clock:** maturity logic uses the oracle's `simTime`, not ledger time.
 - Formulas: split `PT = YT = shares * index`; YT yield `notional * (1/lastIndex - 1/newIndex)`; redeem `ptAmount / maturityIndex`; merge `amount / yt.lastIndex`. The worked example in spec section 9 gives exact expected values for the demo test.
 - Known gaps to fix are listed in spec section 12 (for example, `Mature` can be called twice, and there is no quote expiry).
+- **Token standard:** import the Splice modules qualified (`import qualified Splice.Api.Token.HoldingV1 as V1`), because the standard's `Transfer` type clashes with our `Transfer` choice. PT and YT should also get a `V1.Holding` interface instance (spec gap 7).
 
 ## Working rules
 

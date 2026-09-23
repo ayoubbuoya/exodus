@@ -1,0 +1,220 @@
+-- | Tests for the Canton Token Standard (CIP-56) side of our tokens.
+--
+-- These tests act like a Canton WALLET: they only use the standard
+-- interfaces (V1.Holding, V1.TransferFactory), never our own choices.
+--
+-- Run them with:
+--   cd exodus-contract && dpm build --all
+--   cd test && dpm test --files daml/Exodus/TokenStandardTest.daml
+module Exodus.TokenStandardTest where
+
+import DA.Assert ((===))
+import DA.Time (addRelTime, days)
+import Daml.Script
+
+import qualified Splice.Api.Token.HoldingV1 as V1
+import qualified Splice.Api.Token.TransferInstructionV1 as V1
+import Splice.Api.Token.MetadataV1 (emptyChoiceContext, emptyMetadata, ExtraArgs(..))
+
+import Exodus.Holding
+import Exodus.TransferFactory
+
+
+-- | Everything the tests need: parties, a USYC factory, and Bank's holdings.
+data TestSetup = TestSetup
+  with
+    usycIssuer : Party
+    usdcIssuer : Party
+    bank       : Party
+    alice      : Party
+    factoryCid : ContractId V1.TransferFactory  -- the USYC factory, as a wallet sees it
+    bankUsyc1  : ContractId Holding             -- 600 USYC owned by Bank
+    bankUsyc2  : ContractId Holding             -- 400 USYC owned by Bank
+    bankUsdc   : ContractId Holding             -- 500 USDC owned by Bank
+
+
+setup : Script TestSetup
+setup = do
+  usycIssuer <- allocateParty "UsycIssuer"
+  usdcIssuer <- allocateParty "UsdcIssuer"
+  bank       <- allocateParty "Bank"
+  alice      <- allocateParty "Alice"
+
+  -- UsycIssuer creates the transfer factory and shares it with Bank and Alice.
+  factory <- submit usycIssuer do
+    createCmd HoldingTransferFactory with
+      admin = usycIssuer
+      users = [bank, alice]
+
+  bankUsyc1 <- submit usycIssuer do
+    createCmd Holding with issuer = usycIssuer; owner = bank; instrument = "USYC"; amount = 600.0
+  bankUsyc2 <- submit usycIssuer do
+    createCmd Holding with issuer = usycIssuer; owner = bank; instrument = "USYC"; amount = 400.0
+  bankUsdc <- submit usdcIssuer do
+    createCmd Holding with issuer = usdcIssuer; owner = bank; instrument = "USDC"; amount = 500.0
+
+  pure TestSetup with
+    usycIssuer; usdcIssuer; bank; alice
+    -- A wallet only knows the interface, so we keep the factory ID as a
+    -- "V1.TransferFactory" ID, not as our template's ID.
+    factoryCid = toInterfaceContractId @V1.TransferFactory factory
+    bankUsyc1; bankUsyc2; bankUsdc
+
+
+-- | Build a standard transfer request, the way a wallet would.
+-- It is valid from now until one day from now.
+makeTransfer : Party -> Party -> Party -> Text -> Decimal -> [ContractId Holding] -> Script V1.Transfer
+makeTransfer sender receiver admin instrument amount inputs = do
+  now <- getTime
+  pure V1.Transfer with
+    sender = sender
+    receiver = receiver
+    amount = amount
+    instrumentId = V1.InstrumentId with admin = admin; id = instrument
+    requestedAt = now
+    executeBefore = addRelTime now (days 1)
+    inputHoldingCids = map (toInterfaceContractId @V1.Holding) inputs
+    meta = emptyMetadata
+
+
+-- | The extra arguments every standard choice takes. We need no extra context.
+noExtraArgs : ExtraArgs
+noExtraArgs = ExtraArgs with context = emptyChoiceContext; meta = emptyMetadata
+
+
+-- | A wallet can see balances through the standard V1.Holding interface.
+walletSeesHoldings : Script ()
+walletSeesHoldings = script do
+  s <- setup
+
+  -- 'queryInterface' asks: "all V1.Holding contracts this party can see".
+  -- It does not know or care that they are Exodus 'Holding' contracts.
+  bankHoldings <- queryInterface @V1.Holding s.bank
+
+  -- Keep only the views ('Some view'), and only USYC.
+  let bankViews = [v | (_, Some v) <- bankHoldings]
+  let usycViews = filter (\v -> v.instrumentId.id == "USYC") bankViews
+
+  length bankViews === 3                          -- 600 USYC, 400 USYC, 500 USDC
+  sum (map (.amount) usycViews) === 1000.0         -- 600 + 400
+  map (.instrumentId.admin) usycViews === [s.usycIssuer, s.usycIssuer]
+  map (.owner) bankViews === [s.bank, s.bank, s.bank]
+  map (.lock) bankViews === [None, None, None]
+
+  -- Privacy: Alice's wallet sees none of Bank's holdings.
+  aliceHoldings <- queryInterface @V1.Holding s.alice
+  aliceHoldings === []
+
+  pure ()
+
+
+-- | A wallet sends 700 USYC from Bank to Alice using the standard factory.
+walletTransfer : Script ()
+walletTransfer = script do
+  s <- setup
+
+  -- Bank pays with both USYC holdings: 600 + 400 = 1000.
+  transfer <- makeTransfer s.bank s.alice s.usycIssuer "USYC" 700.0 [s.bankUsyc1, s.bankUsyc2]
+
+  result <- submit s.bank do
+    exerciseCmd s.factoryCid V1.TransferFactory_Transfer with
+      expectedAdmin = s.usycIssuer
+      transfer = transfer
+      extraArgs = noExtraArgs
+
+  -- The transfer finished in one step: Alice got one new holding...
+  V1.TransferInstructionResult_Completed [aliceCid] <- pure result.output
+  Some aliceView <- queryInterfaceContractId s.alice aliceCid
+  aliceView.owner  === s.alice
+  aliceView.amount === 700.0
+  aliceView.instrumentId === V1.InstrumentId with admin = s.usycIssuer; id = "USYC"
+
+  -- ...and Bank got 300 USYC change.
+  [changeCid] <- pure result.senderChangeCids
+  Some changeView <- queryInterfaceContractId s.bank changeCid
+  changeView.amount === 300.0
+
+  -- Both input holdings were archived.
+  None <- queryContractId s.bank s.bankUsyc1
+  None <- queryContractId s.bank s.bankUsyc2
+
+  -- A wallet can also check who runs the factory.
+  factoryView <- submit s.alice do
+    exerciseCmd s.factoryCid V1.TransferFactory_PublicFetch with
+      expectedAdmin = s.usycIssuer
+      actor = s.alice
+  factoryView.admin === s.usycIssuer
+
+  pure ()
+
+
+-- | Sending exactly the input amount returns no change.
+walletTransferNoChange : Script ()
+walletTransferNoChange = script do
+  s <- setup
+
+  transfer <- makeTransfer s.bank s.alice s.usycIssuer "USYC" 600.0 [s.bankUsyc1]
+  result <- submit s.bank do
+    exerciseCmd s.factoryCid V1.TransferFactory_Transfer with
+      expectedAdmin = s.usycIssuer
+      transfer = transfer
+      extraArgs = noExtraArgs
+
+  result.senderChangeCids === []
+  pure ()
+
+
+-- | Transfers that must be rejected.
+walletTransferFailures : Script ()
+walletTransferFailures = script do
+  s <- setup
+
+  -- Helper: Bank submits a transfer through the factory and it must fail.
+  let mustFail transfer expectedAdmin =
+        submitMustFail s.bank do
+          exerciseCmd s.factoryCid V1.TransferFactory_Transfer with
+            expectedAdmin = expectedAdmin
+            transfer = transfer
+            extraArgs = noExtraArgs
+
+  -- Wallet expects a different admin (it could be talking to the wrong registry).
+  t <- makeTransfer s.bank s.alice s.usycIssuer "USYC" 100.0 [s.bankUsyc1]
+  mustFail t s.usdcIssuer
+
+  -- Paying a USYC transfer with a USDC holding.
+  t <- makeTransfer s.bank s.alice s.usycIssuer "USYC" 100.0 [s.bankUsdc]
+  mustFail t s.usycIssuer
+
+  -- Asking for more than the inputs hold (600 < 700).
+  t <- makeTransfer s.bank s.alice s.usycIssuer "USYC" 700.0 [s.bankUsyc1]
+  mustFail t s.usycIssuer
+
+  -- No input holdings at all.
+  t <- makeTransfer s.bank s.alice s.usycIssuer "USYC" 100.0 []
+  mustFail t s.usycIssuer
+
+  -- Using the same holding twice to pay double (600 + 600 for 1200).
+  t <- makeTransfer s.bank s.alice s.usycIssuer "USYC" 1200.0 [s.bankUsyc1, s.bankUsyc1]
+  mustFail t s.usycIssuer
+
+  -- Zero amount.
+  t <- makeTransfer s.bank s.alice s.usycIssuer "USYC" 0.0 [s.bankUsyc1]
+  mustFail t s.usycIssuer
+
+  -- The time window has already closed.
+  t <- makeTransfer s.bank s.alice s.usycIssuer "USYC" 100.0 [s.bankUsyc1]
+  mustFail (t with executeBefore = t.requestedAt) s.usycIssuer
+
+  -- Alice tries to spend Bank's holding by calling herself the sender.
+  t <- makeTransfer s.alice s.alice s.usycIssuer "USYC" 100.0 [s.bankUsyc1]
+  submitMustFail s.alice do
+    exerciseCmd s.factoryCid V1.TransferFactory_Transfer with
+      expectedAdmin = s.usycIssuer
+      transfer = t
+      extraArgs = noExtraArgs
+
+  -- Nothing moved: Bank still has all three holdings.
+  bankHoldings <- query @Holding s.bank
+  length bankHoldings === 3
+
+  pure ()

@@ -14,22 +14,22 @@ import Exodus.Holding
 holdingLifecycle : Script ()
 holdingLifecycle = script do
   -- Create the parties. In a script this is like creating test users.
-  fundIssuer <- allocateParty "FundIssuer"
+  usycIssuer <- allocateParty "UsycIssuer"
   bank       <- allocateParty "Bank"
   alice      <- allocateParty "Alice"
 
-  -- 1. FundIssuer issues 1000 TBILL shares to Bank.
+  -- 1. UsycIssuer issues 1000 USYC to Bank.
   --    Only the issuer submits, because only the issuer is a signatory.
-  bankShares <- submit fundIssuer do
+  bankUsyc <- submit usycIssuer do
     createCmd Holding with
-      issuer = fundIssuer
+      issuer = usycIssuer
       owner = bank
-      instrument = "TBILL"
+      instrument = "USYC"
       amount = 1000.0
 
   -- 2. Bank splits 400 off: it now has 400 + 600.
   SplitResult with splitCid; restCid <- submit bank do
-    exerciseCmd bankShares SplitOff with splitAmount = 400.0
+    exerciseCmd bankUsyc SplitOff with splitAmount = 400.0
 
   Some piece <- queryContractId bank splitCid
   Some rest  <- queryContractId bank restCid
@@ -37,7 +37,7 @@ holdingLifecycle = script do
   rest.amount  === 600.0
 
   -- The old 1000 holding was archived by SplitOff (a consuming choice).
-  None <- queryContractId bank bankShares
+  None <- queryContractId bank bankUsyc
 
   -- 3. Bank merges the two pieces back into one holding of 1000.
   merged <- submit bank do
@@ -46,11 +46,11 @@ holdingLifecycle = script do
   Some mergedHolding <- queryContractId bank merged
   mergedHolding.amount === 1000.0
 
-  -- 4. Bank transfers the 1000 TBILL to Alice. Alice does not need to accept.
-  aliceShares <- submit bank do
+  -- 4. Bank transfers the 1000 USYC to Alice. Alice does not need to accept.
+  aliceUsyc <- submit bank do
     exerciseCmd merged Transfer with newOwner = alice
 
-  Some aliceHolding <- queryContractId alice aliceShares
+  Some aliceHolding <- queryContractId alice aliceUsyc
   aliceHolding.owner  === alice
   aliceHolding.amount === 1000.0
 
@@ -64,60 +64,60 @@ holdingLifecycle = script do
 -- | Things that must NOT work.
 holdingFailures : Script ()
 holdingFailures = script do
-  fundIssuer <- allocateParty "FundIssuer"
-  cashIssuer <- allocateParty "CashIssuer"
+  usycIssuer <- allocateParty "UsycIssuer"
+  usdcIssuer <- allocateParty "UsdcIssuer"
   bank       <- allocateParty "Bank"
   alice      <- allocateParty "Alice"
 
-  bankShares <- submit fundIssuer do
+  bankUsyc <- submit usycIssuer do
     createCmd Holding with
-      issuer = fundIssuer
+      issuer = usycIssuer
       owner = bank
-      instrument = "TBILL"
+      instrument = "USYC"
       amount = 1000.0
 
-  bankCash <- submit cashIssuer do
+  bankUsdc <- submit usdcIssuer do
     createCmd Holding with
-      issuer = cashIssuer
+      issuer = usdcIssuer
       owner = bank
-      instrument = "USD"
+      instrument = "USDC"
       amount = 500.0
 
   -- A holding with zero amount cannot be created ('ensure' fails).
-  submitMustFail fundIssuer do
+  submitMustFail usycIssuer do
     createCmd Holding with
-      issuer = fundIssuer
+      issuer = usycIssuer
       owner = bank
-      instrument = "TBILL"
+      instrument = "USYC"
       amount = 0.0
 
-  -- Bank cannot create shares out of thin air: it is not the issuer.
+  -- Bank cannot create USYC out of thin air: it is not the issuer.
   submitMustFail bank do
     createCmd Holding with
-      issuer = fundIssuer
+      issuer = usycIssuer
       owner = bank
-      instrument = "TBILL"
+      instrument = "USYC"
       amount = 1000000.0
 
   -- Split of 0, and split of more than (or exactly) the amount, are rejected.
   submitMustFail bank do
-    exerciseCmd bankShares SplitOff with splitAmount = 0.0
+    exerciseCmd bankUsyc SplitOff with splitAmount = 0.0
   submitMustFail bank do
-    exerciseCmd bankShares SplitOff with splitAmount = 1000.0
+    exerciseCmd bankUsyc SplitOff with splitAmount = 1000.0
   submitMustFail bank do
-    exerciseCmd bankShares SplitOff with splitAmount = 1500.0
+    exerciseCmd bankUsyc SplitOff with splitAmount = 1500.0
 
-  -- Cannot merge USD into TBILL.
+  -- Cannot merge USDC into USYC.
   submitMustFail bank do
-    exerciseCmd bankShares MergeWith with otherCid = bankCash
+    exerciseCmd bankUsyc MergeWith with otherCid = bankUsdc
 
   -- Cannot merge a holding with itself.
   submitMustFail bank do
-    exerciseCmd bankShares MergeWith with otherCid = bankShares
+    exerciseCmd bankUsyc MergeWith with otherCid = bankUsyc
 
-  -- Alice cannot move Bank's shares: she is not the owner (controller).
+  -- Alice cannot move Bank's USYC: she is not the owner (controller).
   submitMustFail alice do
-    exerciseCmd bankShares Transfer with newOwner = alice
+    exerciseCmd bankUsyc Transfer with newOwner = alice
 
   pure ()
 
@@ -125,23 +125,23 @@ holdingFailures = script do
 -- | Privacy: a party only sees holdings they are a stakeholder of.
 holdingPrivacy : Script ()
 holdingPrivacy = script do
-  fundIssuer <- allocateParty "FundIssuer"
+  usycIssuer <- allocateParty "UsycIssuer"
   bank       <- allocateParty "Bank"
   alice      <- allocateParty "Alice"
 
-  bankShares <- submit fundIssuer do
+  bankUsyc <- submit usycIssuer do
     createCmd Holding with
-      issuer = fundIssuer
+      issuer = usycIssuer
       owner = bank
-      instrument = "TBILL"
+      instrument = "USYC"
       amount = 1000.0
 
-  -- Bank (owner) and FundIssuer (issuer) see it.
-  Some _ <- queryContractId bank bankShares
-  Some _ <- queryContractId fundIssuer bankShares
+  -- Bank (owner) and UsycIssuer (issuer) see it.
+  Some _ <- queryContractId bank bankUsyc
+  Some _ <- queryContractId usycIssuer bankUsyc
 
   -- Alice sees nothing.
-  None <- queryContractId alice bankShares
+  None <- queryContractId alice bankUsyc
   aliceView <- query @Holding alice
   aliceView === []
 

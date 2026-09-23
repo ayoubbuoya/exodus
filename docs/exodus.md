@@ -2,14 +2,16 @@
 
 **Private fixed-rate yield markets on Canton.**
 
-Exodus splits a yield-bearing asset (a tokenized T-bill fund) into two tokens:
+Exodus splits a yield-bearing asset, **USYC** (a tokenized money market fund of short-term US T-bills), into two tokens:
 
-- **PT (Principal Token)**: pays 1 USD of the asset at maturity. You buy it below 1.00 to lock a **fixed rate**.
+- **PT (Principal Token)**: pays 1 USD worth of USYC at maturity. You buy it below 1.00 to lock a **fixed rate**.
 - **YT (Yield Token)**: receives all the yield of the asset until maturity. It is a bet on the **floating rate**.
 
 PTs trade through **private RFQ** (request for quote) with **atomic DvP** (delivery versus payment). Only the buyer and the dealer see the price.
 
 Exodus is inspired by Pendle Finance, but it is redesigned for Canton and institutional users. It is built for **HackCanton Season 3**.
+
+> **Simulation notice.** In this project, "USYC" and "USDC" are **simulated** tokens issued by our own demo parties (`UsycIssuer`, `UsdcIssuer`). They copy how the real USYC and USDC behave. They are **not** issued by, connected to, or endorsed by Circle or Hashnote.
 
 ---
 
@@ -75,7 +77,8 @@ Exodus answers this question with four points:
 | Sub-transaction privacy | Operator sees PT move but not the price. Cash issuer sees cash move but not the PT. | Price and position leakage (Pendle on Ethereum) |
 | Atomic multi-party transactions | Cash leg and PT leg settle in one transaction | Settlement risk, manual reconciliation |
 | Permissioned parties | Only KYC'd `members` can use a market | Compliance problems |
-| Real institutional yield assets on the network | PT/YT built on a tokenized T-bill fund model | Fake demo yield with no market fit |
+| Real institutional yield assets on the network | PT/YT built on a model of USYC, a real tokenized money market fund that is live on Canton | Fake demo yield with no market fit |
+| Canton Token Standard (CIP-56) | Our USYC and USDC implement the standard `Holding` and `TransferFactory` interfaces, so any Canton wallet can show and send them | A closed token that only our own UI understands |
 
 **Why not an AMM like Pendle?** Two reasons:
 
@@ -84,14 +87,29 @@ Exodus answers this question with four points:
 
 ## 4. Core concepts
 
-### The yield asset and the index
+### The yield asset (USYC) and the index
 
-The asset is a mock **T-bill fund share**. Its value in USD is given by an **index** that only goes up when the fund earns.
+The asset is a simulated **USYC** token. The real USYC is the on-chain share of a money market fund that invests in short-term US T-bills and repo. It is issued by Hashnote (owned by Circle) and is live on Canton.
 
-- Index 1.00 means 1 share = 1.00 USD.
-- Index 1.025 means 1 share = 1.025 USD (the fund earned 2.5%).
+USYC is **price-accreting**: the **number** of tokens you hold never changes, but the **price** of one token goes up as the fund earns interest. Exodus models that price as an **index** that only goes up:
 
-An **oracle** publishes the index. It also publishes a **demo clock** (`simTime`) so the demo can show 6 months in 3 minutes.
+- Index 1.00 means 1 USYC = 1.00 USD.
+- Index 1.025 means 1 USYC = 1.025 USD (the fund earned 2.5%).
+
+Example: Bank holds 1000 USYC in October and still holds exactly 1000 USYC in April. At index 1.05 those 1000 USYC are worth 1050 USD. The yield is in the price, not in the token count.
+
+An **oracle** publishes the index (the real USYC also publishes its price through an oracle feed). It also publishes a **demo clock** (`simTime`) so the demo can show 6 months in 3 minutes.
+
+Payments use simulated **USDC** (a stablecoin, 1 USDC = 1 USD).
+
+| Real USYC | Exodus simulation |
+|---|---|
+| Issued by Hashnote/Circle | Issued by our `UsycIssuer` demo party |
+| Token count fixed, price rises daily | `Holding.amount` fixed, oracle index rises |
+| Price streamed by an oracle | `RateIndex` published by the `Oracle` party |
+| Bought and redeemed with USDC | USDC is another `Holding` (`instrument = "USDC"`) |
+| Only KYC'd, non-US qualified investors | Not modelled (see known gaps) |
+| Implements the Canton Token Standard | Implements `Holding` + `TransferFactory` (v1) |
 
 ### PT (Principal Token)
 
@@ -107,18 +125,18 @@ An **oracle** publishes the index. It also publishes a **demo clock** (`simTime`
 
 ### Market
 
-A market is one asset plus one maturity date. Example: `PT-TBILL-APR2027`.
+A market is one asset plus one maturity date. Example: `PT-USYC-APR2027`.
 
 ## 5. Parties
 
 | Party | Role |
 |---|---|
 | **Operator** | Runs the markets and the vault. Settles redeem, claim, and merge requests. Runs as an automation bot. |
-| **FundIssuer** | Issues the mock T-bill fund shares. |
-| **CashIssuer** | Issues mock USD cash. |
+| **UsycIssuer** | Issues the simulated USYC fund tokens. Admin of the USYC instrument and its transfer factory. |
+| **UsdcIssuer** | Issues the simulated USDC cash. Admin of the USDC instrument and its transfer factory. |
 | **Oracle** | Publishes the index and the demo clock. |
 | **Alice** (demo) | Wants a fixed rate. Buys PT. |
-| **Bank** (demo) | Dealer. Splits shares, sells PT, keeps YT. |
+| **Bank** (demo) | Dealer. Splits USYC, sells PT, keeps YT. |
 
 ## 6. Architecture
 
@@ -131,9 +149,13 @@ flowchart LR
     RI[RateIndex]
     MS[MaturitySnapshot]
     Q[RfqRequest / Quote]
-    H[Holding: shares + USD]
+    H[Holding: USYC + USDC]
+    TF[HoldingTransferFactory]
   end
 
+  W[Any Canton wallet] -->|CIP-56 Holding view| H
+  W -->|CIP-56 TransferFactory_Transfer| TF
+  TF -->|archive inputs, create outputs| H
   UI[Web UI] -->|JSON Ledger API| M
   UI --> Q
   OB[Operator bot - NestJS] -->|settle requests, call Mature| M
@@ -150,27 +172,35 @@ Off-ledger components (planned):
 
 ## 7. Smart contracts
 
-The Daml code lives in `daml/`. The package is currently named `yield-split` (modules under `daml/YieldSplit/`). **To do: rename it to `exodus`.**
+The Daml code lives in `exodus-contract/`, a multi-package project. Contract code goes in the `main` package and Daml Script tests go in the `test` package. Modules use the `Exodus.` prefix.
 
 ```
-exodus/
-  daml.yaml
-  daml/
-    YieldSplit/
-      Holding.daml   # mock shares and USD, payFrom, roundDown6
-      Oracle.daml    # RateIndex (index + demo clock)
-      Tokens.daml    # MarketTerms, PT, YT, MaturitySnapshot, Redeem/Claim requests
-      Market.daml    # Market (Split, Mature, RequestMerge), MergeRequest
-      Rfq.daml       # RfqRequest, Quote (private DvP)
-    Test/
-      Demo.daml      # demo + mergeTest scripts
+exodus-contract/
+  multi-package.yaml
+  dars/splice/                    # Canton Token Standard v1 DARs (see its README)
+  main/                           # package exodus-contract-main
+    daml.yaml
+    daml/Exodus/
+      Holding.daml                # USYC + USDC holdings, roundDown6, CIP-56 Holding view   [done]
+      TransferFactory.daml        # CIP-56 TransferFactory for our holdings                [done]
+      Oracle.daml                 # RateIndex (index + demo clock)                          [to do]
+      Tokens.daml                 # MarketTerms, PT, YT, MaturitySnapshot, Redeem/Claim     [to do]
+      Market.daml                 # Market (Split, Mature, RequestMerge), MergeRequest      [to do]
+      Rfq.daml                    # RfqRequest, Quote (private DvP), payFrom helper          [to do]
+  test/                           # package exodus-contract-test
+    daml.yaml
+    daml/Exodus/
+      HoldingTest.daml            # lifecycle, failures, privacy, roundDown6               [done]
+      TokenStandardTest.daml      # wallet view + TransferFactory transfers                [done]
+      DemoTest.daml               # the worked example in section 9                         [to do]
 ```
 
 ### Templates
 
 | Template | Signatories | Observers | Purpose |
 |---|---|---|---|
-| `Holding` | issuer | owner | Mock shares or USD. Choices: `Transfer`, `SplitOff`, `MergeWith`. |
+| `Holding` | issuer | owner | Simulated USYC or USDC. Choices: `Transfer`, `SplitOff`, `MergeWith`. Implements CIP-56 `Holding`. |
+| `HoldingTransferFactory` | admin (issuer) | users | One per issuer. Implements CIP-56 `TransferFactory` (`TransferFactory_Transfer`, `TransferFactory_PublicFetch`). |
 | `RateIndex` | oracle | operator, readers | Index + demo clock. Choice: `Publish` (index and time can only go up). |
 | `Market` | operator | members | Choices: `Split`, `Mature`, `RequestMerge`. All nonconsuming. |
 | `MaturitySnapshot` | operator | members | Frozen index at maturity. |
@@ -181,6 +211,32 @@ exodus/
 | `MergeRequest` | operator, owner | | `Merge_Settle` (operator), `Merge_Cancel` (owner). |
 | `RfqRequest` | buyer | dealer | `Rfq_Quote` (dealer), `Rfq_Cancel` (buyer). |
 | `Quote` | buyer, dealer | | `Quote_Accept` (buyer, atomic DvP), `Quote_Reject`, `Quote_Withdraw`. |
+
+### Canton Token Standard (CIP-56)
+
+Our holdings plug into the official Canton Token Standard, **v1**. The standard is a set of Daml **interfaces**. Any template that implements them can be read and moved by any Canton wallet, with no Exodus-specific code in the wallet.
+
+| Standard interface | Implemented by | What a wallet can do |
+|---|---|---|
+| `Splice.Api.Token.HoldingV1:Holding` | `Holding` | List balances. Our holding is shown as `owner`, `instrumentId = {admin = issuer, id = instrument}`, `amount`, `lock = None`. |
+| `Splice.Api.Token.TransferInstructionV1:TransferFactory` | `HoldingTransferFactory` | Send tokens with `TransferFactory_Transfer`. |
+
+**How a wallet transfer works.** Bank holds 600 USYC and 400 USYC and sends 700 USYC to Alice:
+
+```mermaid
+sequenceDiagram
+  participant W as Bank's wallet
+  participant F as HoldingTransferFactory (UsycIssuer)
+  W->>F: TransferFactory_Transfer(700 USYC to Alice, inputs = [600, 400])
+  F->>F: check admin, instrument, amount, time window, input owner
+  F->>F: archive 600 + 400
+  F-->>W: Completed: 700 USYC for Alice, 300 USYC change for Bank
+```
+
+- The transfer finishes in **one step** (`TransferInstructionResult_Completed`). Alice does not need to accept, same as our own `Transfer` choice. So we don't need a `TransferInstruction` template.
+- The wallet must list the input holdings. We don't pick them automatically.
+- Exodus's own workflows (Split, RFQ, vault payouts) keep using the simpler `Holding` choices. The factory is for wallets.
+- The DARs are pinned at `1.0.0` in `exodus-contract/dars/splice/` (taken from the Splice v0.8.3 release bundle).
 
 ### Shared data types
 
@@ -196,12 +252,12 @@ sequenceDiagram
   participant Bank
   participant Market
   participant Vault as Operator vault
-  Bank->>Market: Split(1000 shares, current rate)
-  Market->>Vault: shares transferred to operator
+  Bank->>Market: Split(1000 USYC, current rate)
+  Market->>Vault: USYC transferred to operator
   Market-->>Bank: 1000 PT + 1000 YT (index 1.00)
 ```
 
-Rules: user must be a member, the shares must be the right asset, and the market must not be matured.
+Rules: user must be a member, the holding must be USYC from the market's issuer, and the market must not be matured.
 
 ### 8.2 Private PT sale (RFQ + DvP)
 
@@ -213,7 +269,7 @@ sequenceDiagram
   Bank->>Bank: PT_Lock(for Alice)
   Bank->>Alice: Quote(price 0.975)
   Alice->>Bank: Quote_Accept(cash)
-  Note over Alice,Bank: One transaction: 487.5 USD to Bank, 500 PT to Alice
+  Note over Alice,Bank: One transaction: 487.5 USDC to Bank, 500 PT to Alice
 ```
 
 The PT is **locked for Alice** during the quote for two reasons: Alice must be able to see it to settle, and Bank must not sell it twice.
@@ -222,7 +278,7 @@ The PT is **locked for Alice** during the quote for two reasons: Alice must be a
 
 1. YT holder calls `YT_RequestClaim`. This creates a `ClaimRequest`.
 2. The operator bot calls `Claim_Settle` with a vault piece and an index source.
-3. The holder receives shares, and the YT is recreated with the new `lastIndex`.
+3. The holder receives USYC, and the YT is recreated with the new `lastIndex`.
 
 ### 8.4 Maturity
 
@@ -234,13 +290,13 @@ The PT is **locked for Alice** during the quote for two reasons: Alice must be a
 
 1. PT holder calls `PT_RequestRedeem`.
 2. The operator calls `Redeem_Settle` with the snapshot.
-3. The holder receives `ptAmount / maturityIndex` shares.
+3. The holder receives `ptAmount / maturityIndex` USYC.
 
-### 8.6 Merge (PT + YT back to shares)
+### 8.6 Merge (PT + YT back to USYC)
 
 1. User calls `RequestMerge` with a PT and a YT of the same size.
 2. The operator calls `Merge_Settle`.
-3. The user receives `amount / yt.lastIndex` shares. This works at any time.
+3. The user receives `amount / yt.lastIndex` USYC. This works at any time.
 
 ## 9. The math, with a full example
 
@@ -248,10 +304,10 @@ The PT is **locked for Alice** during the quote for two reasons: Alice must be a
 
 | Action | Formula | Unit |
 |---|---|---|
-| Split | PT = YT = `shares * index` | USD notional |
-| YT yield | `notional * (1/lastIndex - 1/newIndex)` | shares |
-| PT redeem | `ptAmount / maturityIndex` | shares |
-| Merge | `amount / yt.lastIndex` | shares |
+| Split | PT = YT = `usycAmount * index` | USD notional |
+| YT yield | `notional * (1/lastIndex - 1/newIndex)` | USYC |
+| PT redeem | `ptAmount / maturityIndex` | USYC |
+| Merge | `amount / yt.lastIndex` | USYC |
 | Fixed APY for a PT buyer | `(1/price)^(1/years) - 1` | percent |
 
 **Why merge = `amount / lastIndex`:**
@@ -259,43 +315,43 @@ principal part `amount / nowIndex` + unclaimed yield `amount * (1/lastIndex - 1/
 
 All payouts **round down to 6 decimals**, so the vault never pays out more than it holds.
 
-### Full example (this is exactly what `Test/Demo.daml` checks)
+### Full example (this is exactly what `DemoTest.daml` will check)
 
 Start: Oct 1 2026. Maturity: Apr 1 2027 (0.5 years).
 
-**Step 1. Bank splits 1000 shares at index 1.00**
+**Step 1. Bank splits 1000 USYC at index 1.00**
 - PT = YT = 1000 * 1.00 = **1000**
-- Vault holds 1000 shares.
+- Vault holds 1000 USYC.
 
 **Step 2. Alice buys 500 PT at 0.975**
-- Alice pays 500 * 0.975 = **487.5 USD**
+- Alice pays 500 * 0.975 = **487.5 USDC**
 - Return over 6 months: 500 / 487.5 = 1.025641, so +2.5641%
 - Fixed APY: 1.025641^2 - 1 = 1.051940 - 1 = **about 5.19%**
 
 **Step 3. Jan 1 2027, index = 1.025. Bank claims yield on 1000 YT**
-- 1000 * (1/1.00 - 1/1.025) = 1000 * 0.0243902439 = **24.390243 shares**
+- 1000 * (1/1.00 - 1/1.025) = 1000 * 0.0243902439 = **24.390243 USYC**
 - Value check: 24.390243 * 1.025 = 25.0 USD (2.5% of 1000)
 
 **Step 4. Apr 1 2027, index = 1.05. Operator calls `Mature`**
 - Snapshot index = 1.05. New splits now fail.
 
 **Step 5. Alice redeems 500 PT**
-- 500 / 1.05 = **476.190476 shares** (worth 476.190476 * 1.05 = 499.9999998 USD)
+- 500 / 1.05 = **476.190476 USYC** (worth 476.190476 * 1.05 = 499.9999998 USD)
 
 **Step 6. Bank claims the last yield and redeems its own 500 PT**
-- Yield: 1000 * (1/1.025 - 1/1.05) = 1000 * (0.9756097561 - 0.9523809524) = **23.228803 shares**
-- Redeem: 500 / 1.05 = **476.190476 shares**
+- Yield: 1000 * (1/1.025 - 1/1.05) = 1000 * (0.9756097561 - 0.9523809524) = **23.228803 USYC**
+- Redeem: 500 / 1.05 = **476.190476 USYC**
 
 **Step 7. Vault check**
 - Paid out: 24.390243 + 476.190476 + 23.228803 + 476.190476 = 999.999998
-- Left in vault: 1000 - 999.999998 = **0.000002 shares** (rounding dust, never negative)
+- Left in vault: 1000 - 999.999998 = **0.000002 USYC** (rounding dust, never negative)
 
 **Who earned what (values at index 1.05)**
 
 | Party | Start | End | Profit |
 |---|---|---|---|
-| Alice | 487.5 USD | 500.0 USD of shares | **+12.5 USD** (fixed) |
-| Bank | 1000 shares = 1000 USD | 523.809522 shares (550.0 USD) + 487.5 USD = 1037.5 USD | **+37.5 USD** (floating) |
+| Alice | 487.5 USDC | 500.0 USD of USYC | **+12.5 USD** (fixed) |
+| Bank | 1000 USYC = 1000 USD | 523.809522 USYC (550.0 USD) + 487.5 USDC = 1037.5 USD | **+37.5 USD** (floating) |
 | Total | | | **50 USD = 1000 * (1.05 - 1.00)** |
 
 The total profit equals the total yield of the fund. Nothing is created or lost. The split only moves risk between Alice and Bank.
@@ -309,10 +365,10 @@ In one `Quote_Accept` transaction, each party sees only its own part:
 | Alice (buyer) | Yes | Yes | Yes |
 | Bank (dealer) | Yes | Yes | Yes |
 | Operator | **No** | **No** | Yes (it signs PTs) |
-| CashIssuer | **No** | Yes | **No** |
+| UsdcIssuer | **No** | Yes | **No** |
 | Other members | No | No | No |
 
-The test script checks that `Operator` and `CashIssuer` see **zero** `Quote` contracts.
+The test script checks that `Operator` and `UsdcIssuer` see **zero** `Quote` contracts.
 
 ## 11. Design decisions
 
@@ -324,6 +380,10 @@ The test script checks that `Operator` and `CashIssuer` see **zero** `Quote` con
 | Request, then operator settles | Users cannot see vault holdings, so only the operator can pick which vault piece pays. The bot settles one by one, so there is no contention. |
 | Every request has a Cancel choice | If the operator does nothing, the user gets the tokens back. |
 | Holdings signed only by the issuer | Transfers are one step with no "accept" needed. This is simple for a demo. |
+| Simulate USYC instead of a made-up fund | USYC is a real, price-accreting tokenized T-bill fund that is live on Canton, so the demo tells a real institutional story. |
+| Implement CIP-56 v1 (not v2) | v1 is the version wallets and Canton Coin support today. v2 (accounts) is newer. |
+| Token standard DARs checked into `dars/splice/` | `dpm add dar` only installs from an OCI registry, and these DARs are only shipped in the Splice release bundle. |
+| One-step `TransferFactory` (no `TransferInstruction`) | Matches our one-step `Transfer`. The standard allows returning `Completed` directly. |
 | Demo clock `simTime` | Ledger time cannot be moved forward on a real network, and the demo must show months of yield in minutes. |
 | Round down payouts to 6 decimals | Makes it impossible for the vault to go negative. |
 | PT price must be > 0 and <= 1 | With positive rates, PT always sells below par. |
@@ -336,7 +396,7 @@ Say these openly in the pitch. Judges respect honesty more than hidden problems.
 
 - **Operator is trusted**: it settles requests and could delay them. Users can cancel.
 - **Oracle is trusted**: for the index and the demo clock.
-- **Issuers are trusted**: they sign holdings.
+- **Issuers are trusted**: they sign holdings. `UsycIssuer` and `UsdcIssuer` stand in for Circle.
 
 ### Known gaps (to fix)
 
@@ -348,8 +408,11 @@ Say these openly in the pitch. Judges respect honesty more than hidden problems.
 | 4 | `PT_RequestRedeem` allowed before maturity | Request waits forever (bad UX, no loss) | Add a date check |
 | 5 | Post-maturity yield stays in vault | Funds are stuck | Add a treasury sweep choice |
 | 6 | Maturity uses `simTime`, not ledger time | Only OK for a demo | Check ledger time in production |
-| 7 | Holdings are not Splice Token Standard | Canton wallets cannot show PT/YT | Implement the standard holding interfaces (stretch goal) |
+| 7 | Only USYC/USDC implement the token standard (`Holding` + `TransferFactory` v1). PT and YT don't yet. | Canton wallets cannot show PT/YT | Add a `Holding` interface instance to `PrincipalToken` and `YieldToken` (use `lock` for locked PT) |
 | 8 | No quote expiry | Old quotes stay open | Add `validUntil` |
+| 9 | Transfer factory is shared with an observer list (`users`) | New users need the factory recreated | Serve it through the off-ledger registry API with explicit disclosure, like real registries do |
+| 10 | No off-ledger registry API (`/registry/transfer-instruction/v1/...`, `/registry/metadata/v1/...`) | Real wallets cannot discover the factory or instrument metadata by themselves | Serve these endpoints from the NestJS backend |
+| 11 | No KYC allowlist (real USYC is permissioned) | Anyone can receive simulated USYC | Issuer-managed allowlist checked on transfer |
 
 ## 13. Hackathon plan
 
@@ -357,19 +420,20 @@ HackCanton Season 3 is a 5-week online hackathon. Two official posts give differ
 
 | Week | Goal | Status |
 |---|---|---|
-| 1 | Daml core: Split, PT/YT, Claim, Redeem, Merge, RFQ, tests | Done (tests pass) |
+| 1 | Daml core: Holding (USYC/USDC) with CIP-56 `Holding` + `TransferFactory` | Done (tests pass) |
+| 1-2 | Daml core: Oracle, Split, PT/YT, Claim, Redeem, Merge, RFQ, demo test | To do |
 | 2 | Fix known gaps 1, 2, 4. Operator bot (NestJS). Oracle bot. | To do |
 | 3 | Web UI: markets, RFQ screen, yield chart, maturity countdown | To do |
 | 4 | Deploy on LocalNet / DevNet. Record demo video. | To do |
-| 5 | Pitch deck. Stretch: token standard interfaces. | To do |
+| 5 | Pitch deck. Stretch: token standard interfaces for PT/YT, registry API. | To do |
 
 ### Demo script (3 minutes)
 
-1. Bank splits 1000 fund shares, gets 1000 PT + 1000 YT.
+1. Bank splits 1000 USYC, gets 1000 PT + 1000 YT.
 2. Alice sends a private RFQ. Bank quotes 0.975. Show the fixed APY of about 5.19%.
 3. Switch to the Operator view: the quote price is **not visible**.
 4. Alice accepts. Cash and PT swap atomically.
-5. Oracle bot moves time 3 months. Bank claims 24.39 shares of yield.
+5. Oracle bot moves time 3 months. Bank claims 24.39 USYC of yield.
 6. Oracle bot moves to maturity. Operator matures the market.
 7. Alice redeems and gets 500 USD of value. Show the profit table.
 
@@ -381,7 +445,7 @@ HackCanton Season 3 is a 5-week online hackathon. Two official posts give differ
 4. **Demo**: the 7 steps above.
 5. **Math proof**: total profit = total fund yield (the table in section 9).
 6. **Honest limits**: trusted operator and oracle, and the gaps list.
-7. **Next**: real tokenized fund integration, token standard, more maturities, yield curve view.
+7. **Next**: plug into the real USYC on Canton (it already speaks the same token standard), token standard for PT/YT, more maturities, yield curve view.
 
 ## 15. Tech stack and versions
 
@@ -389,6 +453,7 @@ HackCanton Season 3 is a 5-week online hackathon. Two official posts give differ
 |---|---|---|
 | Smart contracts | Daml | **Daml SDK 3.5.11** (`dpm version --active`) |
 | Build tool | `dpm` | The old `daml` assistant is deprecated in favor of `dpm` |
+| Token standard | Splice CIP-56 v1 interfaces | `splice-api-token-{metadata,holding,transfer-instruction}-v1` **1.0.0**, from the Splice **v0.8.3** release bundle, in `exodus-contract/dars/splice/` |
 | Network | Canton LocalNet / DevNet | DevNet was listed at Canton 3.5.1 in June 2026. Match `sdk-version` to what the hackathon uses. |
 | Bots | NestJS (TypeScript) | Planned |
 | UI | Web frontend | Planned |
@@ -398,8 +463,11 @@ Check the latest versions before you start each part. They change often.
 ### Run the tests
 
 ```bash
-dpm build
-dpm test    # runs Test.Demo:demo and Test.Demo:mergeTest
+cd exodus-contract
+dpm build --all      # builds main, then test
+
+cd test
+dpm test             # runs every Daml Script test (HoldingTest, TokenStandardTest, ...)
 ```
 
 ## 16. Glossary
@@ -408,7 +476,14 @@ dpm test    # runs Test.Demo:demo and Test.Demo:mergeTest
 |---|---|
 | **PT** | Principal Token. Pays 1 USD of the asset at maturity. |
 | **YT** | Yield Token. Gets the yield until maturity. |
-| **Index** | Value of 1 fund share in USD. |
+| **Index** | Value of 1 USYC in USD. It only goes up. |
+| **USYC** | A real tokenized money market fund (short-term US T-bills) issued by Hashnote/Circle. Simulated in Exodus. |
+| **USDC** | A USD stablecoin. Simulated in Exodus as the cash leg. |
+| **Price-accreting** | The token count stays the same and the price goes up (USYC works this way). The opposite is rebasing, where the count goes up. |
+| **CIP-56** | The Canton Network Token Standard. |
+| **Interface** | A Daml "plug shape". Any template that implements it can be used by code that only knows the interface (for example a wallet). |
+| **Transfer factory** | The contract a wallet calls to send tokens under CIP-56. |
+| **Instrument ID** | CIP-56 name of a token: `admin` (the issuer party) plus `id` (for example "USYC"). |
 | **Maturity** | The end date of a market. |
 | **RFQ** | Request for quote. The buyer asks, the dealer answers with a price. |
 | **DvP** | Delivery versus payment. Asset and cash move together or not at all. |
@@ -431,3 +506,9 @@ dpm test    # runs Test.Demo:demo and Test.Demo:mergeTest
 - Daml releases: https://github.com/digital-asset/daml/releases
 - Canton developer resources: https://www.canton.network/developer-resources
 - Pendle Finance (inspiration): https://www.pendle.finance
+- USYC (Circle): https://www.circle.com/usyc
+- Circle acquires Hashnote and USYC, brings USDC to Canton: https://www.circle.com/pressroom/circle-announces-acquisition-of-hashnote-and-usyc-tokenized-money-market-fund-alongside-strategic-partnership-with-global-trading-firm-drw
+- CIP-56 Canton Network Token Standard: https://github.com/global-synchronizer-foundation/cips/blob/main/cip-0056/cip-0056.md
+- Token Standard APIs (Splice docs): https://docs.global.canton.network.sync.global/app_dev/token_standard/index.html
+- Token standard Daml source: https://github.com/canton-network/splice/tree/main/token-standard
+- Splice release bundles (DARs): https://github.com/digital-asset/decentralized-canton-sync/releases

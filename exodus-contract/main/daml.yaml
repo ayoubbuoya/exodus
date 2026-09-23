@@ -4,3 +4,8 @@ version: 0.0.1
 dependencies:
   - daml-prim
   - daml-stdlib
+# Canton Token Standard (CIP-56) interfaces. See dars/splice/README.md.
+data-dependencies:
+  - ../dars/splice/splice-api-token-metadata-v1-1.0.0.dar
+  - ../dars/splice/splice-api-token-holding-v1-1.0.0.dar
+  - ../dars/splice/splice-api-token-transfer-instruction-v1-1.0.0.dar

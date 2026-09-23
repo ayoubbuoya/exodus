@@ -1,15 +1,32 @@
--- | Mock assets for the Exodus demo: tokenized T-bill fund shares and USD cash.
+-- | Mock assets for the Exodus demo: simulated USYC fund tokens and USDC cash.
+--
+-- USYC is a real tokenized money market fund (short-term US T-bills) that is
+-- live on Canton. Here we only SIMULATE it: our "USYC" and "USDC" are issued
+-- by our own demo parties, not by Circle.
 --
 -- One template, 'Holding', is used for both. The 'instrument' field tells
 -- them apart:
 --
---   Holding { issuer = FundIssuer, owner = Bank,  instrument = "TBILL", amount = 1000.0 }
---   Holding { issuer = CashIssuer, owner = Alice, instrument = "USD",   amount = 487.5  }
+--   Holding { issuer = UsycIssuer, owner = Bank,  instrument = "USYC", amount = 1000.0 }
+--   Holding { issuer = UsdcIssuer, owner = Alice, instrument = "USDC", amount = 487.5  }
+--
+-- Like real USYC, the NUMBER of USYC tokens never grows. Bank keeps 1000 USYC.
+-- What grows is the PRICE of one USYC (the "index"), which the Oracle publishes.
 --
 -- Think of each Holding contract as one "coin" or "banknote". You never edit a
 -- coin in place. You spend it (archive it) and create new coins instead.
 -- This is the UTXO model, the same idea Bitcoin uses.
+--
+-- Holding also implements the Canton Token Standard (CIP-56) 'Holding'
+-- interface, so any Canton wallet can show these balances.
+-- See the 'interface instance' at the bottom of the template.
 module Exodus.Holding where
+
+-- 'qualified ... as V1' means: everything from this module must be written with
+-- a "V1." prefix, for example V1.HoldingView. This avoids name clashes with our
+-- own names (the standard also has a type called 'Transfer', like our choice).
+import qualified Splice.Api.Token.HoldingV1 as V1
+import Splice.Api.Token.MetadataV1 (emptyMetadata)
 
 
 -- | What 'SplitOff' gives back: the piece you asked for and the change.
@@ -26,9 +43,9 @@ data SplitResult = SplitResult
 
 template Holding
   with
-    issuer     : Party    -- who created the asset and vouches for it (FundIssuer or CashIssuer)
+    issuer     : Party    -- who created the asset and vouches for it (UsycIssuer or UsdcIssuer)
     owner      : Party    -- who owns it right now and is allowed to move it
-    instrument : Text     -- what the asset is, for example "TBILL" or "USD"
+    instrument : Text     -- what the asset is, for example "USYC" or "USDC"
     amount     : Decimal  -- how much of it, for example 1000.0
   where
     -- 'ensure' is checked every time a Holding is created.
@@ -43,14 +60,14 @@ template Holding
 
     -- OBSERVER: can see the contract but did not sign it.
     -- The owner must see their own holding to be able to use it.
-    -- Nobody else (for example Alice looking at Bank's shares) can see it.
+    -- Nobody else (for example Alice looking at Bank's USYC) can see it.
     -- That is Canton privacy: you only see contracts you are part of.
     observer owner
 
     -- ---------------------------------------------------------------------
     -- Transfer: give this whole holding to someone else.
     --
-    -- Example: Bank transfers 400 TBILL to Alice.
+    -- Example: Bank transfers 400 USYC to Alice.
     --   Before: Holding(owner = Bank,  amount = 400)
     --   After:  Holding(owner = Alice, amount = 400)   (the old one is archived)
     --
@@ -75,8 +92,8 @@ template Holding
     -- ---------------------------------------------------------------------
     -- SplitOff: cut this holding into two pieces.
     --
-    -- Example: Alice has 1000 USD but must pay exactly 487.5 USD.
-    --   SplitOff 487.5  ->  splitCid = 487.5 USD, restCid = 512.5 USD
+    -- Example: Alice has 1000 USDC but must pay exactly 487.5 USDC.
+    --   SplitOff 487.5  ->  splitCid = 487.5 USDC, restCid = 512.5 USDC
     -- She can then Transfer the 487.5 piece and keep the 512.5 piece.
     -- ---------------------------------------------------------------------
     choice SplitOff : SplitResult
@@ -97,7 +114,7 @@ template Holding
     -- ---------------------------------------------------------------------
     -- MergeWith: join another holding into this one.
     --
-    -- Example: Bank has two TBILL holdings, 400 and 600.
+    -- Example: Bank has two USYC holdings, 400 and 600.
     --   MergeWith (the 600 one)  ->  one holding of 1000
     -- Both old contracts are archived and one new one is created.
     -- ---------------------------------------------------------------------
@@ -115,7 +132,7 @@ template Holding
         other <- fetch otherCid
 
         -- Only merge "the same kind of money". You must not be able to merge
-        -- 100 USD into a TBILL holding and turn it into 100 TBILL.
+        -- 100 USDC into a USYC holding and turn it into 100 USYC.
         assertMsg "issuer must match" (other.issuer == issuer)
         assertMsg "owner must match" (other.owner == owner)
         assertMsg "instrument must match" (other.instrument == instrument)
@@ -125,6 +142,37 @@ template Holding
         archive otherCid
 
         create this with amount = amount + other.amount
+
+    -- ---------------------------------------------------------------------
+    -- Canton Token Standard: the 'Holding' interface.
+    --
+    -- An INTERFACE is like a plug shape. Wallets do not know our 'Holding'
+    -- template, but they know the standard 'V1.Holding' interface. By
+    -- implementing it, a wallet can ask the ledger "show me every V1.Holding
+    -- that Bank owns" and it will find our USYC next to, for example,
+    -- Canton Coin, with no Exodus-specific code in the wallet.
+    --
+    -- 'view' is what the wallet sees. We translate our fields into the
+    -- standard shape:
+    --
+    --   our Holding                       standard V1.HoldingView
+    --   ---------------------------       ---------------------------------------
+    --   owner = Bank                  ->  owner = Bank
+    --   issuer = UsycIssuer,          ->  instrumentId = { admin = UsycIssuer,
+    --   instrument = "USYC"                               id    = "USYC" }
+    --   amount = 1000.0               ->  amount = 1000.0
+    --   (no locks in our model)       ->  lock = None
+    --   (no extra data)               ->  meta = empty
+    -- ---------------------------------------------------------------------
+    interface instance V1.Holding for Holding where
+      view = V1.HoldingView with
+        owner = owner
+        instrumentId = V1.InstrumentId with
+          admin = issuer
+          id = instrument
+        amount = amount
+        lock = None
+        meta = emptyMetadata
 
 
 -- | Round a number DOWN to 6 decimal places.
