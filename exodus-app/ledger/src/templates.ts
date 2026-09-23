@@ -31,6 +31,10 @@ export const HoldingTransferFactory = Exodus.TransferFactory.HoldingTransferFact
 export type UsycFund = Exodus.Fund.UsycFund;
 export const UsycFund = Exodus.Fund.UsycFund;
 
+// One approved client's access pass: the on-ledger whitelist (Exodus.Access:ClientAccess).
+export type ClientAccess = Exodus.Access.ClientAccess;
+export const ClientAccess = Exodus.Access.ClientAccess;
+
 // Canton Token Standard (CIP-56) v1 interfaces. Wallets only know these.
 export type HoldingView = SpliceHolding.Api.Token.HoldingV1.HoldingView;
 export const HoldingView = SpliceHolding.Api.Token.HoldingV1.HoldingView;
@@ -38,6 +42,9 @@ export type HoldingInterface = SpliceHolding.Api.Token.HoldingV1.Holding;
 export const HoldingInterface = SpliceHolding.Api.Token.HoldingV1.Holding;
 export const TransferFactoryInterface = SpliceTransfer.Api.Token.TransferInstructionV1.TransferFactory;
 export type Metadata = SpliceMetadata.Api.Token.MetadataV1.Metadata;
+export type ChoiceContext = SpliceMetadata.Api.Token.MetadataV1.ChoiceContext;
+// The standard's "any contract" type: contract ids inside a ChoiceContext have this type.
+export type AnyContract = SpliceMetadata.Api.Token.MetadataV1.AnyContract;
 
 // Empty CIP-56 metadata: { values: {} }.
 export const emptyMetadata: Metadata = { values: {} };

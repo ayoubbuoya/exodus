@@ -61,9 +61,21 @@ access <- fetch accessCid
 assertMsg "not an approved client" (access.client == subscriber && access.operator == operator)
 ```
 
+**Transfers need two passes (option B, chosen 2026-09-23).** When Alice sends USYC to Bob, the factory checks Alice's pass AND Bob's pass, so tokens only move between approved clients (like the real, permissioned USYC). The factory is signed by the issuer and must fetch Bob's pass, so every pass has the **issuers as observers** (they do KYC, and already see every transfer of their token). The passes travel in the CIP-56 `extraArgs.context` under `exodus-sender-access` / `exodus-receiver-access`; the app discloses the factory and Bob's pass (read as the issuer). The option not taken (A) checked only the sender, so unapproved parties could receive tokens.
+
 The faucet does **not** need the pass on-ledger: the backend mints as `UsdcIssuer` only if the database says the client is approved and the cooldown has passed.
 
-This also covers spec gap 9 (factory shared through an observer list) and most of gap 11 (no allowlist). Bootstrap gives Alice and Bank passes so `/lab` keeps working.
+This fixes spec gap 9 (factory shared through an observer list) and most of gap 11 (no allowlist; the owner-only `Holding.Transfer` is still unchecked). Bootstrap gives Alice and Bank passes so `/lab` keeps working.
+
+**Who reads what, for disclosure** (the backend will do the same as `@exodus/ledger` does today):
+
+| Contract | Read as | Disclosed to |
+|---|---|---|
+| `UsycFund` | UsycIssuer | the subscriber |
+| newest `RateIndex` | UsycIssuer (the only reader) | the subscriber |
+| `HoldingTransferFactory` | its issuer | the sender |
+| receiver's `ClientAccess` | the issuer | the sender |
+| own `ClientAccess` | the client itself | (not needed) |
 
 ### Theme "Exodus Night"
 
@@ -84,7 +96,7 @@ Fonts: **Inter** for text, **JetBrains Mono** for numbers (tabular figures so am
 | Step | What | Status |
 |---|---|---|
 | 1 | Frontend foundation: Tailwind, shadcn/ui, router, theme, landing page; the old screens moved to `/lab` with no behaviour change | Done (2026-09-23). Own `ThemeProvider` instead of `next-themes` (its inline script makes React 19 log an error) |
-| 2 | Contracts: `ClientAccess` template; `Subscribe` and the transfer factory take the pass; shared contracts read through disclosure; tests; bootstrap gives Alice and Bank passes; ledger client attaches disclosed contracts | To do |
+| 2 | Contracts: `ClientAccess` template; `Subscribe` and the transfer factory take the pass; shared contracts read through disclosure; tests; bootstrap gives Alice and Bank passes; ledger client attaches disclosed contracts | Done (2026-09-23). Option B: transfers check sender and receiver passes. 24 Daml tests pass; checked in the browser on a fresh sandbox. Bootstrap now retries the DAR upload while the sandbox is still connecting to its synchronizer |
 | 3 | Backend `exodus-app/api`: NestJS + Prisma + Postgres; auth, applications, admin approve (allocate party + user, create pass), faucet, index-history recorder, custodial command endpoints | To do |
 | 4 | Pages: landing, signup/login, onboarding form, admin | To do |
 | 5 | `/app` dashboard: price strip, chart, subscribe, faucet, holdings, activity | To do |

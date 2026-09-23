@@ -11,13 +11,19 @@
 --
 -- How can this work without UsycIssuer clicking a button each time?
 -- UsycIssuer signs one 'UsycFund' contract up front. That signature means
--- "I agree to mint USYC for these users when they pay me USDC at the oracle
--- index". When Alice exercises 'Subscribe', the choice runs with:
+-- "I agree to mint USYC for approved clients when they pay me USDC at the
+-- oracle index". When Alice exercises 'Subscribe', the choice runs with:
 --   - Alice's authority (she is the controller): moves her USDC,
 --   - UsycIssuer's authority (it signed the fund): mints her USYC.
 -- This is the Canton version of an EVM vault's deposit() function.
+--
+-- Who may subscribe: any client with a 'ClientAccess' pass from the fund's
+-- operator. Clients do NOT see the fund contract itself (no observers): the
+-- app gives it to Alice's command through explicit disclosure, together with
+-- the price snapshot. So no client learns who else uses the fund.
 module Exodus.Fund where
 
+import Exodus.Access
 import Exodus.Holding
 import Exodus.Oracle
 
@@ -39,12 +45,14 @@ template UsycFund
     usycIssuer : Party    -- issues USYC and receives the USDC (the fund)
     usdcIssuer : Party    -- the only USDC issuer we accept, so nobody can pay with home-made "USDC"
     oracle     : Party    -- the only oracle we trust for the index
-    users      : [Party]  -- who may subscribe, for example [Alice, Bank]
+    operator   : Party    -- the platform whose ClientAccess passes we accept
   where
     signatory usycIssuer
 
-    -- Users must see the fund to exercise 'Subscribe' on it.
-    observer users
+    -- No observers on purpose. Clients get the fund through explicit
+    -- disclosure: the app reads it as UsycIssuer and attaches it to Alice's
+    -- command. A client can exercise a choice on a disclosed contract as long
+    -- as it is the choice's controller.
 
     -- ---------------------------------------------------------------------
     -- Subscribe: pay 'usdcAmount' USDC, get USYC at the current index.
@@ -59,16 +67,21 @@ template UsycFund
     -- ---------------------------------------------------------------------
     nonconsuming choice Subscribe : SubscribeResult
       with
-        subscriber : Party                -- who pays and receives, for example Alice
-        rateCid    : ContractId RateIndex  -- the current USYC index
-        usdcCids   : [ContractId Holding]  -- the USDC holdings to pay from
-        usdcAmount : Decimal               -- how much USDC to pay, for example 500.0
+        subscriber : Party                   -- who pays and receives, for example Alice
+        accessCid  : ContractId ClientAccess  -- the subscriber's own access pass
+        rateCid    : ContractId RateIndex     -- the current USYC index
+        usdcCids   : [ContractId Holding]     -- the USDC holdings to pay from
+        usdcAmount : Decimal                  -- how much USDC to pay, for example 500.0
       controller subscriber
       do
-        assertMsg "subscriber is not a user of this fund" (subscriber `elem` users)
+        -- Only approved clients may subscribe (the on-ledger whitelist).
+        checkAccess operator subscriber accessCid
         assertMsg "usdcAmount must be greater than 0" (usdcAmount > 0.0)
 
         -- 'fetchValidRate' fails if this price snapshot has expired.
+        -- Alice cannot see the snapshot (it is disclosed to her command), so
+        -- this fetch runs on UsycIssuer's authority: UsycIssuer must be one
+        -- of the snapshot's readers. Bootstrap sets readers = [UsycIssuer].
         rate <- fetchValidRate rateCid
 
         -- The most important check. Without it, Alice could create her OWN

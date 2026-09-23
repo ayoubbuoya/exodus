@@ -64,9 +64,10 @@ Other commands: `npm run typecheck` (all packages), `npm run lint -w @exodus/web
 | Contract | Details |
 |---|---|
 | Parties | Operator, UsycIssuer, UsdcIssuer, Oracle, Alice, Bank |
-| `RateFeed` + first `RateIndex` snapshot | USYC index 1.00 on 2026-10-01; snapshots valid for 30 s; readers Alice and Bank; operator Operator |
-| `HoldingTransferFactory` × 2 | one for UsycIssuer, one for UsdcIssuer; users Alice and Bank |
-| `UsycFund` | signed by UsycIssuer; accepts USDC from UsdcIssuer and the index from Oracle; users Alice and Bank |
+| `RateFeed` + first `RateIndex` snapshot | USYC index 1.00 on 2026-10-01; snapshots valid for 30 s; reader UsycIssuer (the fund); operator Operator |
+| `HoldingTransferFactory` × 2 | one for UsycIssuer, one for UsdcIssuer; no observers (disclosed to senders); accepts the Operator's access passes |
+| `UsycFund` | signed by UsycIssuer, no observers (disclosed to subscribers); accepts USDC from UsdcIssuer, the index from Oracle and the Operator's access passes |
+| `ClientAccess` × 2 | access passes for Alice and Bank, signed by Operator, observed by the client and both issuers |
 | `Holding` | 1000 USYC for Bank, 1000 USDC for Alice |
 
 ## What the skeleton checks (results from 2026-09-23)
@@ -74,7 +75,8 @@ Other commands: `npm run typecheck` (all packages), `npm run lint -w @exodus/web
 | # | Check | How | Result |
 |---|---|---|---|
 | 1 | CIP-56 works outside Daml Script | The wallet reads holdings only through the `HoldingV1.Holding` interface view; Send uses `TransferFactory_Transfer` | ✅ Bank sent 100 USYC to Alice; Bank 900, Alice 100 |
-| 2 | Privacy | "What can this party see?" table per party | ✅ Operator sees only the `RateIndex`, no holdings. UsdcIssuer cannot see the `RateIndex`. |
+| 2 | Privacy | "What can this party see?" table per party | ✅ Operator sees only the `RateIndex`, no holdings. UsdcIssuer cannot see the `RateIndex`. Since the access passes: Alice sees only her holdings and her own pass (no fund, factory, price or other client) |
+| 9 | Access passes + disclosure | Fresh sandbox; Alice subscribes 100 USDC; Bank sends 50 USYC to Alice; Bank sends to Operator | ✅ Subscribe and send work with the fund, factory, price and receiver's pass disclosed; sending to Operator (no pass) is refused with "The receiver is not an approved Exodus client" |
 | 3 | Stale `RateIndex` contract id | Two bots at 0.2 s ticks; then the UI "Next step" button while the bot runs at 0.3 s | ⚠️ See below |
 | 4 | Clock drift (`requestedAt <= ledger time`) | Send uses this machine's clock for `requestedAt` | ✅ No failure on the local sandbox (same clock). Re-check on LocalNet/DevNet. |
 | 5 | Decimals | Amounts stay strings; sums use bigint units | ✅ |

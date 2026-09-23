@@ -17,6 +17,18 @@ import type { components, paths } from "./generated/json-ledger-api-v2.ts";
 
 export type CreatedEvent = components["schemas"]["CreatedEvent"];
 export type IdentifierFilter = components["schemas"]["IdentifierFilter"];
+
+// A contract we attach to a command so the submitter can use it without
+// seeing it on the ledger ("explicit disclosure"). Example: Alice cannot see
+// the UsycFund, so the app reads it as UsycIssuer (with its createdEventBlob)
+// and attaches it to Alice's Subscribe command. See toDisclosedContract in queries.ts.
+export type DisclosedContract = components["schemas"]["DisclosedContract"];
+
+// Extra options for create / exercise.
+export type SubmitOptions = {
+  // Contracts the submitter cannot see but the command uses (see DisclosedContract).
+  disclosedContracts?: DisclosedContract[];
+};
 type Command = components["schemas"]["Command"];
 type CantonError = components["schemas"]["JsCantonError"];
 
@@ -198,13 +210,14 @@ export function createLedgerClient(options: LedgerClientOptions) {
   // ---------------------------------------------------------------------
 
   // Sends commands as `actAs` and waits until they are committed.
-  async function submit(actAs: string, commands: Command[]): Promise<void> {
+  async function submit(actAs: string, commands: Command[], options: SubmitOptions = {}): Promise<void> {
     const { error, response } = await api.POST("/v2/commands/submit-and-wait", {
       body: {
         commands,
         commandId: crypto.randomUUID(),
         userId,
         actAs: [actAs],
+        disclosedContracts: options.disclosedContracts ?? [],
       },
     });
     if (error !== undefined) {
@@ -227,23 +240,30 @@ export function createLedgerClient(options: LedgerClientOptions) {
   }
 
   // Exercises one choice. Works for template choices and interface choices. Example:
-  //   await ledger.exercise(oracle, RateIndex.Publish, rateCid, { newIndex: "1.025", newSimTime: "2027-01-01T00:00:00Z" });
+  //   await ledger.exercise(oracle, RateFeed.Publish, feedCid, { newIndex: "1.025", newSimTime: "2027-01-01T00:00:00Z" });
+  // With disclosure (Alice uses a fund she cannot see):
+  //   await ledger.exercise(alice, UsycFund.Subscribe, fund.contractId, { ... }, { disclosedContracts: [fund.disclosure] });
   async function exercise<T extends object, C, R, K>(
     actAs: string,
     choice: Choice<T, C, R, K>,
     contractId: string,
     argument: C,
+    options: SubmitOptions = {},
   ): Promise<void> {
-    await submit(actAs, [
-      {
-        ExerciseCommand: {
-          templateId: choice.template().templateId,
-          contractId,
-          choice: choice.choiceName,
-          choiceArgument: choice.argumentEncode(argument),
+    await submit(
+      actAs,
+      [
+        {
+          ExerciseCommand: {
+            templateId: choice.template().templateId,
+            contractId,
+            choice: choice.choiceName,
+            choiceArgument: choice.argumentEncode(argument),
+          },
         },
-      },
-    ]);
+      ],
+      options,
+    );
   }
 
   return {

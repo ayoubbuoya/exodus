@@ -20,30 +20,54 @@
 -- is 'TransferInstructionResult_Completed'. (Two-step registries return
 -- 'TransferInstructionResult_Pending' instead, and need an extra
 -- 'TransferInstruction' contract. We don't.)
+--
+-- Only approved clients may send AND receive (spec gap 11, like the real,
+-- permissioned USYC). The wallet puts both parties' 'ClientAccess' passes
+-- into the standard 'extraArgs.context' (the CIP-56 way to hand extra
+-- contracts to a registry choice):
+--
+--   extraArgs.context = {
+--     "exodus-sender-access":   AV_ContractId <Bank's pass>,
+--     "exodus-receiver-access": AV_ContractId <Alice's pass>
+--   }
+--
+-- Clients do not see the factory itself (no observers): the app attaches it
+-- to the sender's command through explicit disclosure, together with the
+-- receiver's pass (which the sender cannot see either).
 module Exodus.TransferFactory where
 
+import qualified DA.TextMap as TextMap
 import qualified Splice.Api.Token.HoldingV1 as V1
 import qualified Splice.Api.Token.TransferInstructionV1 as V1
-import Splice.Api.Token.MetadataV1 (emptyMetadata)
+import Splice.Api.Token.MetadataV1 (AnyValue(..), ChoiceContext, emptyMetadata)
 
+import Exodus.Access
 import Exodus.Holding
+
+
+-- | The context keys under which the wallet passes the two access passes.
+-- The app (exodus-app/ledger, transfers.ts) uses the same strings.
+senderAccessKey : Text
+senderAccessKey = "exodus-sender-access"
+
+receiverAccessKey : Text
+receiverAccessKey = "exodus-receiver-access"
 
 
 template HoldingTransferFactory
   with
-    admin : Party    -- the issuer of the tokens, for example UsycIssuer
-    users : [Party]  -- parties allowed to see and use this factory, for example [Bank, Alice]
+    admin    : Party  -- the issuer of the tokens, for example UsycIssuer
+    operator : Party  -- the platform whose ClientAccess passes we accept
   where
     -- The issuer signs the factory. Because of that, when a user exercises a
     -- choice on the factory, the choice also has the ISSUER's authority.
-    -- That is what lets it archive and create Holdings (which the issuer signs).
+    -- That is what lets it archive and create Holdings (which the issuer
+    -- signs), and fetch the receiver's pass (the issuer observes every pass).
     signatory admin
 
-    -- A party can only exercise a choice on a contract it can see.
-    -- In production, a registry app would share the factory with each wallet
-    -- through "explicit disclosure" instead. A plain observer list is simpler
-    -- for the demo.
-    observer users
+    -- No observers on purpose (this fixes spec gap 9). A wallet gets the
+    -- factory through explicit disclosure, the way real Canton registries
+    -- share theirs, so no client sees a list of other clients.
 
     interface instance V1.TransferFactory for HoldingTransferFactory where
       -- What a wallet sees when it looks at the factory.
@@ -66,6 +90,13 @@ template HoldingTransferFactory
         let transfer = arg.transfer
 
         -- 1. Check the request.
+        -- Both sides must be approved clients. We fetch the receiver's pass
+        -- on the issuer's authority (the issuer observes every pass).
+        senderAccessCid <- accessFromContext senderAccessKey arg.extraArgs.context
+        receiverAccessCid <- accessFromContext receiverAccessKey arg.extraArgs.context
+        checkAccess operator transfer.sender senderAccessCid
+        checkAccess operator transfer.receiver receiverAccessCid
+
         assertMsg "expectedAdmin must match the factory admin" (arg.expectedAdmin == admin)
         assertMsg "instrument admin must match the factory admin" (transfer.instrumentId.admin == admin)
         assertMsg "amount must be greater than 0" (transfer.amount > 0.0)
@@ -113,6 +144,21 @@ template HoldingTransferFactory
             receiverHoldingCids = [toInterfaceContractId @V1.Holding receiverCid]
           senderChangeCids = senderChangeCids
           meta = emptyMetadata
+
+
+-- | Read a ClientAccess contract id from a CIP-56 choice context.
+--
+-- The standard context is a map from text keys to 'AnyValue'. A contract id
+-- in it has the generic type 'ContractId AnyContract', so we turn it into
+-- 'ContractId ClientAccess' with 'coerceContractId'. That is safe: if it is
+-- really another kind of contract, the 'fetch' in 'checkAccess' fails and the
+-- whole transfer is rejected.
+accessFromContext : Text -> ChoiceContext -> Update (ContractId ClientAccess)
+accessFromContext key context =
+  case TextMap.lookup key context.values of
+    Some (AV_ContractId anyCid) -> pure (coerceContractId anyCid)
+    Some _ -> abort ("extraArgs.context value '" <> key <> "' must be a contract id")
+    None -> abort ("missing '" <> key <> "' in extraArgs.context: both sender and receiver need an access pass")
 
 
 -- | Archive every input holding of a transfer and return their total amount.

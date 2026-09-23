@@ -187,6 +187,7 @@ exodus-contract/
       TransferFactory.daml        # CIP-56 TransferFactory for our holdings                [done]
       Oracle.daml                 # RateFeed + RateIndex snapshots (index + demo clock)     [done]
       Fund.daml                   # UsycFund: Subscribe (pay USDC, get USYC atomically)     [done]
+      Access.daml                 # ClientAccess pass (on-ledger client whitelist)          [done]
       Tokens.daml                 # MarketTerms, PT, YT, MaturitySnapshot, Redeem/Claim     [to do]
       Market.daml                 # Market (Split, Mature, RequestMerge), MergeRequest      [to do]
       Rfq.daml                    # RfqRequest, Quote (private DvP, pays with payFrom)       [to do]
@@ -194,9 +195,10 @@ exodus-contract/
     daml.yaml
     daml/Exodus/
       HoldingTest.daml            # lifecycle, failures, privacy, roundDown6               [done]
-      TokenStandardTest.daml      # wallet view + TransferFactory transfers                [done]
+      TokenStandardTest.daml      # wallet view + TransferFactory transfers + passes       [done]
       OracleTest.daml             # publish, failures, privacy                              [done]
-      FundTest.daml               # subscribe, stale index, fake oracle/USDC, privacy       [done]
+      FundTest.daml               # subscribe, stale index, fake oracle/USDC, passes, privacy [done]
+      AccessTest.daml             # pass create/revoke rights, who sees which pass          [done]
       DemoTest.daml               # the worked example in section 9                         [to do]
 ```
 
@@ -205,11 +207,11 @@ exodus-contract/
 | Template | Signatories | Observers | Purpose |
 |---|---|---|---|
 | `Holding` | issuer | owner | Simulated USYC or USDC. Choices: `Transfer`, `SplitOff`, `MergeWith`. Implements CIP-56 `Holding`. |
-| `HoldingTransferFactory` | admin (issuer) | users | One per issuer. Implements CIP-56 `TransferFactory` (`TransferFactory_Transfer`, `TransferFactory_PublicFetch`). |
-| `UsycFund` | usycIssuer | users | Nonconsuming `Subscribe`: the subscriber pays USDC (via `payFrom`) to UsycIssuer and gets `roundDown6 (usdc / index)` USYC in the same transaction. Checks the `RateIndex` comes from its trusted `oracle` and the USDC from its `usdcIssuer`. Users must also be `RateIndex` readers. |
+| `HoldingTransferFactory` | admin (issuer) | (none) | One per issuer. Implements CIP-56 `TransferFactory` (`TransferFactory_Transfer`, `TransferFactory_PublicFetch`). Wallets get it through explicit disclosure. A transfer needs the sender's AND the receiver's `ClientAccess` pass (from its trusted `operator`) in `extraArgs.context` under `exodus-sender-access` / `exodus-receiver-access`. |
+| `UsycFund` | usycIssuer | (none) | Nonconsuming `Subscribe`: the subscriber passes its `ClientAccess` pass, pays USDC (via `payFrom`) to UsycIssuer and gets `roundDown6 (usdc / index)` USYC in the same transaction. Checks the pass comes from its trusted `operator`, the `RateIndex` from its trusted `oracle` and the USDC from its `usdcIssuer`. Clients get the fund and the price through explicit disclosure; UsycIssuer must be a `RateIndex` reader, because the price is fetched on its authority. |
 | `RateFeed` | oracle | (none) | The oracle's private working state: latest index + demo clock + `validFor`. Choice: `Publish` (index and time can only go up; same values allowed as a heartbeat). Each `Publish` creates a new `RateIndex` snapshot. |
-| `ClientAccess` (planned) | operator | client | One pass per approved client: the on-ledger whitelist entry. Choices that clients use (`Subscribe`, transfers, later `Split`/RFQ) take the pass and check `client == caller`. Revoke = archive it. Replaces the `users`/`readers` lists (see 8.A and section 11). |
-| `RateIndex` | oracle | operator, readers | Read-only price snapshot with `publishedAt` and `validUntil` (ledger time, `validFor` = 30 s in the demo). Not archived when a newer one is published. Choice: `Expire` (oracle, after `validUntil`). Readers use `fetchValidRate`, which rejects expired snapshots. |
+| `ClientAccess` | operator | client, issuers | One pass per approved client: the on-ledger whitelist entry. `Subscribe` checks the subscriber's pass; transfers check both the sender's and the receiver's (later also `Split`/RFQ). The issuers observe every pass because their factories fetch the receiver's pass. Choice: `Revoke` (operator). Replaces the old `users`/`readers` lists (see 8.A and section 11). |
+| `RateIndex` | oracle | operator, readers (= UsycIssuer in the demo) | Read-only price snapshot with `publishedAt` and `validUntil` (ledger time, `validFor` = 30 s in the demo). Not archived when a newer one is published. Choice: `Expire` (oracle, after `validUntil`). Readers use `fetchValidRate`, which rejects expired snapshots. |
 | `Market` | operator | members | Choices: `Split`, `Mature`, `RequestMerge`. All nonconsuming. |
 | `MaturitySnapshot` | operator | members | Frozen index at maturity. |
 | `PrincipalToken` | operator | owner, lockedFor | Choices: `PT_Transfer`, `PT_SplitOff`, `PT_Lock`, `PT_Unlock`, `PT_DeliverLocked`, `PT_RequestRedeem`. |
@@ -259,19 +261,20 @@ sequenceDiagram
 2. The platform admin approves her on `/admin`.
 3. The backend allocates her **custodial** Canton party and ledger user, and the Operator creates **one `ClientAccess` pass** for her. From now on she can do everything a client can do.
 4. **Faucet:** Alice clicks "Get 100 test USDC". The backend checks (in the database) that she is approved and her cooldown has passed, then `UsdcIssuer` creates a 100 USDC `Holding` for her. No pass is needed for this, because only the issuer signs.
-5. **Using the fund without being on its observer list:** the backend submits Alice's `Subscribe` with the `UsycFund`, the transfer factory and the newest `RateIndex` attached as **disclosed contracts**, plus her pass. The contract checks the pass on-ledger, so the whitelist is enforced by Canton, not only by our database.
+5. **Using the fund without being on its observer list:** the backend submits Alice's `Subscribe` with the `UsycFund` and the newest `RateIndex` attached as **disclosed contracts** (read as UsycIssuer), plus her pass. The contract checks the pass on-ledger, so the whitelist is enforced by Canton, not only by our database.
+6. **Sending:** Alice sends 50 USYC to Bob through the CIP-56 factory. The app puts Alice's and Bob's passes into `extraArgs.context` and discloses the factory and Bob's pass (both read as UsycIssuer, which signs one and observes the other). If Bob has no pass, the transfer is refused: tokens only move between approved clients.
 
 Why one pass instead of adding Alice to each contract's `users` list: see section 11.
 
 ### 8.0 Subscribe (get USYC with USDC)
 
-Like the real USYC, anyone on the fund's user list can buy USYC with USDC. It is one atomic transaction, like `deposit()` on an EVM vault:
+Like the real USYC, any approved client (with a `ClientAccess` pass) can buy USYC with USDC. It is one atomic transaction, like `deposit()` on an EVM vault:
 
-1. Alice calls `Subscribe` on the `UsycFund` with 500 USDC and a `RateIndex` price snapshot that has not expired (index 1.025).
+1. Alice calls `Subscribe` on the `UsycFund` with her pass, 500 USDC and a `RateIndex` price snapshot that has not expired (index 1.025). She cannot see the fund or the snapshot: the app attaches both as disclosed contracts.
 2. `payFrom` merges her USDC holdings, splits off 500 and transfers it to UsycIssuer. She keeps the change.
 3. UsycIssuer's signature on the fund lets the choice mint `roundDown6 (500 / 1.025)` = **487.804878 USYC** for Alice.
 
-If any check fails (a fake oracle, fake USDC, not enough USDC, an expired snapshot), nothing moves. The snapshot stays usable for 30 s even if the oracle publishes a newer price meanwhile (gap 12). The client still retries once on a stale-contract error as a safety net. Redemption (USYC back to USDC) is not built yet (gap 13).
+If any check fails (no valid pass, a fake oracle, fake USDC, not enough USDC, an expired snapshot), nothing moves. The snapshot stays usable for 30 s even if the oracle publishes a newer price meanwhile (gap 12). The client still retries once on a stale-contract error as a safety net. Redemption (USYC back to USDC) is not built yet (gap 13).
 
 ### 8.1 Split
 
@@ -398,6 +401,17 @@ In one `Quote_Accept` transaction, each party sees only its own part:
 
 The test script checks that `Operator` and `UsdcIssuer` see **zero** `Quote` contracts.
 
+**Who knows who the clients are.** No client can list other clients:
+
+| Party | Sees `ClientAccess` passes | Sees the fund, factories, price snapshots |
+|---|---|---|
+| Alice (client) | Only her own | **No** (disclosed to her commands only) |
+| Operator | All (it approves clients) | Price snapshots only |
+| UsycIssuer, UsdcIssuer | All (they check passes on transfers, like KYC) | Their own fund / factory; UsycIssuer also the price |
+| Oracle | **No** | Its own feed and snapshots |
+
+The tests check this (`AccessTest.accessPrivacy`, `FundTest.fundPrivacy`, `TokenStandardTest.walletSeesHoldings`). Before the passes, every client saw `users: [Alice, Bank]` on the fund and factories, and `readers: [Alice, Bank]` on every price snapshot.
+
 ## 11. Design decisions
 
 | Decision | Why |
@@ -417,6 +431,7 @@ The test script checks that `Operator` and `UsdcIssuer` see **zero** `Quote` con
 | PT price must be > 0 and <= 1 | With positive rates, PT always sells below par. |
 | One `ClientAccess` pass per client (not `users` lists on each contract) | With lists, every client can see the full client list (Alice learns Bank is a customer), each approval recreates the fund, factories and feed (in-flight commands fail with "contract not found"), and revoking means recreating them all again. A pass is one contract per client: private, no contention, and revoke = archive. Shared contracts reach the client through explicit disclosure. |
 | Custodial client wallets (for now) | The backend allocates a party + ledger user per client and submits for them after checking the session. Easy for users, like Hashnote. Self-custody (Canton external party, key in the browser) is a later step. |
+| Passes observed by the issuers | On a transfer, the factory (signed by the issuer) must fetch the RECEIVER's pass, and Canton only lets a choice fetch a contract that one of its authorizers can see. The issuers already see every transfer of their tokens, so this reveals nothing new; the alternative (the Operator co-signing every factory) would show the Operator every transfer. |
 | Faucet checked off-ledger | Minting test USDC needs only the issuer's signature. The backend enforces "approved" and the cooldown in PostgreSQL. |
 
 ## 12. Trust assumptions and known gaps
@@ -441,9 +456,9 @@ Say these openly in the pitch. Judges respect honesty more than hidden problems.
 | 6 | Maturity uses `simTime`, not ledger time | Only OK for a demo | Check ledger time in production |
 | 7 | Only USYC/USDC implement the token standard (`Holding` + `TransferFactory` v1). PT and YT don't yet. | Canton wallets cannot show PT/YT | Add a `Holding` interface instance to `PrincipalToken` and `YieldToken` (use `lock` for locked PT) |
 | 8 | No quote expiry | Old quotes stay open | Add `validUntil` |
-| 9 | Transfer factory is shared with an observer list (`users`) | New users need the factory recreated | Serve it through the off-ledger registry API with explicit disclosure, like real registries do. Planned with `ClientAccess` (the backend attaches the factory as a disclosed contract) |
+| 9 | ~~Transfer factory is shared with an observer list (`users`)~~ **Fixed.** | New users needed the factory recreated, and every client saw the client list | Done: the factory has no observers and is attached to transfers through explicit disclosure; access is checked with `ClientAccess` passes. The registry API (gap 10) will serve the same disclosure to outside wallets |
 | 10 | No off-ledger registry API (`/registry/transfer-instruction/v1/...`, `/registry/metadata/v1/...`) | Real wallets cannot discover the factory or instrument metadata by themselves | Serve these endpoints from the NestJS backend |
-| 11 | No KYC allowlist (real USYC is permissioned) | Anyone can receive simulated USYC | Issuer-managed allowlist checked on transfer. Planned: the `ClientAccess` pass (8.A), created on admin approval |
+| 11 | ~~No KYC allowlist~~ **Mostly fixed.** Real USYC is permissioned | Anyone could receive simulated USYC | Done: `Subscribe` and every factory transfer need valid passes (sender and receiver). Still open: the owner-only `Holding.Transfer` choice (used inside `payFrom`) does not check passes, so a client could call it directly to send to anyone. The custodial backend never exposes it. Fix later: make `payFrom` pay through the factory with the fund's own pass, then restrict `Holding.Transfer` |
 | 12 | ~~Stale `rateCid`~~ **Fixed.** Every `Publish` used to archive the only `RateIndex`, so a command holding the old id failed (`CONTRACT_NOT_FOUND`, `UNKNOWN_CONTRACT_SYNCHRONIZERS`, `LOCAL_VERDICT_LOCKED_CONTRACTS`). The UI lost 6 of 6 races against a bot publishing every 0.3 s, and 8 of 10 subscribes needed a retry at 1 s. | `Subscribe` and `Split` failed whenever the oracle published between the user's read and submit | Done: the price has two templates. The oracle writes to a private `RateFeed`; each `Publish` creates a `RateIndex` snapshot that stays usable for 30 s and is not archived by the next publish (the Canton Coin `OpenMiningRound` pattern). Result: 10 of 10 subscribes with **0 retries** while the bot publishes every 1 s. The oracle bot sends heartbeats and archives expired snapshots. See gap 14 for the trade-off. |
 | 13 | No USYC redemption (USYC back to USDC) | Users cannot exit USYC to cash | Request + settle (`RedeemUsycRequest`), so many redeemers do not fight over the fund's USDC holdings |
 | 14 | While two snapshots are valid, a user may pick the older, lower price (the index only goes up) | `Subscribe` at an older index gives slightly more USYC: at most about one window of yield (in the demo, 30 s is a few demo days; in production, with a daily price, it is negligible). `Split` at an older index gives fewer PT/YT, so there is no gain. | Keep the window short. If needed: `Subscribe` could require `rate.simTime >= fund.lastSimTime`, tracked on a consuming fund record, at the cost of contention |
@@ -458,6 +473,7 @@ HackCanton Season 3 is a 5-week online hackathon. Two official posts give differ
 | 1-2 | Daml core: Oracle (done), Split, PT/YT, Claim, Redeem, Merge, RFQ, demo test | To do |
 | 2 | Walking skeleton in `exodus-app/`: sandbox, bootstrap, oracle bot, web UI (CIP-56 wallet, send, privacy table) | Done |
 | 2 | Fix known gap 12 (stale `rateCid`): `RateFeed` + short-lived `RateIndex` snapshots | Done |
+| 3 | `ClientAccess` passes + explicit disclosure (fixes gap 9, most of gap 11, and the client-list leak) | Done |
 | 2 | Fix known gaps 1, 2, 4. Operator bot (NestJS). | To do |
 | 3 | Client app: Tailwind/shadcn UI, landing, sign-up, access form, admin approval, custodial wallets, faucet, Hashnote-style dashboard; skeleton kept as `/lab` (see `client-app.md`) | In progress |
 | 3 | Web UI: markets, RFQ screen, yield chart, maturity countdown | To do |

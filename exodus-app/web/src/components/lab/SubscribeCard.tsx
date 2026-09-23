@@ -11,6 +11,9 @@ import { ledger, useRateIndex } from '@/ledger'
 
 type SubscribeCardProps = {
   party: string
+  // The fund's issuer. The app reads the fund and the price as this party and
+  // discloses them to `party`'s command (clients cannot see them).
+  usycIssuer: string
 }
 
 // A preview of how much USYC `usdcAmount` buys at `index`, or null if the
@@ -28,13 +31,14 @@ function previewUsyc(usdcAmount: string, index: string): string | null {
 
 // Pay USDC to the simulated USYC fund and get USYC back, in one atomic step.
 // Example at index 1.025: pay 500 USDC, get 487.804878 USYC.
-export function SubscribeCard({ party }: SubscribeCardProps) {
-  const rate = useRateIndex(party)
+export function SubscribeCard({ party, usycIssuer }: SubscribeCardProps) {
+  // The preview price, read the same way the command reads it: as the fund's issuer.
+  const rate = useRateIndex(usycIssuer)
   const [usdcAmount, setUsdcAmount] = useState('')
   const queryClient = useQueryClient()
 
   const subscribe = useMutation({
-    mutationFn: (amount: string) => subscribeUsyc(ledger, { subscriber: party, usdcAmount: amount }),
+    mutationFn: (amount: string) => subscribeUsyc(ledger, { subscriber: party, usycIssuer, usdcAmount: amount }),
     onSuccess: (outcome, amount) => {
       const retryNote = outcome.retried ? ' The index changed while sending, so it retried once.' : ''
       toast.success(`Subscribed ${amount} USDC.${retryNote}`)

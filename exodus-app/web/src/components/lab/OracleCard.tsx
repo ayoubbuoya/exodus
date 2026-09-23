@@ -25,7 +25,9 @@ export function OracleCard({ party, partyName }: OracleCardProps) {
         {rate.isError && <ErrorMessage error={rate.error} />}
         {rate.isSuccess && rate.data === null && (
           <p className="text-muted-foreground">
-            {partyName} cannot see the RateIndex. Only the Oracle, the Operator and the readers (Alice, Bank) can.
+            {partyName} cannot see the price snapshot. Only the Oracle, the Operator and the fund (UsycIssuer) can.
+            Clients never hold it: the app attaches it to their subscribe command (explicit disclosure), so no client
+            learns who else is a client.
           </p>
         )}
         {rate.isSuccess && rate.data !== null && (
