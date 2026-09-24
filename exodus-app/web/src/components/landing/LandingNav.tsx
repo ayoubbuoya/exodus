@@ -6,13 +6,16 @@ import { Logo } from '@/components/layout/Logo'
 import { Button } from '@/components/ui/button'
 import { DEMO_ENTRY, SPEC_URL } from './links.ts'
 
-// The landing page's top bar: 72 px, restrained but deliberate.
+// The landing page's top bar: a 72 px band holding a floating glass bar.
 //
 // - Left: the Exodus lockup at full presence (mark + wordmark).
-// - Centre: the page's chapters. The one you are reading is underlined (scroll spy).
+// - Centre: the page's chapters. The one you are reading sits in a small
+//   glass pill (scroll spy).
 // - Right: the environment (a simulated-token test ledger) and "Open the demo".
-// - It is transparent over the hero, then gets the page colour and a line
-//   after 24 px of scroll. Below 900 px the chapters move into a menu.
+// - Over the hero the bar is clear; after 24 px of scroll it turns into thick
+//   glass (blurred page behind it), so it reads over any section.
+//   Below 900 px the chapters move into a menu.
+// The band stays exactly 72 px tall: the split story's sticky frame starts under it.
 
 type Section = { id: string; label: string }
 
@@ -70,24 +73,24 @@ export function LandingNav() {
   const solid = scrolled || menuOpen
 
   return (
-    <header
-      className={cn(
-        'sticky top-0 z-40 border-b transition-[background-color,border-color] duration-200',
-        solid ? 'border-border bg-background/90 backdrop-blur-md' : 'border-transparent bg-background',
-      )}
-    >
-      <div className="mx-auto flex h-[72px] max-w-[1280px] items-center gap-10 px-4 sm:px-6 lg:px-10">
+    <header className="sticky top-0 z-40 px-2 pt-2 sm:px-4">
+      <div
+        className={cn(
+          'mx-auto flex h-16 max-w-[1320px] items-center gap-10 rounded-2xl border px-3 transition-[background-color,border-color,box-shadow] duration-300 sm:px-5 lg:px-6',
+          solid ? 'glass-strong' : 'border-transparent',
+        )}
+      >
         <Logo size="lg" />
-        <nav aria-label="Chapters" className="hidden h-full items-stretch gap-8 min-[900px]:flex">
+        <nav aria-label="Chapters" className="hidden h-9 items-stretch gap-1 min-[900px]:flex">
           {SECTIONS.map((section) => (
             <a
               key={section.id}
               href={`#${section.id}`}
               aria-current={active === section.id ? 'location' : undefined}
               className={cn(
-                'flex items-center border-b-2 pt-0.5 text-[15px] font-medium transition-colors',
+                'flex items-center rounded-full border px-3.5 text-[14px] font-medium transition-colors',
                 active === section.id
-                  ? 'border-foreground text-foreground'
+                  ? 'border-(--glass-edge) bg-white/7 text-foreground'
                   : 'border-transparent text-muted-foreground hover:text-foreground',
               )}
             >
@@ -104,12 +107,12 @@ export function LandingNav() {
           >
             Spec
           </a>
-          <span className="hidden border-l border-input pl-5 text-xs leading-4 text-faint xl:inline">
+          <span className="hidden border-l border-white/10 pl-5 text-xs leading-4 text-faint xl:inline">
             Canton test ledger
             <br />
             Simulated USYC and USDC
           </span>
-          <Button asChild className="hidden h-10 px-4 text-sm sm:inline-flex">
+          <Button asChild variant="chrome" className="hidden h-10 rounded-full px-4 text-sm sm:inline-flex">
             <Link to={DEMO_ENTRY}>
               Open the demo
               <ArrowRightIcon data-icon="inline-end" />
@@ -130,7 +133,7 @@ export function LandingNav() {
       </div>
 
       {menuOpen && (
-        <div id="landing-menu" className="border-t border-border px-4 pb-6 sm:px-6 min-[900px]:hidden">
+        <div id="landing-menu" className="glass-strong mx-auto mt-2 max-w-[1320px] rounded-2xl px-4 pb-6 sm:px-6 min-[900px]:hidden">
           <nav aria-label="Chapters" className="grid">
             {SECTIONS.map((section) => (
               <a
@@ -146,7 +149,7 @@ export function LandingNav() {
               Spec
             </a>
           </nav>
-          <Button asChild size="cta" className="mt-5 w-full">
+          <Button asChild variant="chrome" size="cta" className="mt-5 w-full rounded-full">
             <Link to={DEMO_ENTRY}>Open the demo</Link>
           </Button>
           <p className="mt-4 text-xs text-faint">Canton test ledger · simulated USYC and USDC.</p>

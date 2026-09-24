@@ -8,7 +8,7 @@ type LogoProps = {
   className?: string
 }
 
-// The Exodus lockup: the cut-plate mark next to the wordmark set in the display face (Archivo).
+// The Exodus lockup: the seated-wedge mark next to the wordmark set in the display face (Archivo).
 // It always links home. The accessible name comes from the visible word "Exodus".
 export function Logo({ size = 'md', className }: LogoProps) {
   return (
@@ -16,7 +16,7 @@ export function Logo({ size = 'md', className }: LogoProps) {
       to="/"
       className={cn('flex items-center text-foreground', size === 'lg' ? 'gap-3' : 'gap-2.5', className)}
     >
-      <Mark className={size === 'lg' ? 'h-6 w-auto' : 'h-[18px] w-auto'} />
+      <Mark className={size === 'lg' ? 'h-7 w-auto' : 'h-5 w-auto'} />
       <span className={cn('font-display leading-none', size === 'lg' ? 'text-[26px]' : 'text-xl')}>
         Exodus
       </span>

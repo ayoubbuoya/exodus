@@ -8,17 +8,19 @@ import { MATURITY_DATE, OUTCOME, VAULT } from '@/landing/demo-numbers'
 // display figures) on purpose: after the dark product sections, the page stops and shows
 // the proof. The spec's worked example (docs/exodus.md §9), from split to maturity:
 //   Alice, fixed:    +$12.50
-//   Bank, floating:  +$37.50   (copper: floating exposure is yield)
+//   Bank, floating:  +$37.50   (yield blue: floating exposure is yield)
 //   Fund yield:       $50.00 = 1,000 USYC × (1.05 − 1.00)
 // then two reconciliations: who earned what, and every USYC the vault paid out.
 //
 // `theme-light` switches this block to the light palette (styles/tokens.css),
-// even though the rest of the landing page is dark.
+// even though the rest of the landing page is dark. In the Glacier look it is
+// a sheet of frosted glass floating over the dark page, like a printed term
+// sheet laid on a glass desk.
 
 export function ProofSection() {
   return (
-    <section id="maths" aria-labelledby="maths-title" className="theme-light scroll-mt-[72px] bg-background text-foreground">
-      <div className="mx-auto max-w-[1280px] px-4 py-20 sm:px-6 lg:px-10 lg:py-28">
+    <section id="maths" aria-labelledby="maths-title" className="theme-light scroll-mt-[72px] px-2 py-6 text-foreground sm:px-4">
+      <div className="reveal mx-auto max-w-[1320px] rounded-[28px] bg-background/95 px-4 py-20 shadow-[0_40px_120px_-40px_rgb(90_130_230/0.55)] ring-1 ring-white/70 backdrop-blur-xl sm:px-6 lg:px-12 lg:py-28">
         <div className="flex flex-wrap items-end justify-between gap-6 border-b-2 border-foreground pb-6">
           <h2
             id="maths-title"

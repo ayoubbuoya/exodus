@@ -1,5 +1,5 @@
 /*
- * Global styles for the Meridian theme.
+ * Global styles for the Glacier theme (navy glass, silver principal, blue yield).
  *
  * How theming works:
  * - The colour values live in `styles/tokens.css` (light on `:root`, dark on `.dark`).
@@ -69,12 +69,13 @@
   --color-warning: var(--warning);
   --color-info: var(--info);
 
-  /* Radius scale: chips 3, controls 6, panels 8. Nothing rounder. */
-  --radius-sm: 3px;
-  --radius-md: 4px;
-  --radius-lg: 6px;
-  --radius-xl: 8px;
-  --radius-2xl: 8px;
+  /* Radius scale: chips 6, controls 10, panels 16, hero glass 24.
+     Glass reads as soft, machined edges (like the rounded silver block of the mark). */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-xl: 16px;
+  --radius-2xl: 24px;
 
   --shadow-e1: var(--elev-1);
   --shadow-e2: var(--elev-2);
@@ -98,7 +99,7 @@
   [role="button"]:not(:disabled) {
     cursor: pointer;
   }
-  /* A visible, text-coloured focus ring everywhere (never copper). */
+  /* A visible, text-coloured focus ring everywhere (never the yield blue). */
   :focus-visible {
     outline: 2px solid var(--ring);
     outline-offset: 2px;
@@ -178,7 +179,7 @@
   }
 }
 
-/* Landing motion (Meridian spec, "Motion").
+/* Landing motion.
    - draw-line: an SVG path with pathLength="1" and stroke-dasharray 1 draws itself.
    - fade-in: labels appear after their line has been drawn. */
 @keyframes draw-line {
@@ -198,6 +199,246 @@
   }
 }
 
+/* ==========================================================================
+   Glacier: glass surfaces, chrome and ambient light.
+   ========================================================================== */
+
+/* Extra animatable numbers for the glass instrument (see GlassStage.tsx):
+   --glow  how bright the blue light from the glass wedge is (0 → 1),
+   --rise  the intro: the object comes out of the dark (0 → 1).
+   Their resting values (0.5 and 1) are what the split story and every other
+   place without an animation show. */
+@property --glow {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0.5;
+}
+@property --rise {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 1;
+}
+
+@layer components {
+  /* A glass panel: a whisper of fill, the page blurred behind it, a 1 px cool
+     rim and a bright top edge (where light catches the glass).
+     Example: <div class="glass rounded-xl p-6">…</div> */
+  .glass {
+    background-color: var(--glass-fill);
+    background-image: linear-gradient(180deg, rgb(255 255 255 / 0.045), transparent 38%);
+    border: 1px solid var(--glass-edge);
+    box-shadow:
+      inset 0 1px 0 var(--glass-rim-light),
+      var(--glass-shadow);
+    backdrop-filter: blur(18px) saturate(150%);
+    -webkit-backdrop-filter: blur(18px) saturate(150%);
+  }
+  /* Thicker glass for floating things (the nav bar, popovers, the quote card):
+     more fill, so text on it stays readable over anything. */
+  .glass-strong {
+    background-color: var(--glass-fill-strong);
+    background-image: linear-gradient(180deg, rgb(255 255 255 / 0.06), transparent 45%);
+    border: 1px solid var(--glass-edge);
+    box-shadow:
+      inset 0 1px 0 var(--glass-rim-light),
+      var(--glass-shadow);
+    backdrop-filter: blur(24px) saturate(160%);
+    -webkit-backdrop-filter: blur(24px) saturate(160%);
+  }
+  /* Glass that answers the pointer: a soft light follows the cursor.
+     MarketingLayout writes the pointer position into --mx / --my (in px,
+     relative to the panel), so this is plain CSS, with no React re-render. */
+  .glass-glow {
+    background-image:
+      radial-gradient(420px circle at var(--mx, 50%) var(--my, -30%), rgb(200 220 255 / 0.075), transparent 45%),
+      linear-gradient(180deg, rgb(255 255 255 / 0.045), transparent 38%);
+  }
+
+  /* Silver chrome text for the big headlines: bright, a cool dip, bright again,
+     the way light runs down brushed metal. */
+  .text-chrome {
+    background-image: linear-gradient(180deg, var(--chrome-1) 8%, var(--chrome-2) 58%, var(--chrome-3) 96%);
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+  }
+  /* Chrome with a slow light passing across it (used for one word only). */
+  .text-chrome-sheen {
+    background-image:
+      linear-gradient(105deg, transparent 40%, rgb(255 255 255 / 0.95) 50%, transparent 60%),
+      linear-gradient(180deg, var(--chrome-2) 10%, var(--muted-foreground) 90%);
+    background-size: 250% 100%, 100% 100%;
+    background-repeat: no-repeat;
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+    animation: text-sheen 6s var(--ease-standard) 2.4s infinite;
+  }
+
+  /* The primary call to action: a bar of polished silver.
+     The ::after is a light streak that crosses it on hover. */
+  .btn-chrome {
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
+    color: #060a13;
+    background-image: linear-gradient(180deg, #ffffff 0%, #d5deec 52%, #eef3fb 100%);
+    border-color: rgb(255 255 255 / 0.7);
+    box-shadow:
+      inset 0 1px 0 #ffffff,
+      inset 0 -1px 0 rgb(6 10 19 / 0.18),
+      0 12px 32px -12px rgb(150 185 255 / 0.55);
+    transition:
+      box-shadow 240ms var(--ease-standard),
+      transform 240ms var(--ease-standard);
+  }
+  .btn-chrome:hover {
+    box-shadow:
+      inset 0 1px 0 #ffffff,
+      inset 0 -1px 0 rgb(6 10 19 / 0.18),
+      0 16px 44px -12px rgb(150 185 255 / 0.8);
+    transform: translateY(-1px);
+  }
+  .btn-chrome::after {
+    content: "";
+    position: absolute;
+    inset: -2px;
+    z-index: -1;
+    background: linear-gradient(105deg, transparent 35%, rgb(255 255 255 / 0.95) 50%, transparent 65%);
+    transform: translateX(-120%);
+    transition: transform 700ms var(--ease-standard);
+  }
+  .btn-chrome:hover::after {
+    transform: translateX(120%);
+  }
+}
+
+@layer utilities {
+  /* Sections scroll into place: they rise out of a slight blur as they enter
+     the screen. Pure CSS (scroll-driven animation), so browsers without it
+     simply show the section. */
+  @supports (animation-timeline: view()) {
+    .reveal {
+      animation: rise-in linear both;
+      animation-timeline: view();
+      animation-range: entry 0% entry 55%;
+    }
+  }
+}
+
+/* The object floats: a slow breath up and down. */
+@keyframes glass-float {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(0, -1.6%, 0);
+  }
+}
+/* A chip that floats a little, out of step with the object. */
+@keyframes chip-float {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(0, -6px, 0);
+  }
+}
+/* The hero intro: the instrument rises out of the dark (0 → 38%), rests,
+   then the glass wedge slides out of the silver block and lights up. */
+@keyframes glass-hero {
+  0% {
+    --rise: 0;
+    --slide: 0;
+    --glow: 0.25;
+  }
+  38% {
+    --rise: 1;
+    --slide: 0;
+    --glow: 0.35;
+  }
+  50% {
+    --rise: 1;
+    --slide: 0;
+    --glow: 0.35;
+  }
+  100% {
+    --rise: 1;
+    --slide: 1;
+    --glow: 1;
+  }
+}
+/* A band of light crossing the glass wedge (moves a gradient 3 wedge widths). */
+@keyframes glass-sheen {
+  0%,
+  55% {
+    transform: translateX(-60%);
+  }
+  100% {
+    transform: translateX(160%);
+  }
+}
+@keyframes text-sheen {
+  0%,
+  60% {
+    background-position: 130% 0, 0 0;
+  }
+  100% {
+    background-position: -30% 0, 0 0;
+  }
+}
+/* The halo ring behind the hero object turns very slowly. */
+@keyframes halo-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+/* Ambient light: three soft pools that drift like light under water. */
+@keyframes drift-a {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(6vw, 4vh, 0) scale(1.12);
+  }
+}
+@keyframes drift-b {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1.05);
+  }
+  50% {
+    transform: translate3d(-7vw, -3vh, 0) scale(0.95);
+  }
+}
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(28px);
+    filter: blur(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+}
+/* A status dot that pings (the "live" badge). */
+@keyframes ping-soft {
+  0% {
+    transform: scale(1);
+    opacity: 0.7;
+  }
+  80%,
+  100% {
+    transform: scale(2.6);
+    opacity: 0;
+  }
+}
+
 /* Users who ask for less motion get the final state straight away. */
 @media (prefers-reduced-motion: reduce) {
   *,
@@ -207,5 +448,9 @@
     animation-iteration-count: 1 !important;
     transition-duration: 1ms !important;
     scroll-behavior: auto !important;
+  }
+  /* Scroll reveals would still move with the scroll: switch them off. */
+  .reveal {
+    animation: none !important;
   }
 }

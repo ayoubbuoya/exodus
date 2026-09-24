@@ -2,19 +2,21 @@ import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } f
 import { cn } from 'cn'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { MATURITY_DATE, SPLIT } from '@/landing/demo-numbers'
-import { ANCHORS, SPLIT_FRAME as F, artH, artRight, artSize, artX, artY } from '@/landing/instrument-geometry'
-import { InstrumentArtboard } from './InstrumentStage.tsx'
+import { ANCHORS, GLASS_FRAME as F } from '@/landing/glass-geometry'
+import { artH, artRight, artSize, artX, artY } from '@/landing/instrument-geometry'
+import { GlassArtboard } from './GlassStage.tsx'
 
 // Signature B: USYC → PT + YT, told by scrolling (spec §9, step 1).
 //
 // On tall desktop screens the section is three screens tall and its frame is sticky, so the
 // instrument stays in view while you scroll through it:
 //   1. Deposit  one unified instrument: 1,000 USYC at index 1.000000,
-//   2. Cut      the seam is drawn: PT = YT = shares × index,
-//   3. Split    the copper yield plate separates; the amounts appear.
+//   2. Cut      the outline of the glass wedge is traced in light: PT = YT = shares × index,
+//   3. Split    the blue glass wedge (yield) slides out of the silver block
+//               (principal) and lights up; the amounts appear.
 // The scroll position becomes one number, --p (0 → 1), written straight onto
-// the frame (no React re-render per frame). CSS turns --p into --seam and
-// --slide, so the object moves continuously with your scroll. The page scrolls
+// the frame (no React re-render per frame). CSS turns --p into --seam, --slide
+// and --glow, so the object moves continuously with your scroll. The page scrolls
 // normally: no locking, no snapping. Every step is also a button.
 // Phones, tablets and short laptop screens get no sticky frame: the step
 // buttons set --p, and a CSS transition animates between steps.
@@ -48,10 +50,12 @@ function stepFor(progress: number): Step {
 }
 
 // --p → the stage's own variables. The seam draws between 24% and 44% of the
-// story, the plates separate between 52% and 78%, the amounts land after 74%.
+// story, the wedge slides out between 52% and 78% (and its light rises with it),
+// the amounts land after 74%.
 const DIRECTOR: CSSProperties = {
   ['--seam' as string]: 'clamp(0, calc((var(--p) - 0.24) / 0.2), 1)',
   ['--slide' as string]: 'clamp(0, calc((var(--p) - 0.52) / 0.26), 1)',
+  ['--glow' as string]: 'calc(0.3 + 0.7 * clamp(0, calc((var(--p) - 0.52) / 0.26), 1))',
 }
 const fade = (from: number, span: number): CSSProperties => ({
   opacity: `clamp(0, calc((var(--p) - ${from}) / ${span}), 1)`,
@@ -64,8 +68,8 @@ const fadeOut = (from: number, span: number): CSSProperties => ({
 const NAV_HEIGHT = 72
 
 // Label sizes in canvas units (they scale with the artboard), with a floor in px.
-const AMOUNT = artSize(F, 64, 18)
-const DETAIL = artSize(F, 26, 11)
+const AMOUNT = artSize(F, 58, 18)
+const DETAIL = artSize(F, 24, 11)
 
 // Scroll-driven mode needs a desktop screen at least 760 px tall (the tall: variant in index.css).
 const SCROLLY_QUERY = '(min-width: 1024px) and (min-height: 760px)'
@@ -138,7 +142,7 @@ export function SplitStory() {
         <div className="flex flex-wrap items-end justify-between gap-x-10 gap-y-6 short:col-start-1 short:row-start-1 short:self-end">
           <h2
             id="split-title"
-            className="font-display text-[32px] leading-[1.02] sm:text-[40px] xl:text-[48px]"
+            className="text-chrome font-display text-[32px] leading-[1.02] sm:text-[40px] xl:text-[48px]"
           >
             One instrument becomes two.
           </h2>
@@ -153,11 +157,11 @@ export function SplitStory() {
             - phones and tablets: the full width. */}
         <div className="flex min-h-0 items-center justify-center py-6 short:col-start-2 short:row-span-2 short:row-start-1 short:py-0 tall:py-2 tall:[container-type:size]">
           <div className="w-full short:w-[min(100%,calc((100svh-150px)*1.373))] tall:w-[min(100cqw,calc(100cqh*1.373))]">
-            <InstrumentArtboard
+            <GlassArtboard
               frame={F}
               label={
                 step === 3
-                  ? `The instrument has split: ${SPLIT.pt} PT, the silver principal plate, and ${SPLIT.yt} YT, the copper yield plate.`
+                  ? `The instrument has split: ${SPLIT.pt} PT, the silver principal block, and ${SPLIT.yt} YT, the blue glass yield wedge.`
                   : `One instrument: ${SPLIT.usyc} USYC before the split.`
               }
             >
@@ -165,7 +169,7 @@ export function SplitStory() {
               <div
                 aria-hidden="true"
                 className="absolute leading-tight"
-                style={{ left: artX(F, 20), top: artY(F, 16), ...fadeOut(0.5, 0.08) }}
+                style={{ left: artX(F, 330), top: artY(F, 104), ...fadeOut(0.5, 0.08) }}
               >
                 <span className="num block font-semibold" style={{ fontSize: artSize(F, 40, 14) }}>
                   {SPLIT.usyc} USYC
@@ -179,10 +183,10 @@ export function SplitStory() {
               {/* 2 · Cut: the formula, in the empty lower right of the picture. */}
               <div
                 aria-hidden="true"
-                className="absolute hidden rounded-lg border border-input bg-card shadow-e1 sm:block"
+                className="glass-strong absolute hidden rounded-xl sm:block"
                 style={{
-                  right: artRight(F, 1490),
-                  top: artY(F, 600),
+                  right: artRight(F, 1510),
+                  top: artY(F, 850),
                   padding: `${artSize(F, 12, 6)} ${artSize(F, 22, 10)}`,
                   fontSize: DETAIL,
                   opacity: 'clamp(0, min(calc((var(--p) - 0.28) / 0.1), calc(1 - (var(--p) - 0.5) / 0.06)), 1)',
@@ -196,18 +200,18 @@ export function SplitStory() {
               {/* 3 · Split: the amounts, with leader lines to their plates. */}
               <div
                 aria-hidden="true"
-                className="absolute w-px bg-foreground/50"
+                className="absolute w-px bg-linear-to-b from-foreground/70 to-foreground/0"
                 style={{
-                  left: artX(F, ANCHORS.principalFront.x),
-                  top: artY(F, ANCHORS.principalFront.y),
-                  height: artH(F, 112),
+                  left: artX(F, ANCHORS.shellBottom.x),
+                  top: artY(F, ANCHORS.shellBottom.y + 14),
+                  height: artH(F, 40),
                   ...fade(0.76, 0.1),
                 }}
               />
               <div
                 aria-hidden="true"
                 className="absolute leading-tight"
-                style={{ left: artX(F, ANCHORS.principalFront.x - 22), top: artY(F, 764), ...fade(0.78, 0.1) }}
+                style={{ left: artX(F, ANCHORS.shellBottom.x - 20), top: artY(F, 876), ...fade(0.78, 0.1) }}
               >
                 <span className="num block font-semibold tracking-[-0.015em]" style={{ fontSize: AMOUNT }}>
                   {SPLIT.pt}.00 PT
@@ -218,18 +222,18 @@ export function SplitStory() {
               </div>
               <div
                 aria-hidden="true"
-                className="absolute w-px bg-yt/60"
+                className="absolute w-px bg-linear-to-t from-yt/80 to-yt/0"
                 style={{
-                  left: artX(F, ANCHORS.yieldTopSlid.x),
-                  top: artY(F, -36),
-                  height: artH(F, ANCHORS.yieldTopSlid.y + 36),
+                  left: artX(F, ANCHORS.wedgeTopSlid.x),
+                  top: artY(F, 232),
+                  height: artH(F, ANCHORS.wedgeTopSlid.y - 244),
                   ...fade(0.76, 0.1),
                 }}
               />
               <div
                 aria-hidden="true"
                 className="absolute text-right leading-tight"
-                style={{ right: artRight(F, 1490), top: artY(F, -186), ...fade(0.78, 0.1) }}
+                style={{ right: artRight(F, 1510), top: artY(F, 110), ...fade(0.78, 0.1) }}
               >
                 <span className="num block font-semibold tracking-[-0.015em] text-yt" style={{ fontSize: AMOUNT }}>
                   {SPLIT.yt}.00 YT
@@ -238,7 +242,7 @@ export function SplitStory() {
                   Yield · until {MATURITY_DATE}
                 </span>
               </div>
-            </InstrumentArtboard>
+            </GlassArtboard>
           </div>
         </div>
 
@@ -277,8 +281,11 @@ function StepRail({ step, onChoose }: StepRailProps) {
   return (
     <div className="w-full max-w-[420px]">
       {/* Progress line, filled by --p. Decorative: the buttons carry the state. */}
-      <div aria-hidden="true" className="relative h-px bg-input">
-        <div className="absolute inset-y-0 left-0 w-full origin-left bg-foreground" style={{ transform: 'scaleX(var(--p))' }} />
+      <div aria-hidden="true" className="relative h-px bg-white/10">
+        <div
+          className="absolute inset-y-0 left-0 w-full origin-left bg-linear-to-r from-foreground/40 to-foreground shadow-[0_0_12px_rgb(220_235_255/0.6)]"
+          style={{ transform: 'scaleX(var(--p))' }}
+        />
       </div>
       <div role="tablist" aria-label="Split, step by step" className="mt-3 grid grid-cols-3">
         {STEPS.map((info, index) => {
@@ -318,7 +325,7 @@ function TransactionStrip() {
   return (
     <div
       aria-label="The split transaction"
-      className="grid border-y border-input text-[13px] sm:grid-cols-[1fr_1.45fr_1fr] short:grid-cols-1"
+      className="glass grid rounded-xl px-4 text-[13px] sm:grid-cols-[1fr_1.45fr_1fr] short:grid-cols-1"
       style={{ opacity: 'calc(0.45 + 0.55 * clamp(0, calc((var(--p) - 0.6) / 0.2), 1))' }}
     >
       <div className="py-3 sm:pr-4">

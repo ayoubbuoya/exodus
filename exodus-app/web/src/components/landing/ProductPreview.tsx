@@ -32,10 +32,10 @@ export function ProductPreview() {
   return (
     <section aria-labelledby="product-title" className="border-t border-border">
       <div className="mx-auto max-w-[1280px] px-4 py-20 sm:px-6 lg:px-10 lg:py-28">
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,420px)] lg:items-end">
+        <div className="reveal grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,420px)] lg:items-end">
           <h2
             id="product-title"
-            className="font-display text-[32px] leading-[1.02] sm:text-[40px] xl:text-[52px]"
+            className="text-chrome font-display text-[32px] leading-[1.02] sm:text-[40px] xl:text-[52px]"
           >
             Every position, <span className="block">one maturity away.</span>
           </h2>
@@ -45,7 +45,8 @@ export function ProductPreview() {
           </p>
         </div>
 
-        <div className="mt-12 overflow-x-auto rounded-xl border border-input shadow-e2">
+        {/* The app window floats on glass, lit from below by a faint navy glow. */}
+        <div className="reveal mt-12 overflow-x-auto rounded-2xl border border-(--glass-edge) shadow-[0_40px_120px_-40px_rgb(90_130_230/0.45)]">
           <div
             inert
             role="img"

@@ -2,7 +2,7 @@ import { cn } from 'cn'
 
 // A small square that says which kind of instrument a row is about.
 // - PT (principal): filled with the text colour.
-// - YT (yield): filled with copper (copper always means yield).
+// - YT (yield): filled with the yield blue (that blue always means yield).
 // - Cash (USDC) and the asset (USYC): outlined only, so the two Exodus
 //   instruments stand out in a list of positions.
 export type InstrumentKind = 'pt' | 'yt' | 'cash' | 'asset'

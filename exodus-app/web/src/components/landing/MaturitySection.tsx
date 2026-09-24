@@ -7,11 +7,11 @@ import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion'
 import { FIXED_APY_LABEL, MATURITY_DATE, TERM_DAYS } from '@/landing/demo-numbers'
 import { JAN_1, claimableOn1000, dateLabel, ptPrice, usycIndex, ytValue } from '@/landing/maturity-model'
 
-// "Two instruments. One date." The Meridian idea as a chart you can move.
+// "Two instruments. One date." The maturity idea as a chart you can move.
 //
 // Two panels share one time axis and are cut by one vertical line: the
 // maturity, 01 Apr 2027. The upper panel is PT (the text colour), pulling up
-// to par. The lower panel is YT (copper), falling to zero. Past the current
+// to par. The lower panel is YT (the yield blue), falling to zero. Past the current
 // sim date the lines are faint; before it they are solid, so you can see time
 // passing. The slider, the play button and the three shortcuts move the date.
 // All numbers come from landing/maturity-model.ts.
@@ -62,10 +62,10 @@ export function MaturitySection() {
   return (
     <section id="maturity" aria-labelledby="maturity-title" className="scroll-mt-[72px] border-t border-border">
       <div className="mx-auto max-w-[1280px] px-4 py-20 sm:px-6 lg:px-10 lg:py-28">
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,420px)] lg:items-end">
+        <div className="reveal grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,420px)] lg:items-end">
           <h2
             id="maturity-title"
-            className="font-display text-[32px] leading-[1.02] sm:text-[40px] xl:text-[52px]"
+            className="text-chrome font-display text-[32px] leading-[1.02] sm:text-[40px] xl:text-[52px]"
           >
             Two instruments. <span className="block">One date.</span>
           </h2>
@@ -75,7 +75,7 @@ export function MaturitySection() {
           </p>
         </div>
 
-        <div className="mt-12 grid gap-10 xl:grid-cols-[minmax(0,1fr)_240px]">
+        <div className="glass glass-glow mt-12 grid gap-10 rounded-2xl p-4 sm:p-8 xl:grid-cols-[minmax(0,1fr)_240px]">
           <div className="min-w-0">
             <MaturityChart day={day} />
             <div className="mt-6 flex flex-wrap items-center gap-x-5 gap-y-3">

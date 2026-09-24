@@ -1,5 +1,6 @@
 import { Link } from 'react-router'
 import { ArrowRightIcon } from 'lucide-react'
+import { Mark } from '@/components/brand/Mark'
 import { Button } from '@/components/ui/button'
 import { Hero } from '@/components/landing/Hero'
 import { DEMO_ENTRY, SPEC_URL } from '@/components/landing/links'
@@ -33,15 +34,16 @@ export function LandingPage() {
   )
 }
 
-// Signature C with its title, on the raised surface so it reads as its own place.
+// Signature C with its title. The lens sits on one large glass panel, so it
+// reads as its own place (the old version used a raised surface colour).
 function PrivacySection() {
   return (
-    <section id="privacy" aria-labelledby="privacy-title" className="scroll-mt-[72px] border-t border-border bg-card">
+    <section id="privacy" aria-labelledby="privacy-title" className="scroll-mt-[72px] border-t border-border">
       <div className="mx-auto max-w-[1280px] px-4 py-20 sm:px-6 lg:px-10 lg:py-28">
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,420px)] lg:items-end">
+        <div className="reveal grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,420px)] lg:items-end">
           <h2
             id="privacy-title"
-            className="font-display text-[32px] leading-[1.02] sm:text-[40px] xl:text-[52px]"
+            className="text-chrome font-display text-[32px] leading-[1.02] sm:text-[40px] xl:text-[52px]"
           >
             One trade. <span className="block">Four ledgers.</span>
           </h2>
@@ -50,7 +52,7 @@ function PrivacySection() {
             pick a seat, and what that party cannot see is simply not there.
           </p>
         </div>
-        <div className="mt-12">
+        <div className="glass glass-glow mt-12 rounded-2xl p-4 sm:p-8 lg:p-10">
           <PrivacyLens />
         </div>
       </div>
@@ -58,27 +60,33 @@ function PrivacySection() {
   )
 }
 
-// A short, honest close: where to go next.
+// A short, honest close: where to go next. One wide glass panel with a large,
+// faint mark behind the text (the principal block and the yield wedge).
 function Closing() {
   return (
-    <section aria-labelledby="closing-title" className="border-t border-border">
-      <div className="mx-auto flex max-w-[1280px] flex-wrap items-end justify-between gap-8 px-4 py-20 sm:px-6 lg:px-10 lg:py-24">
-        <h2
-          id="closing-title"
-          className="max-w-[16ch] font-display text-[32px] leading-[1.02] sm:text-[40px] xl:text-[52px]"
-        >
-          See it on a live Canton ledger.
-        </h2>
-        <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
-          <Button asChild size="cta">
-            <Link to={DEMO_ENTRY}>
-              Open the demo
-              <ArrowRightIcon data-icon="inline-end" />
-            </Link>
-          </Button>
-          <a href={SPEC_URL} target="_blank" rel="noreferrer" className="text-[15px] font-medium underline-offset-4 hover:underline">
-            Read the design spec
-          </a>
+    <section aria-labelledby="closing-title" className="px-4 py-20 sm:px-6 lg:px-10 lg:py-28">
+      <div className="glass glass-glow reveal relative mx-auto max-w-[1280px] overflow-hidden rounded-2xl px-6 py-14 sm:px-12 lg:py-20">
+        <Mark className="pointer-events-none absolute top-1/2 -right-8 h-[140%] w-auto -translate-y-1/2 opacity-[0.07]" />
+        <div className="relative flex flex-wrap items-end justify-between gap-8">
+          <h2
+            id="closing-title"
+            className="text-chrome max-w-[16ch] font-display text-[32px] leading-[1.02] sm:text-[40px] xl:text-[56px]"
+          >
+            See it on a live Canton ledger.
+          </h2>
+          <div className="flex flex-wrap items-center gap-3">
+            <Button asChild variant="chrome" size="cta" className="rounded-full">
+              <Link to={DEMO_ENTRY}>
+                Open the demo
+                <ArrowRightIcon data-icon="inline-end" />
+              </Link>
+            </Button>
+            <Button asChild variant="glass" size="cta" className="rounded-full">
+              <a href={SPEC_URL} target="_blank" rel="noreferrer">
+                Read the design spec
+              </a>
+            </Button>
+          </div>
         </div>
       </div>
     </section>

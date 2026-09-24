@@ -14,7 +14,7 @@ import { LABEL_X, PLATE_EDGE, PRIVACY_FRAME as F, STACK_HEIGHT, STACK_WIDTH } fr
 // Pick a party and the plates its node does NOT store fade to a ghost, and
 // their labels say "Not on X's ledger". Next to the stack, one sentence says
 // how many parts that node holds, and why.
-// Copper is not used here: none of these parts is yield.
+// The yield blue is not used here: none of these parts is yield.
 // The rules live in landing/privacy-lens-data.ts (from spec §10).
 
 const nameOf = (seat: Seat) => SEATS.find((entry) => entry.seat === seat)?.name ?? seat

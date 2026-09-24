@@ -1,20 +1,24 @@
 /*
- * Meridian design tokens (the approved visual direction, see the Meridian
- * visual specification). Every colour, radius, shadow and timing in the app
- * comes from here.
+ * Glacier design tokens (experiment: replaces the earlier "Meridian" look).
+ * Every colour, radius, shadow and glass value in the app comes from here.
+ *
+ * The idea comes from the Exodus mark: a solid SILVER block (principal) with a
+ * blue GLASS wedge (yield) seated in it. So the page is deep navy glass, the
+ * text is silver, and one electric blue carries the yield.
  *
  * Two rules to keep in mind when you use them:
- * - Copper (`--yt`) means YIELD and nothing else: YT tokens, claimable yield,
- *   floating rates, the YT path in diagrams. Never use it for buttons,
- *   borders, focus rings, glows or decoration.
- * - The text colour (`--pt`, same value as `--foreground`) means PRINCIPAL:
- *   PT, par and the maturity line.
+ * - Electric blue (`--yt`) means YIELD and nothing else: YT tokens, claimable
+ *   yield, floating rates, the YT path in diagrams, the glass wedge's light.
+ *   Never use it for buttons, borders, focus rings or decoration. (The faint
+ *   navy tint of glass panels is ambience, not this blue.)
+ * - Silver (`--pt`, same value as `--foreground`) means PRINCIPAL: PT, par and
+ *   the maturity line.
  *
- * `:root` holds the light theme and `.dark` the dark theme (the default).
- * The ThemeProvider puts the `dark` class on <html>.
+ * `:root` holds the light theme ("Frost") and `.dark` the dark theme
+ * ("Glacier", the default). The ThemeProvider puts the `dark` class on <html>.
  *
  * Two scoping classes let one part of a page use a fixed theme:
- * - `.dark` on any element: the landing page is always dark (Meridian).
+ * - `.dark` on any element: the landing page is always dark.
  * - `.theme-light` on any element inside it: the one light "term sheet" section.
  * They work because CSS variables are inherited: the nearest ancestor wins.
  *
@@ -22,102 +26,127 @@
  * every existing shadcn component follows the new palette without changes.
  */
 
-/* Light theme ("Chalk"). */
+/* Light theme ("Frost"): frosted white glass on a cool, pale sky. */
 :root,
 .theme-light {
   color-scheme: light;
   /* Surfaces, from the page up to floating layers. */
-  --background: #f3f4f1; /* bg-0: page */
+  --background: #eef2f8; /* bg-0: page */
   --card: #ffffff; /* bg-1: panels, rail */
-  --secondary: #eceeea; /* bg-2: hover, selected, inputs */
+  --secondary: #e6ecf5; /* bg-2: hover, selected, inputs */
   --popover: #ffffff; /* bg-3: sheets, popovers (plus shadow e2) */
-  --muted: #eceeea;
-  --accent: #eceeea;
+  --muted: #e6ecf5;
+  --accent: #e6ecf5;
 
   /* Lines. */
-  --border: #e1e4de; /* line-1: row dividers */
-  --input: #c9cec6; /* line-2: inputs, frames */
+  --border: #d9e0ec; /* line-1: row dividers */
+  --input: #c3cddd; /* line-2: inputs, frames */
 
   /* Text. */
-  --foreground: #111513; /* text-1 */
-  --card-foreground: #111513;
-  --popover-foreground: #111513;
-  --secondary-foreground: #111513;
-  --accent-foreground: #111513;
-  --muted-foreground: #4f5752; /* text-2 */
-  --faint: #666d67; /* text-3: labels and axes only (4.8:1 on bg-0) */
+  --foreground: #0b1220; /* text-1 */
+  --card-foreground: #0b1220;
+  --popover-foreground: #0b1220;
+  --secondary-foreground: #0b1220;
+  --accent-foreground: #0b1220;
+  --muted-foreground: #46526a; /* text-2 */
+  --faint: #5d6880; /* text-3: labels and axes only (4.9:1 on bg-0) */
 
   /* The two brand inks. */
-  --pt: #111513; /* principal = the text colour */
-  --yt: #a4561f; /* copper = yield (4.8:1 on bg-0) */
-  --yt-tint: rgb(164 86 31 / 0.1);
+  --pt: #0b1220; /* principal = the text colour */
+  --yt: #1d5bd8; /* electric blue = yield (5.3:1 on bg-0) */
+  --yt-tint: rgb(29 91 216 / 0.1);
 
-  /* Actions and focus: never copper. */
-  --primary: #111513;
-  --primary-foreground: #f3f4f1;
-  --ring: #111513;
+  /* Actions and focus: never the yield blue. */
+  --primary: #0b1220;
+  --primary-foreground: #eef2f8;
+  --ring: #0b1220;
 
-  /* Status: always paired with a word or an icon. */
-  --success: #2b6a3e;
-  --destructive: #b0392b;
+  /* Status: always paired with a word or an icon. Info is violet, so
+     "pending" never looks like yield. */
+  --success: #1f7a4d;
+  --destructive: #c0392b;
   --warning: #8a6200;
-  --info: #3d6592; /* settling, pending */
+  --info: #5b4bd1;
 
   /* Hairline hatch for data that is "not on this ledger". */
-  --hatch: #d9ddd6;
+  --hatch: #d3dbe8;
 
   /* Charts (kept for shadcn compatibility). */
-  --chart-1: #111513;
-  --chart-2: #a4561f;
+  --chart-1: #0b1220;
+  --chart-2: #1d5bd8;
 
   /* Elevation: e1 = subtle panel lift, e2 = floating layers. */
-  --elev-1: 0 1px 2px rgb(17 21 19 / 0.05);
-  --elev-2: 0 12px 32px -12px rgb(17 21 19 / 0.2);
+  --elev-1: 0 1px 2px rgb(11 18 32 / 0.05);
+  --elev-2: 0 18px 40px -16px rgb(11 18 32 / 0.25);
 
-  /* Radius: 3 glyphs/chips, 6 controls, 8 panels. Nothing larger. */
-  --radius: 0.375rem;
+  /* Glass (see the .glass utilities in index.css). On light, glass is frosted white. */
+  --glass-fill: rgb(255 255 255 / 0.62);
+  --glass-fill-strong: rgb(255 255 255 / 0.82);
+  --glass-edge: rgb(11 18 32 / 0.1); /* the 1 px rim */
+  --glass-rim-light: rgb(255 255 255 / 0.9); /* the bright top edge */
+  --glass-shadow: 0 24px 60px -28px rgb(29 60 120 / 0.35);
+
+  /* Silver chrome, for the big headline and the primary button. */
+  --chrome-1: #0b1220;
+  --chrome-2: #3a4863;
+  --chrome-3: #0b1220;
+
+  /* Radius: 6 chips, 10 controls, 16 panels. Glass reads as soft and machined. */
+  --radius: 0.625rem;
 }
 
-/* Dark theme ("Obsidian"), the default. */
+/* Dark theme ("Glacier"), the default: deep navy, like looking through thick glass. */
 .dark {
   color-scheme: dark;
-  --background: #0e1210; /* bg-0: page */
-  --card: #151a17; /* bg-1: surfaces */
-  --secondary: #1b211e; /* bg-2: hover, selected, inputs */
-  --popover: #1f2622; /* bg-3: floating layers */
-  --muted: #1b211e;
-  --accent: #1b211e;
+  --background: #060a13; /* bg-0: page */
+  --card: #0b1220; /* bg-1: surfaces */
+  --secondary: #111a2b; /* bg-2: hover, selected, inputs */
+  --popover: #121b2e; /* bg-3: floating layers */
+  --muted: #111a2b;
+  --accent: #111a2b;
 
-  --border: #262d29; /* line-1 */
-  --input: #353d38; /* line-2 */
+  --border: #1a2438; /* line-1 */
+  --input: #2a3856; /* line-2 */
 
-  --foreground: #ece8df; /* "Bone", 15.8:1 on bg-0 */
-  --card-foreground: #ece8df;
-  --popover-foreground: #ece8df;
-  --secondary-foreground: #ece8df;
-  --accent-foreground: #ece8df;
-  --muted-foreground: #a9a59b;
-  --faint: #8a867d;
+  --foreground: #e6ecf5; /* silver, 16.9:1 on bg-0 */
+  --card-foreground: #e6ecf5;
+  --popover-foreground: #e6ecf5;
+  --secondary-foreground: #e6ecf5;
+  --accent-foreground: #e6ecf5;
+  --muted-foreground: #9aa8bf;
+  --faint: #7887a0;
 
-  --pt: #ece8df;
-  --yt: #d98a52; /* 7.1:1 on bg-0 */
-  --yt-tint: rgb(217 138 82 / 0.12);
+  --pt: #e6ecf5;
+  --yt: #4d8dff; /* 6.1:1 on bg-0 */
+  --yt-tint: rgb(77 141 255 / 0.14);
 
-  --primary: #ece8df;
-  --primary-foreground: #0e1210;
-  --ring: #ece8df;
+  --primary: #e6ecf5;
+  --primary-foreground: #060a13;
+  --ring: #e6ecf5;
 
-  --success: #86c79a;
-  --destructive: #e8735f;
-  --warning: #e2be5c;
-  --info: #8fb3d9;
+  --success: #6fd6a0;
+  --destructive: #ff7a6b;
+  --warning: #f0c75e;
+  --info: #a99bff;
 
-  --hatch: #2b332f;
+  --hatch: #1e2a40;
 
-  --chart-1: #ece8df;
-  --chart-2: #d98a52;
+  --chart-1: #e6ecf5;
+  --chart-2: #4d8dff;
 
   /* On dark, a panel is lifted by a faint top highlight, not a shadow. */
-  --elev-1: inset 0 1px 0 rgb(255 255 255 / 0.03);
-  --elev-2: 0 16px 40px -12px rgb(0 0 0 / 0.55);
+  --elev-1: inset 0 1px 0 rgb(255 255 255 / 0.04);
+  --elev-2: 0 24px 60px -20px rgb(0 0 0 / 0.7);
+
+  /* Glass: a whisper of navy-white fill, a cool rim, a bright top edge. */
+  --glass-fill: rgb(140 170 230 / 0.055);
+  --glass-fill-strong: rgb(18 27 46 / 0.78);
+  --glass-edge: rgb(170 200 255 / 0.13);
+  --glass-rim-light: rgb(220 235 255 / 0.22);
+  --glass-shadow: 0 30px 80px -30px rgb(0 0 0 / 0.8);
+
+  /* Silver chrome: bright, then a cool dip, then bright again (like brushed metal). */
+  --chrome-1: #ffffff;
+  --chrome-2: #93a3bd;
+  --chrome-3: #e6ecf5;
 }
