@@ -1,30 +1,42 @@
 /*
- * Global styles and the "Exodus Night" theme (see docs/client-app.md, decision G).
+ * Global styles for the Meridian theme.
  *
  * How theming works:
- * - Tailwind v4 reads the `@theme inline` block below and creates utility
- *   classes from it. For example `--color-primary` gives us `bg-primary`,
- *   `text-primary`, `border-primary`, ...
- * - Those point at plain CSS variables (`--primary`, ...). `:root` holds the
- *   light values and `.dark` the dark values. The ThemeProvider in main.tsx
- *   puts the `dark` class on <html>, so switching theme only swaps variables.
- * - shadcn/ui components use the same variable names, so they follow the theme.
+ * - The colour values live in `styles/tokens.css` (light on `:root`, dark on `.dark`).
+ * - Tailwind v4 reads the `@theme inline` block below and turns each entry into
+ *   utility classes. For example `--color-yt` gives us `text-yt`, `bg-yt`, ...
+ * - The ThemeProvider puts the `dark` class on <html>, so switching theme only
+ *   swaps variables. shadcn/ui components use the same names and follow along.
  */
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
-/* Fonts are bundled from npm (no request to Google): Inter for text,
-   JetBrains Mono for numbers so amounts line up in columns. */
-@import "@fontsource-variable/inter";
-@import "@fontsource-variable/jetbrains-mono";
+@import "./styles/tokens.css";
+/* Fonts are bundled from npm (no request to Google):
+   - Geist for all interface text and every number (it has tabular figures),
+   - Geist Mono only for identifiers (party ids, contract ids, UTC times),
+   - Archivo, semi-condensed and semibold, for display: headlines, section titles
+     and the big figures. Its narrower width sets it apart from Geist, and it has
+     tabular figures. One file carries both axes (weight 100–900, width 62–125%). */
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
+@import "@fontsource-variable/archivo/wdth.css";
 
 /* `dark:` classes apply when an ancestor has the `dark` class. */
 @custom-variant dark (&:is(.dark *));
 
+/* Desktop screens split by height. The scroll-driven split story needs room:
+   `tall:` = at least 1024 × 760 (sticky, scroll-driven), `short:` = a desktop
+   width but a short screen (for example a 1366 × 768 laptop with browser bars),
+   where the story falls back to step buttons. */
+@custom-variant tall (@media (min-width: 1024px) and (min-height: 760px));
+@custom-variant short (@media (min-width: 1024px) and (max-height: 759.98px));
+
 @theme inline {
-  --font-sans: "Inter Variable", system-ui, sans-serif;
+  --font-sans: "Geist Variable", "Helvetica Neue", Arial, sans-serif;
   --font-heading: var(--font-sans);
-  --font-mono: "JetBrains Mono Variable", ui-monospace, monospace;
+  --font-display: "Archivo Variable", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, Menlo, monospace;
 
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -47,75 +59,29 @@
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);
 
-  /* Our own extra colours (not part of shadcn):
-     gold = yield / APY highlights, warning = "Simulated" badge, success = confirmations. */
-  --color-gold: var(--gold);
-  --color-warning: var(--warning);
+  /* Exodus colours (not part of shadcn). */
+  --color-faint: var(--faint);
+  --color-pt: var(--pt);
+  --color-yt: var(--yt);
+  --color-yt-tint: var(--yt-tint);
+  --color-hatch: var(--hatch);
   --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
 
-  --radius-sm: calc(var(--radius) * 0.6);
-  --radius-md: calc(var(--radius) * 0.8);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.4);
-  --radius-2xl: calc(var(--radius) * 1.8);
-}
+  /* Radius scale: chips 3, controls 6, panels 8. Nothing rounder. */
+  --radius-sm: 3px;
+  --radius-md: 4px;
+  --radius-lg: 6px;
+  --radius-xl: 8px;
+  --radius-2xl: 8px;
 
-/* Light mode. */
-:root {
-  --radius: 0.625rem;
+  --shadow-e1: var(--elev-1);
+  --shadow-e2: var(--elev-2);
 
-  --background: #f7f8fa;
-  --foreground: #0f1720;
-  --card: #ffffff;
-  --card-foreground: #0f1720;
-  --popover: #ffffff;
-  --popover-foreground: #0f1720;
-  --primary: #0f9e8c; /* teal */
-  --primary-foreground: #ffffff;
-  --secondary: #eef1f5;
-  --secondary-foreground: #0f1720;
-  --muted: #eef1f5;
-  --muted-foreground: #5b6675;
-  --accent: #e6f6f3;
-  --accent-foreground: #0b6f63;
-  --destructive: #dc2626;
-  --border: #e3e7ed;
-  --input: #d5dbe3;
-  --ring: #0f9e8c;
-  --chart-1: #0f9e8c;
-  --chart-2: #b7862b;
-
-  --gold: #b7862b;
-  --warning: #b45309;
-  --success: #15803d;
-}
-
-/* Dark mode (the default). */
-.dark {
-  --background: #0a0e14;
-  --foreground: #e7ecf3;
-  --card: #111722;
-  --card-foreground: #e7ecf3;
-  --popover: #111722;
-  --popover-foreground: #e7ecf3;
-  --primary: #2dd4bf; /* teal */
-  --primary-foreground: #042f2a;
-  --secondary: #1a2230;
-  --secondary-foreground: #e7ecf3;
-  --muted: #161e2a;
-  --muted-foreground: #8b97a8;
-  --accent: #13302f;
-  --accent-foreground: #5eead4;
-  --destructive: #f87171;
-  --border: #1f2733;
-  --input: #263041;
-  --ring: #2dd4bf;
-  --chart-1: #2dd4bf;
-  --chart-2: #e8b75a;
-
-  --gold: #e8b75a;
-  --warning: #fbbf24;
-  --success: #34d399;
+  /* Motion: standard easing in, accelerate out. */
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
 }
 
 @layer base {
@@ -132,11 +98,114 @@
   [role="button"]:not(:disabled) {
     cursor: pointer;
   }
+  /* A visible, text-coloured focus ring everywhere (never copper). */
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  ::selection {
+    background: color-mix(in oklab, var(--foreground) 18%, transparent);
+  }
+}
+
+/* The display voice: Archivo at 88% width, 600 weight, tight tracking.
+   It lives in the components layer, so a utility in the markup (for example
+   font-medium) can still override it. */
+@layer components {
+  .font-display {
+    font-weight: 600;
+    font-stretch: 88%;
+    letter-spacing: -0.025em;
+  }
 }
 
 @layer utilities {
-  /* Numbers in the same column line up (1,000.00 above 25.50). */
+  /* Amounts, prices, rates and dates: digits line up in columns
+     (1,000.00 above 25.50). Uses the UI font, not a monospace font. */
   .num {
-    @apply font-mono tabular-nums;
+    font-variant-numeric: tabular-nums;
+  }
+  /* Identifiers only: party ids, contract ids, UTC times. Never amounts. */
+  .ident {
+    @apply font-mono text-[0.92em];
+  }
+  /* Uppercase column heads and field labels. */
+  .label-caps {
+    @apply text-[11px] leading-4 font-medium tracking-[0.07em] text-faint uppercase;
+  }
+}
+
+/* The split instrument is driven by three numbers from 0 to 1 (see
+   components/landing/InstrumentStage.tsx):
+   --p      progress through the split story (set from scroll or a click),
+   --seam   how much of the cut line is drawn,
+   --slide  how far the yield plate has moved away.
+   Registering them with @property makes them animatable: CSS can transition or
+   keyframe them smoothly instead of jumping. */
+@property --p {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0;
+}
+@property --seam {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0;
+}
+@property --slide {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0;
+}
+
+/* The hero plays the split once on load: draw the seam, pause, slide apart. */
+@keyframes hero-split {
+  0% {
+    --seam: 0;
+    --slide: 0;
+  }
+  38% {
+    --seam: 1;
+    --slide: 0;
+  }
+  48% {
+    --seam: 1;
+    --slide: 0;
+  }
+  100% {
+    --seam: 1;
+    --slide: 1;
+  }
+}
+
+/* Landing motion (Meridian spec, "Motion").
+   - draw-line: an SVG path with pathLength="1" and stroke-dasharray 1 draws itself.
+   - fade-in: labels appear after their line has been drawn. */
+@keyframes draw-line {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Users who ask for less motion get the final state straight away. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
   }
 }

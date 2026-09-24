@@ -1,0 +1,123 @@
+/*
+ * Meridian design tokens (the approved visual direction, see the Meridian
+ * visual specification). Every colour, radius, shadow and timing in the app
+ * comes from here.
+ *
+ * Two rules to keep in mind when you use them:
+ * - Copper (`--yt`) means YIELD and nothing else: YT tokens, claimable yield,
+ *   floating rates, the YT path in diagrams. Never use it for buttons,
+ *   borders, focus rings, glows or decoration.
+ * - The text colour (`--pt`, same value as `--foreground`) means PRINCIPAL:
+ *   PT, par and the maturity line.
+ *
+ * `:root` holds the light theme and `.dark` the dark theme (the default).
+ * The ThemeProvider puts the `dark` class on <html>.
+ *
+ * Two scoping classes let one part of a page use a fixed theme:
+ * - `.dark` on any element: the landing page is always dark (Meridian).
+ * - `.theme-light` on any element inside it: the one light "term sheet" section.
+ * They work because CSS variables are inherited: the nearest ancestor wins.
+ *
+ * The shadcn/ui names (`--background`, `--card`, `--primary`, ...) are kept, so
+ * every existing shadcn component follows the new palette without changes.
+ */
+
+/* Light theme ("Chalk"). */
+:root,
+.theme-light {
+  color-scheme: light;
+  /* Surfaces, from the page up to floating layers. */
+  --background: #f3f4f1; /* bg-0: page */
+  --card: #ffffff; /* bg-1: panels, rail */
+  --secondary: #eceeea; /* bg-2: hover, selected, inputs */
+  --popover: #ffffff; /* bg-3: sheets, popovers (plus shadow e2) */
+  --muted: #eceeea;
+  --accent: #eceeea;
+
+  /* Lines. */
+  --border: #e1e4de; /* line-1: row dividers */
+  --input: #c9cec6; /* line-2: inputs, frames */
+
+  /* Text. */
+  --foreground: #111513; /* text-1 */
+  --card-foreground: #111513;
+  --popover-foreground: #111513;
+  --secondary-foreground: #111513;
+  --accent-foreground: #111513;
+  --muted-foreground: #4f5752; /* text-2 */
+  --faint: #666d67; /* text-3: labels and axes only (4.8:1 on bg-0) */
+
+  /* The two brand inks. */
+  --pt: #111513; /* principal = the text colour */
+  --yt: #a4561f; /* copper = yield (4.8:1 on bg-0) */
+  --yt-tint: rgb(164 86 31 / 0.1);
+
+  /* Actions and focus: never copper. */
+  --primary: #111513;
+  --primary-foreground: #f3f4f1;
+  --ring: #111513;
+
+  /* Status: always paired with a word or an icon. */
+  --success: #2b6a3e;
+  --destructive: #b0392b;
+  --warning: #8a6200;
+  --info: #3d6592; /* settling, pending */
+
+  /* Hairline hatch for data that is "not on this ledger". */
+  --hatch: #d9ddd6;
+
+  /* Charts (kept for shadcn compatibility). */
+  --chart-1: #111513;
+  --chart-2: #a4561f;
+
+  /* Elevation: e1 = subtle panel lift, e2 = floating layers. */
+  --elev-1: 0 1px 2px rgb(17 21 19 / 0.05);
+  --elev-2: 0 12px 32px -12px rgb(17 21 19 / 0.2);
+
+  /* Radius: 3 glyphs/chips, 6 controls, 8 panels. Nothing larger. */
+  --radius: 0.375rem;
+}
+
+/* Dark theme ("Obsidian"), the default. */
+.dark {
+  color-scheme: dark;
+  --background: #0e1210; /* bg-0: page */
+  --card: #151a17; /* bg-1: surfaces */
+  --secondary: #1b211e; /* bg-2: hover, selected, inputs */
+  --popover: #1f2622; /* bg-3: floating layers */
+  --muted: #1b211e;
+  --accent: #1b211e;
+
+  --border: #262d29; /* line-1 */
+  --input: #353d38; /* line-2 */
+
+  --foreground: #ece8df; /* "Bone", 15.8:1 on bg-0 */
+  --card-foreground: #ece8df;
+  --popover-foreground: #ece8df;
+  --secondary-foreground: #ece8df;
+  --accent-foreground: #ece8df;
+  --muted-foreground: #a9a59b;
+  --faint: #8a867d;
+
+  --pt: #ece8df;
+  --yt: #d98a52; /* 7.1:1 on bg-0 */
+  --yt-tint: rgb(217 138 82 / 0.12);
+
+  --primary: #ece8df;
+  --primary-foreground: #0e1210;
+  --ring: #ece8df;
+
+  --success: #86c79a;
+  --destructive: #e8735f;
+  --warning: #e2be5c;
+  --info: #8fb3d9;
+
+  --hatch: #2b332f;
+
+  --chart-1: #ece8df;
+  --chart-2: #d98a52;
+
+  /* On dark, a panel is lifted by a faint top highlight, not a shadow. */
+  --elev-1: inset 0 1px 0 rgb(255 255 255 / 0.03);
+  --elev-2: 0 16px 40px -12px rgb(0 0 0 / 0.55);
+}

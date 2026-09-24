@@ -5,7 +5,14 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="dark light" />
-    <title>Exodus</title>
+    <!-- Browser UI colour: obsidian in dark mode (the default), chalk in light mode. -->
+    <meta name="theme-color" content="#0E1210" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#F3F4F1" media="(prefers-color-scheme: light)" />
+    <meta
+      name="description"
+      content="Exodus: private fixed-rate yield markets on Canton. Split simulated USYC into principal and yield, and trade them by private RFQ with atomic settlement."
+    />
+    <title>Exodus · Private fixed-rate yield on Canton</title>
     <!-- Apply the saved theme before the page paints, so a light-mode user never sees a dark flash.
          Same storage key as src/components/theme/ThemeProvider.tsx. -->
     <script>

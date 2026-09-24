@@ -9,3 +9,6 @@ exodus-app/web/dist/
 
 # Canton sandbox logs (written in the folder where `dpm sandbox` runs)
 log/
+
+CLAUDE.md
+AGENTS.md

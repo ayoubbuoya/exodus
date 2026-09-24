@@ -1,212 +1,86 @@
-import type { ReactNode } from 'react'
 import { Link } from 'react-router'
-import {
-  ArrowRightIcon,
-  BadgeCheckIcon,
-  DropletIcon,
-  EyeOffIcon,
-  LandmarkIcon,
-  LayersIcon,
-  RepeatIcon,
-  ShieldCheckIcon,
-  WalletIcon,
-} from 'lucide-react'
-import { Badge } from '@/components/ui/badge'
+import { ArrowRightIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { Hero } from '@/components/landing/Hero'
+import { DEMO_ENTRY, SPEC_URL } from '@/components/landing/links'
+import { MaturitySection } from '@/components/landing/MaturitySection'
+import { PrivacyLens } from '@/components/landing/PrivacyLens'
+import { ProductPreview } from '@/components/landing/ProductPreview'
+import { ProofSection } from '@/components/landing/ProofSection'
+import { SplitStory } from '@/components/landing/SplitStory'
 
-// The public home page. It explains Exodus to a first-time visitor and leads
-// them to "Request access" (the onboarding flow in docs/client-app.md).
-//
-// "Request access" is disabled until the backend (sign-up + access form) lands.
+// The public home page (always dark, see MarketingLayout), in the order a
+// first-time visitor or a hackathon judge needs it:
+//   1. Hero        the promise, and the instrument splitting into PT + YT
+//   2. The split   USYC → PT + YT, told by scrolling
+//   3. Maturity    "Two instruments. One date.": PT pulls to par, YT runs to zero
+//   4. Privacy     "One trade. Four ledgers.": the same trade from four seats
+//   5. The maths   the one light section: the worked example reconciles
+//   6. The product the real app, rendered with real components
+//   7. Close       where to go next
+// Every number comes from the worked example in docs/exodus.md §9.
 export function LandingPage() {
   return (
-    <div className="mx-auto max-w-6xl px-4">
+    <>
       <Hero />
-      <HowItWorks />
-      <WhyCanton />
-      <ComingNext />
-    </div>
+      <SplitStory />
+      <MaturitySection />
+      <PrivacySection />
+      <ProofSection />
+      <ProductPreview />
+      <Closing />
+    </>
   )
 }
 
-function Hero() {
+// Signature C with its title, on the raised surface so it reads as its own place.
+function PrivacySection() {
   return (
-    <section className="relative py-20 sm:py-28">
-      {/* A soft teal glow behind the headline. Decoration only. */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-x-0 top-0 -z-10 mx-auto h-72 max-w-3xl rounded-full bg-primary/10 blur-3xl"
-      />
-      <Badge variant="secondary" className="mb-6">
-        Built on Canton · HackCanton Season 3
-      </Badge>
-      <h1 className="max-w-3xl text-4xl font-semibold tracking-tight text-balance sm:text-6xl">
-        Tokenized T-bill yield, <span className="text-primary">private by default</span>.
-      </h1>
-      <p className="mt-6 max-w-2xl text-lg text-pretty text-muted-foreground">
-        Hold a simulated USYC money market fund on Canton. Subscribe with USDC in one atomic step, watch the price grow
-        with the yield, and soon lock in a fixed rate. Only you and your counterparty see your trades.
-      </p>
-      <div className="mt-8 flex flex-wrap gap-3">
-        <RequestAccessButton />
-        <Button asChild variant="outline" size="lg">
-          <Link to="/lab">Explore the lab</Link>
-        </Button>
+    <section id="privacy" aria-labelledby="privacy-title" className="scroll-mt-[72px] border-t border-border bg-card">
+      <div className="mx-auto max-w-[1280px] px-4 py-20 sm:px-6 lg:px-10 lg:py-28">
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,420px)] lg:items-end">
+          <h2
+            id="privacy-title"
+            className="font-display text-[32px] leading-[1.02] sm:text-[40px] xl:text-[52px]"
+          >
+            One trade. <span className="block">Four ledgers.</span>
+          </h2>
+          <p className="text-[15px] leading-6 text-muted-foreground">
+            Alice buys 500 PT from Bank in one atomic transaction. Canton sends each party only its own part of it:
+            pick a seat, and what that party cannot see is simply not there.
+          </p>
+        </div>
+        <div className="mt-12">
+          <PrivacyLens />
+        </div>
       </div>
     </section>
   )
 }
 
-// Disabled for now, with a tooltip saying why (a disabled button with no reason is confusing).
-function RequestAccessButton() {
+// A short, honest close: where to go next.
+function Closing() {
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        {/* A disabled <button> does not fire hover events, so the tooltip listens on this <span>. */}
-        <span tabIndex={0}>
-          <Button size="lg" disabled>
-            Request access
-            <ArrowRightIcon data-icon="inline-end" />
+    <section aria-labelledby="closing-title" className="border-t border-border">
+      <div className="mx-auto flex max-w-[1280px] flex-wrap items-end justify-between gap-8 px-4 py-20 sm:px-6 lg:px-10 lg:py-24">
+        <h2
+          id="closing-title"
+          className="max-w-[16ch] font-display text-[32px] leading-[1.02] sm:text-[40px] xl:text-[52px]"
+        >
+          See it on a live Canton ledger.
+        </h2>
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+          <Button asChild size="cta">
+            <Link to={DEMO_ENTRY}>
+              Open the demo
+              <ArrowRightIcon data-icon="inline-end" />
+            </Link>
           </Button>
-        </span>
-      </TooltipTrigger>
-      <TooltipContent>Opening soon: sign-up and access requests are being built.</TooltipContent>
-    </Tooltip>
-  )
-}
-
-// The user journey, in the order it happens. Matches the flow in docs/client-app.md.
-const STEPS = [
-  {
-    icon: <BadgeCheckIcon />,
-    title: 'Request access',
-    text: 'Sign up and tell us your name and country. An admin reviews your request.',
-  },
-  {
-    icon: <WalletIcon />,
-    title: 'Get your wallet',
-    text: 'Once approved, we create your Canton wallet for you. No extension or seed phrase needed.',
-  },
-  {
-    icon: <DropletIcon />,
-    title: 'Claim test USDC',
-    text: 'Use the faucet to get 100 simulated USDC to try the product.',
-  },
-  {
-    icon: <RepeatIcon />,
-    title: 'Subscribe to USYC',
-    text: 'Pay USDC, receive USYC at the current fund price, in a single atomic transaction.',
-  },
-]
-
-function HowItWorks() {
-  return (
-    <section className="py-12">
-      <SectionTitle eyebrow="How it works" title="From sign-up to yield in four steps" />
-      <ol className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {STEPS.map((step, position) => (
-          <li key={step.title}>
-            <Card className="h-full">
-              <CardHeader>
-                <div className="mb-2 flex items-center gap-3">
-                  <IconTile>{step.icon}</IconTile>
-                  <span className="num text-xs text-muted-foreground">Step {position + 1}</span>
-                </div>
-                <CardTitle>{step.title}</CardTitle>
-                <CardDescription>{step.text}</CardDescription>
-              </CardHeader>
-            </Card>
-          </li>
-        ))}
-      </ol>
-    </section>
-  )
-}
-
-// What Canton gives us that a public chain would not (spec section 3).
-const FEATURES = [
-  {
-    icon: <EyeOffIcon />,
-    title: 'Private by default',
-    text: 'Your balances and trades are shared only with the parties involved. Other clients cannot see them, and cannot even see who else is a client.',
-  },
-  {
-    icon: <ShieldCheckIcon />,
-    title: 'Atomic settlement',
-    text: 'Cash and fund shares move in the same transaction, or nothing moves. No settlement risk.',
-  },
-  {
-    icon: <LandmarkIcon />,
-    title: 'Canton Token Standard',
-    text: 'USYC and USDC implement CIP-56, so any Canton wallet can show and send them.',
-  },
-]
-
-function WhyCanton() {
-  return (
-    <section className="py-12">
-      <SectionTitle eyebrow="Why Canton" title="Institutional rails, not a public order book" />
-      <div className="grid gap-4 md:grid-cols-3">
-        {FEATURES.map((feature) => (
-          <Card key={feature.title}>
-            <CardHeader>
-              <IconTile>{feature.icon}</IconTile>
-              <CardTitle className="mt-2">{feature.title}</CardTitle>
-              <CardDescription>{feature.text}</CardDescription>
-            </CardHeader>
-          </Card>
-        ))}
+          <a href={SPEC_URL} target="_blank" rel="noreferrer" className="text-[15px] font-medium underline-offset-4 hover:underline">
+            Read the design spec
+          </a>
+        </div>
       </div>
     </section>
-  )
-}
-
-// A teaser for the fixed-rate product (PT/YT), which is the next milestone.
-function ComingNext() {
-  return (
-    <section className="py-12 pb-20">
-      <Card className="bg-gradient-to-br from-accent to-card">
-        <CardContent className="flex flex-col gap-4 sm:flex-row sm:items-center">
-          <IconTile>
-            <LayersIcon />
-          </IconTile>
-          <div className="flex-1">
-            <p className="font-medium">Coming next: fixed rates</p>
-            <p className="text-sm text-muted-foreground">
-              Split USYC into a Principal Token (a fixed rate) and a Yield Token (the floating yield), and trade them
-              privately with a dealer. For example, buy 500 PT at 0.975 today and receive 500 USD of USYC at maturity.
-            </p>
-          </div>
-          <Badge variant="outline" className="border-gold/40 text-gold">
-            In development
-          </Badge>
-        </CardContent>
-      </Card>
-    </section>
-  )
-}
-
-type SectionTitleProps = {
-  eyebrow: string
-  title: string
-}
-
-function SectionTitle({ eyebrow, title }: SectionTitleProps) {
-  return (
-    <div className="mb-8">
-      <p className="text-sm font-medium text-primary">{eyebrow}</p>
-      <h2 className="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl">{title}</h2>
-    </div>
-  )
-}
-
-// A rounded square with a teal icon, used on the cards above.
-function IconTile({ children }: { children: ReactNode }) {
-  return (
-    <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary [&_svg]:size-4.5">
-      {children}
-    </span>
   )
 }

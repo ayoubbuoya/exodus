@@ -1,0 +1,253 @@
+import { useRef, useState, type CSSProperties, type KeyboardEvent } from 'react'
+import { cn } from 'cn'
+import { artSize, artX, artY } from '@/landing/instrument-geometry'
+import { PARTS, SEAT_NOTES, SEATS, type Seat, type TradePart } from '@/landing/privacy-lens-data'
+import { LABEL_X, PLATE_EDGE, PRIVACY_FRAME as F, STACK_HEIGHT, STACK_WIDTH } from '@/landing/privacy-geometry'
+
+// Signature C: "One trade. Four ledgers." (the flagship).
+//
+// ONE transaction (Alice buys 500 PT from Bank at 0.9750, pays 487.50 USDC),
+// drawn as three stacked plates, one per part of the trade:
+//   smoked glass  = price and rate (the Quote),
+//   silver        = the PT leg,
+//   gunmetal      = the cash leg.
+// Pick a party and the plates its node does NOT store fade to a ghost, and
+// their labels say "Not on X's ledger". Next to the stack, one sentence says
+// how many parts that node holds, and why.
+// Copper is not used here: none of these parts is yield.
+// The rules live in landing/privacy-lens-data.ts (from spec §10).
+
+const nameOf = (seat: Seat) => SEATS.find((entry) => entry.seat === seat)?.name ?? seat
+const partsStoredBy = (seat: Seat) => PARTS.filter((part) => part.visibleTo.includes(seat))
+
+// The hatch used for "this does not exist on this ledger".
+const HATCH = 'bg-[repeating-linear-gradient(-45deg,var(--hatch)_0_1px,transparent_1px_7px)]'
+
+export function PrivacyLens() {
+  const [seat, setSeat] = useState<Seat>('alice')
+  const name = nameOf(seat)
+  const stored = partsStoredBy(seat)
+
+  return (
+    <div>
+      <SeatTabs seat={seat} onChange={setSeat} />
+
+      <div
+        role="tabpanel"
+        id="lens-panel"
+        aria-labelledby={`seat-${seat}`}
+        className="mt-10 grid items-center gap-10 lg:grid-cols-[minmax(0,8fr)_minmax(0,4fr)] lg:gap-14"
+      >
+        <PlateStack seat={seat} name={name} />
+
+        <div>
+          <p className="label-caps">Stored on {name}&rsquo;s node</p>
+          <p className="mt-3 font-display text-[40px] leading-none xl:text-[56px]">
+            <span className="num">{stored.length} of 3</span>{' '}
+            <span className="text-muted-foreground">parts</span>
+          </p>
+          <p aria-live="polite" className="mt-5 text-[15px] leading-6 text-muted-foreground">
+            <span className="font-semibold text-foreground">{name}.</span> {SEAT_NOTES[seat]}
+          </p>
+
+          {/* The parts as a list. Phones see it (the labels beside the plates
+              are hidden there); on bigger screens it is for screen readers only. */}
+          <ul className="mt-6 grid border-t border-border sm:sr-only">
+            {PARTS.map((part) => (
+              <PartRow key={part.layer} part={part} stored={part.visibleTo.includes(seat)} name={name} />
+            ))}
+          </ul>
+
+          <p className="mt-6 text-xs text-faint">
+            One transaction, the same id on every node: <span className="ident">1220…a41f</span> (example).
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ----------------------------------------------------------------------------
+
+type SeatTabsProps = {
+  seat: Seat
+  onChange: (seat: Seat) => void
+}
+
+// Four tabs, one per party. Arrow keys move between them (and select).
+function SeatTabs({ seat, onChange }: SeatTabsProps) {
+  const buttons = useRef<(HTMLButtonElement | null)[]>([])
+
+  function onKeyDown(event: KeyboardEvent<HTMLButtonElement>, index: number) {
+    const delta = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0
+    if (delta === 0) return
+    event.preventDefault()
+    const next = (index + delta + SEATS.length) % SEATS.length
+    buttons.current[next]?.focus()
+    onChange(SEATS[next].seat)
+  }
+
+  return (
+    <div role="tablist" aria-label="View the trade as" className="grid grid-cols-2 border-b border-input sm:grid-cols-4">
+      {SEATS.map((entry, index) => {
+        const selected = entry.seat === seat
+        const count = partsStoredBy(entry.seat).length
+        return (
+          <button
+            key={entry.seat}
+            id={`seat-${entry.seat}`}
+            ref={(element) => {
+              buttons.current[index] = element
+            }}
+            type="button"
+            role="tab"
+            aria-selected={selected}
+            aria-controls="lens-panel"
+            tabIndex={selected ? 0 : -1}
+            onClick={() => onChange(entry.seat)}
+            onKeyDown={(event) => onKeyDown(event, index)}
+            className={cn(
+              'relative grid gap-1 py-4 pr-4 text-left transition-colors duration-200',
+              selected ? 'text-foreground' : 'text-faint hover:text-muted-foreground',
+            )}
+          >
+            <span className={cn('text-lg font-semibold sm:text-xl', selected ? 'text-foreground' : 'text-muted-foreground')}>
+              {entry.name}
+            </span>
+            <span className="text-[13px]">{entry.role}</span>
+            {/* One tick per part of the trade this party's node stores. */}
+            <span className="mt-2 flex items-center gap-1" aria-hidden="true">
+              {PARTS.map((part, tick) => (
+                <i key={part.layer} className={cn('h-[3px] w-4', tick < count ? 'bg-foreground' : 'bg-input')} />
+              ))}
+              <span className="num ml-2 text-xs">{count}/3</span>
+            </span>
+            {/* The selected tab's underline sits on the tab bar's line. */}
+            <span
+              aria-hidden="true"
+              className={cn(
+                'absolute inset-x-0 -bottom-px h-0.5 transition-colors duration-200',
+                selected ? 'bg-foreground' : 'bg-transparent',
+              )}
+            />
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+// ----------------------------------------------------------------------------
+// The stack of plates, with one label per plate (sm and up).
+
+type ViewProps = {
+  seat: Seat
+  name: string
+}
+
+// A plate the party cannot see fades to a grey ghost: still there as a shape
+// (the transaction has three parts), but empty for this node.
+function plateStyle(stored: boolean): CSSProperties {
+  return {
+    opacity: stored ? 1 : 0.1,
+    filter: stored ? 'none' : 'grayscale(1)',
+    transition: 'opacity 360ms var(--ease-standard), filter 360ms var(--ease-standard)',
+  }
+}
+
+function PlateStack({ seat, name }: ViewProps) {
+  const storedNames = PARTS.filter((part) => part.visibleTo.includes(seat)).map((part) => part.label.toLowerCase())
+  const missingNames = PARTS.filter((part) => !part.visibleTo.includes(seat)).map((part) => part.label.toLowerCase())
+  const label =
+    missingNames.length === 0
+      ? `Three stacked plates: price and rate, the PT leg and the cash leg. ${name}'s node stores all three.`
+      : `Three stacked plates. ${name}'s node stores: ${storedNames.join(', ')}. Not stored: ${missingNames.join(', ')}.`
+
+  return (
+    // The artboard: a CSS size container, so labels can size themselves in cqw.
+    // Phones have no labels, so there the artboard is just the stack (1070 × 920);
+    // from sm up it is 1700 wide with the label column on the right.
+    <div role="img" aria-label={label} className="@container relative aspect-[1070/920] w-full sm:aspect-[1700/920]">
+      {/* The stack, on the left part of the artboard, in back-to-front order.
+          1070 / 1700 = 62.94% of the artboard from sm up. */}
+      <div className="absolute top-0 left-0 h-full w-full sm:w-[62.94%]">
+        <Plate name="shadow" style={{ opacity: 0.8 }} />
+        {[...PARTS].reverse().map((part) => (
+          <Plate key={part.layer} name={part.layer} style={plateStyle(part.visibleTo.includes(seat))} />
+        ))}
+      </div>
+
+      {/* One label per plate, joined to its right edge. Hidden on phones. */}
+      {PARTS.map((part) => {
+        const stored = part.visibleTo.includes(seat)
+        const edge = PLATE_EDGE[part.layer]
+        return (
+          <div key={part.layer} aria-hidden="true" className="hidden sm:block">
+            <span
+              className={cn(
+                'absolute h-0 border-t transition-colors duration-300',
+                stored ? 'border-foreground/50' : 'border-dashed border-input',
+              )}
+              style={{
+                left: artX(F, edge.x + 14),
+                top: artY(F, edge.y),
+                width: `${((LABEL_X - edge.x - 26) / F.width) * 100}%`,
+              }}
+            />
+            <div className="absolute -translate-y-1/2" style={{ left: artX(F, LABEL_X), top: artY(F, edge.y) }}>
+              <p className="label-caps" style={{ fontSize: artSize(F, 22, 10) }}>
+                {part.label}
+              </p>
+              {stored ? (
+                <p className="num mt-0.5 font-semibold tracking-[-0.01em]" style={{ fontSize: artSize(F, 34, 13) }}>
+                  {part.value}
+                </p>
+              ) : (
+                <p
+                  className={cn('mt-1 inline-block rounded-md px-2 py-0.5 text-faint', HATCH)}
+                  style={{ fontSize: artSize(F, 26, 11) }}
+                >
+                  Not on {name}&rsquo;s ledger
+                </p>
+              )}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function Plate({ name, style }: { name: string; style?: CSSProperties }) {
+  return (
+    <img
+      src={`/privacy/${name}.webp`}
+      srcSet={`/privacy/${name}-sm.webp 535w, /privacy/${name}.webp 1070w`}
+      sizes="(min-width: 1024px) 40vw, 70vw"
+      width={STACK_WIDTH}
+      height={STACK_HEIGHT}
+      alt=""
+      decoding="async"
+      loading="lazy"
+      className="absolute inset-0 size-full"
+      style={style}
+    />
+  )
+}
+
+// One part in the phone / screen-reader list.
+function PartRow({ part, stored, name }: { part: TradePart; stored: boolean; name: string }) {
+  return (
+    <li
+      className={cn(
+        'grid grid-cols-[112px_minmax(0,1fr)] items-center gap-3 border-b border-border py-2.5 text-sm',
+        !stored && HATCH,
+      )}
+    >
+      <span className={stored ? 'text-muted-foreground' : 'text-faint'}>{part.label}</span>
+      <span className={cn('num', !stored && 'text-xs text-faint')}>
+        {stored ? part.value : `Not on ${name}’s ledger`}
+      </span>
+    </li>
+  )
+}

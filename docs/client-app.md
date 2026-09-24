@@ -41,7 +41,7 @@ Example with Alice:
 | D | Wallet | **Custodial**: the backend allocates a party + ledger user per client and submits commands for them after checking the session | Easy for users, like Hashnote. Self-custody (Canton external party with browser-held key) is a later step |
 | E | On-ledger whitelist | **E2: one `ClientAccess` pass per client** + **explicit disclosure** of shared contracts | See below |
 | F | Frontend stack | **Tailwind CSS 4** (`@tailwindcss/vite`) + **shadcn/ui** (Radix, code copied into `src/components/ui`) + **React Router** + **Recharts** + **lucide-react** | Accessible dialogs/tabs/toasts, readable code we own |
-| G | Theme | **"Exodus Night"**: dark first, light mode too, teal primary, gold for yield | See the palette below |
+| G | Theme | **"Meridian"** (replaced "Exodus Night" on 2026-09-23): dark first, light mode too; two brand inks, the text colour for principal (PT) and copper for yield (YT) only | See the palette below |
 
 ### Why E2 (`ClientAccess`) and not E1 (adding clients to `users` lists)
 
@@ -65,25 +65,30 @@ The faucet does **not** need the pass on-ledger: the backend mints as `UsdcIssue
 
 This also covers spec gap 9 (factory shared through an observer list) and most of gap 11 (no allowlist). Bootstrap gives Alice and Bank passes so `/lab` keeps working.
 
-### Theme "Exodus Night"
+### Theme "Meridian"
 
-| Token | Dark | Light | Used for |
+The values live in `exodus-app/web/src/styles/tokens.css`. The idea: every Exodus position runs toward one date, the maturity (the "meridian").
+
+| Token | Dark (default) | Light | Used for |
 |---|---|---|---|
-| background | `#0A0E14` | `#F7F8FA` | page |
-| surface (card) | `#111722` | `#FFFFFF` | cards |
-| border | `#1F2733` | `#E3E7ED` | lines |
-| text / muted | `#E7ECF3` / `#8B97A8` | `#0F1720` / `#5B6675` | copy |
-| primary (teal) | `#2DD4BF` | `#0F9E8C` | buttons, chart line, "live" dot |
-| gold | `#E8B75A` | `#B7862B` | yield / APY highlights |
-| destructive / warning | `#F87171` / `#FBBF24` | `#DC2626` / `#B45309` | errors / "Simulated" badge |
+| background (bg-0) | `#0E1210` | `#F3F4F1` | page |
+| card (bg-1) | `#151A17` | `#FFFFFF` | panels |
+| secondary (bg-2) | `#1B211E` | `#ECEEEA` | hover, selected, inputs |
+| border / input | `#262D29` / `#353D38` | `#E1E4DE` / `#C9CEC6` | lines / input borders |
+| foreground / muted / faint | `#ECE8DF` / `#A9A59B` / `#8A867D` | `#111513` / `#4F5752` / `#666D67` | copy / secondary / labels |
+| pt (= foreground) | `#ECE8DF` | `#111513` | principal, par, the maturity line; primary buttons |
+| yt (copper) | `#D98A52` | `#A4561F` | **yield only**: YT, claimable yield, floating rates. Never buttons, borders, focus or decoration |
+| success / destructive / warning / info | `#86C79A` / `#E8735F` / `#E2BE5C` / `#8FB3D9` | `#2B6A3E` / `#B0392B` / `#8A6200` / `#3D6592` | status, always with a word or icon; info = settling |
 
-Fonts: **Inter** for text, **JetBrains Mono** for numbers (tabular figures so amounts line up).
+Fonts (bundled from npm): **Geist** for all interface text and numbers (tabular figures), **Geist Mono** only for identifiers (party and contract ids), **Archivo** (semi-condensed, 88% width, weight 600, tight tracking) for display: headlines, section titles, big figures and the wordmark. It replaced Instrument Serif on 2026-09-23 because the serif read as an editorial template. Radius: 3 px chips, 6 px controls, 8 px panels. The "Simulated tokens" note is neutral information, not a warning. The landing page is always dark (`MarketingLayout` puts `.dark` on its root); one section, "The maths adds up", uses `.theme-light` on purpose as an institutional term sheet.
 
 ## Build order and status
 
 | Step | What | Status |
 |---|---|---|
 | 1 | Frontend foundation: Tailwind, shadcn/ui, router, theme, landing page; the old screens moved to `/lab` with no behaviour change | Done (2026-09-23). Own `ThemeProvider` instead of `next-themes` (its inline script makes React 19 log an error) |
+| 1b | Meridian design: tokens and fonts, the cut-plate mark and favicon, and the landing page: hero with the 3D instrument (`web/public/instrument/`), scroll-driven split story, "Two instruments. One date." maturity chart, "One trade. Four ledgers." privacy lens, the light "maths adds up" term sheet and a real product preview. `/lab` loads lazily so the landing page ships no ledger code | Done (2026-09-23). App shell and Portfolio screen next |
+| 1c | Privacy section rebuilt around a three-plate stack (`web/public/privacy/`, from the Codex renders in `assets/`): smoked glass = price and rate (Quote), silver = PT leg, gunmetal = cash leg. Picking a party fades the plates its node does not store and shows "N of 3 parts". The glass export was 4.5% too wide; its web file is corrected (95.5% scale, +35/+15 px, fitted to `privacy-stack-reference.png`) | Done (2026-09-24) |
 | 2 | Contracts: `ClientAccess` template; `Subscribe` and the transfer factory take the pass; shared contracts read through disclosure; tests; bootstrap gives Alice and Bank passes; ledger client attaches disclosed contracts | To do |
 | 3 | Backend `exodus-app/api`: NestJS + Prisma + Postgres; auth, applications, admin approve (allocate party + user, create pass), faucet, index-history recorder, custodial command endpoints | To do |
 | 4 | Pages: landing, signup/login, onboarding form, admin | To do |
