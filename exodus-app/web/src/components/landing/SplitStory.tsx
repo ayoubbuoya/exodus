@@ -8,8 +8,8 @@ import { GlassArtboard } from './GlassStage.tsx'
 
 // Signature B: USYC → PT + YT, told by scrolling (spec §9, step 1).
 //
-// On tall desktop screens the section is three screens tall and its frame is sticky, so the
-// instrument stays in view while you scroll through it:
+// On desktop screens (at least 1024 × 560) the section is three screens tall and its
+// frame is sticky, so the instrument stays in view while you scroll through it:
 //   1. Deposit  one unified instrument: 1,000 USYC at index 1.000000,
 //   2. Cut      a blue light gathers around the glass wedge: PT = YT = shares × index,
 //   3. Split    the blue glass wedge (yield) slides out of the silver block
@@ -19,8 +19,12 @@ import { GlassArtboard } from './GlassStage.tsx'
 // the frame (no React re-render per frame). CSS turns --p into --seam, --slide
 // and --glow, so the object moves continuously with your scroll. The page scrolls
 // normally: no locking, no snapping. Every step is also a button.
-// Phones, tablets and short laptop screens get no sticky frame: the step
-// buttons set --p, and a CSS transition animates between steps.
+// Two desktop layouts share that scroll story (variants in index.css):
+//   tall  (760 px or taller)   stacked: title and steps, picture, caption,
+//   short (560–759 px tall)    side by side: text left, picture right. This is
+//                              a normal laptop with browser bars and zoom.
+// Phones, tablets and very short windows (under 560 px) get no sticky frame:
+// the step buttons set --p, and a CSS transition animates between steps.
 
 type Step = 1 | 2 | 3
 
@@ -61,8 +65,9 @@ const NAV_HEIGHT = 72
 const AMOUNT = artSize(F, 58, 18)
 const DETAIL = artSize(F, 24, 11)
 
-// Scroll-driven mode needs a desktop screen at least 760 px tall (the tall: variant in index.css).
-const SCROLLY_QUERY = '(min-width: 1024px) and (min-height: 760px)'
+// Scroll-driven mode needs a desktop screen at least 560 px tall. It must match the
+// scrolly: variant in index.css, which makes the section tall and the frame sticky.
+const SCROLLY_QUERY = '(min-width: 1024px) and (min-height: 560px)'
 
 export function SplitStory() {
   const sectionRef = useRef<HTMLElement>(null)
@@ -70,7 +75,7 @@ export function SplitStory() {
   const scrolly = useMediaQuery(SCROLLY_QUERY)
   const [step, setStep] = useState<Step>(1)
 
-  // Tall desktop screens: follow the scroll. One measurement per animation frame, passive
+  // Desktop screens: follow the scroll. One measurement per animation frame, passive
   // listener, and React only re-renders when the step name changes.
   useEffect(() => {
     if (!scrolly) return
@@ -121,12 +126,12 @@ export function SplitStory() {
       id="split"
       ref={sectionRef}
       aria-labelledby="split-title"
-      className="relative scroll-mt-[72px] border-t border-border tall:h-[300vh]"
+      className="relative scroll-mt-[72px] border-t border-border scrolly:h-[300vh]"
     >
       <div
         ref={frameRef}
         style={frameStyle}
-        className="mx-auto grid max-w-[1280px] gap-6 px-4 py-16 sm:px-6 lg:px-10 short:min-h-[calc(100svh-72px)] short:grid-cols-[minmax(0,400px)_minmax(0,1fr)] short:grid-rows-[1fr_1fr] short:gap-x-12 short:py-10 tall:sticky tall:top-[72px] tall:h-[calc(100svh-72px)] tall:grid-rows-[auto_minmax(0,1fr)_auto] tall:py-8"
+        className="mx-auto grid max-w-[1280px] gap-6 px-4 py-16 sm:px-6 lg:px-10 short:grid-cols-[minmax(0,400px)_minmax(0,1fr)] short:grid-rows-[1fr_1fr] short:gap-x-12 short:py-10 scrolly:sticky scrolly:top-[72px] scrolly:h-[calc(100svh-72px)] tall:grid-rows-[auto_minmax(0,1fr)_auto] tall:py-8"
       >
         {/* Title and the step rail. Short laptop screens: left column, top half. */}
         <div className="flex flex-wrap items-end justify-between gap-x-10 gap-y-6 short:col-start-1 short:row-start-1 short:self-end">
@@ -140,13 +145,18 @@ export function SplitStory() {
         </div>
 
         {/* The instrument and its amounts, as one scaled artboard (see
-            landing/artboard.ts), as large as the space allows:
+            landing/artboard.ts). On desktop it is at most 640 px wide, a bit
+            larger than the hero's 580 px because here the picture is the
+            content, but never so big that it dwarfs the text:
             - tall screens: the middle row of the sticky frame is a CSS size
-              container, and the artboard fits it (width <= height x 1.267),
-            - short desktop screens: the right column, capped to the screen height,
+              container; the artboard fits it (width <= height x 1.267).
+              Example: 1920 x 1080 → 640 px (it was ~870 px before the cap).
+            - short desktop screens: the right column, also capped by the
+              screen height (the frame minus its padding, x 1.267).
+              Example: 1536 x 700 → 640 px wide, ~505 px tall, in a 628 px frame.
             - phones and tablets: the full width. */}
         <div className="flex min-h-0 items-center justify-center py-6 short:col-start-2 short:row-span-2 short:row-start-1 short:py-0 tall:py-2 tall:[container-type:size]">
-          <div className="w-full short:w-[min(100%,calc((100svh-150px)*1.267))] tall:w-[min(100cqw,calc(100cqh*1.267))]">
+          <div className="w-full short:w-[min(640px,100%,calc((100svh-160px)*1.267))] tall:w-[min(640px,100cqw,calc(100cqh*1.267))]">
             <GlassArtboard
               frame={F}
               label={

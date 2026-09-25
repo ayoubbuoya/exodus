@@ -24,12 +24,16 @@
 /* `dark:` classes apply when an ancestor has the `dark` class. */
 @custom-variant dark (&:is(.dark *));
 
-/* Desktop screens split by height. The scroll-driven split story needs room:
-   `tall:` = at least 1024 × 760 (sticky, scroll-driven), `short:` = a desktop
-   width but a short screen (for example a 1366 × 768 laptop with browser bars),
-   where the story falls back to step buttons. */
+/* Desktop screens split by height, for the split story (SplitStory.tsx):
+   `scrolly:` = at least 1024 × 560: the story is sticky and scroll-driven.
+   `tall:`    = at least 1024 × 760: stacked layout (title, picture, caption).
+   `short:`   = a desktop width, 560–759 px tall (for example a 1920 × 1080
+                laptop at 125% zoom with browser bars, about 1536 × 700): side
+                by side (text left, picture right), still scroll-driven.
+   Below 560 px tall the story falls back to the step buttons. */
+@custom-variant scrolly (@media (min-width: 1024px) and (min-height: 560px));
 @custom-variant tall (@media (min-width: 1024px) and (min-height: 760px));
-@custom-variant short (@media (min-width: 1024px) and (max-height: 759.98px));
+@custom-variant short (@media (min-width: 1024px) and (min-height: 560px) and (max-height: 759.98px));
 
 @theme inline {
   --font-sans: "Inter Variable", "Helvetica Neue", Arial, sans-serif;
