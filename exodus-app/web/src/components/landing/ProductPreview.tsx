@@ -1,39 +1,46 @@
 import type { ReactNode } from 'react'
 import {
-  ActivityIcon,
-  ArrowLeftRightIcon,
+  ArrowRightIcon,
   ArrowUpRightIcon,
-  BanknoteIcon,
   CalendarClockIcon,
   ChartColumnIcon,
-  LandmarkIcon,
-  MonitorIcon,
+  ChartPieIcon,
+  ChevronsUpDownIcon,
+  ScanEyeIcon,
   ShieldCheckIcon,
   SparklesIcon,
+  SplitIcon,
   WalletIcon,
   type LucideIcon,
 } from 'lucide-react'
 import { cn } from 'cn'
 import { Mark } from '@/components/brand/Mark'
 import { Amount } from '@/components/finance/Amount'
-import { MaturityBar } from '@/components/finance/MaturityBar'
-import { JAN_1, MATURITY_DATE, TERM_DAYS } from '@/landing/demo-numbers'
+import { StatCard } from '@/components/finance/StatCard'
+import { TokenIcon } from '@/components/finance/TokenIcon'
+import { JAN_1, QUOTE, SPLIT, TERM_DAYS } from '@/landing/demo-numbers'
+import { formatDemoDate } from '@/lib/format'
 import { SoftLight } from './SoftLight.tsx'
 
-// "The product": the Exodus app itself, rendered with real components (no
-// device mockup, no screenshot), as one of the landing page's visual assets.
-// It is drawn in the same glass as the rest of the page: one large glass
-// window, a floating sidebar, separate glass cards, pill buttons.
+// "The product": the Exodus app itself, rendered with the app's own
+// components (StatCard, TokenIcon, Amount) in the same layout as the real
+// Portfolio page, so what the landing page promises is what a client gets:
+// the floating glass sidebar, the page title, four summary cards, one row per
+// PT and YT with its next action, and the market activity.
 //
-// It shows Bank's book on 01 Jan 2027 in the worked example (spec §9): after
-// the split and the sale of 500 PT to Alice, before Bank's first claim.
-//   1,000 YT with 24.390243 USYC claimable (1,000 × (1 − 1 / 1.025)),
-//   500 PT that redeem $500.00 at maturity,
-//   487.50 USDC from the sale.
+// It shows Bank's book on Jan 1, 2027 in the worked example (spec §9): after
+// the split and the sale of 500 PT to Alice at 0.975, before Bank's first claim.
+//   500 PT                 value 500 × 0.975                       = $487.50
+//   1,000 YT               value 1,000 × (1 − 0.975) + $25.00 yield = $50.00
+//   claimable yield        1,000 × (1 − 1 / 1.025)                 = 24.390243 USYC ≈ $25.00
+//   portfolio value        487.50 + 50.00                          = $537.50
 // It is a picture of the app: the controls are inert (not clickable, not
 // focusable), and screen readers get a one-line description instead.
 
 const DAYS_LEFT = TERM_DAYS - JAN_1 // 90
+// The app's own date format ("Apr 1, 2027"), so the picture matches the product.
+const MATURITY = formatDemoDate('2027-04-01T00:00:00Z')
+const DEMO_TODAY = formatDemoDate('2027-01-01T00:00:00Z')
 
 export function ProductPreview() {
   return (
@@ -56,18 +63,15 @@ export function ProductPreview() {
           <div
             inert
             role="img"
-            aria-label="The Exodus app: Bank's portfolio on 01 Jan 2027, with 1,000 YT and 24.390243 USYC of claimable yield, 500 PT redeeming $500.00 on 01 Apr 2027, and 487.50 USDC."
-            className="glass glass-sheen grid min-w-[780px] gap-3 rounded-4xl p-3 text-[13px] md:min-w-[1060px] md:grid-cols-[200px_minmax(0,1fr)]"
+            aria-label={`The Exodus app: Bank's portfolio on ${DEMO_TODAY}, worth $537.50, with 24.390243 USYC of claimable yield on 1,000 YT and 500 PT paying $500.00 on ${MATURITY}.`}
+            className="glass glass-sheen grid min-w-[780px] gap-3 rounded-4xl p-3 text-[13px] md:min-w-[1060px] md:grid-cols-[216px_minmax(0,1fr)]"
           >
-            <PreviewRail />
-            <div className="grid min-w-0 content-start gap-3 p-2">
-              <PreviewTopBar />
+            <PreviewSidebar />
+            <div className="grid min-w-0 content-start gap-4 p-3">
+              <PreviewHeader />
               <SummaryCards />
               <PositionsPanel />
-              <div className="grid grid-cols-2 items-start gap-3">
-                <MaturitiesPanel />
-                <ActivityPanel />
-              </div>
+              <ActivityPanel />
             </div>
           </div>
         </div>
@@ -78,317 +82,245 @@ export function ProductPreview() {
 
 // ----------------------------------------------------------------------------
 
-const NAV: { icon: LucideIcon; label: string; active?: boolean; count?: number }[] = [
-  { icon: WalletIcon, label: 'Portfolio', active: true },
+// The same links as the real sidebar for an approved client (AppNav).
+const NAV: { icon: LucideIcon; label: string; active?: boolean }[] = [
+  { icon: WalletIcon, label: 'Wallet' },
   { icon: ChartColumnIcon, label: 'Markets' },
-  { icon: ArrowLeftRightIcon, label: 'Trade', count: 1 },
-  { icon: LandmarkIcon, label: 'Fund' },
-  { icon: ActivityIcon, label: 'Activity' },
+  { icon: ChartPieIcon, label: 'Portfolio', active: true },
 ]
 
-// The sidebar: a darker inner pane with pill navigation.
-function PreviewRail() {
+// The floating sidebar: navigation, the demo clock and the account card.
+function PreviewSidebar() {
   return (
-    // Phones hide the rail, to leave the width to the positions.
-    <aside className="hidden min-h-full flex-col rounded-3xl bg-black/20 p-3 md:flex">
-      <div className="flex items-center gap-2 px-2 pt-1 pb-4">
+    // Phones hide the sidebar, to leave the width to the positions.
+    <aside className="hidden min-h-full flex-col gap-5 rounded-3xl bg-black/20 p-3 md:flex">
+      <div className="flex items-center gap-2 px-2 pt-2">
         <Mark className="h-4 w-auto" />
         <span className="font-display text-lg leading-none">Exodus</span>
       </div>
       <ul className="grid gap-1">
         {NAV.map((item) => (
-          <li
-            key={item.label}
-            className={cn(
-              'flex h-10 items-center gap-3 rounded-full px-3.5 font-medium',
-              item.active ? 'bg-white/12 text-foreground' : 'text-muted-foreground',
-            )}
-          >
-            <item.icon className="size-4" strokeWidth={1.6} aria-hidden />
+          <NavItem key={item.label} icon={item.icon} active={item.active}>
             {item.label}
-            {item.count !== undefined && (
-              <span className="num ml-auto grid size-5 place-items-center rounded-full bg-white/15 text-[11px] text-foreground">
-                {item.count}
-              </span>
-            )}
-          </li>
+          </NavItem>
         ))}
       </ul>
-      <p className="px-3.5 pt-5 pb-1 text-[11px] text-faint">Desk</p>
-      <ul className="grid">
-        <li className="flex h-10 items-center gap-3 rounded-full px-3.5 font-medium text-muted-foreground">
-          <MonitorIcon className="size-4" strokeWidth={1.6} aria-hidden />
-          Dealer desk
-        </li>
-      </ul>
-      {/* Who is signed in: a round avatar and the party id. */}
-      <div className="glass mt-auto flex items-center gap-3 rounded-xl p-2.5">
-        <span className="grid size-9 shrink-0 place-items-center rounded-full bg-white/12 font-semibold">B</span>
-        <span className="grid min-w-0 leading-tight">
-          <span className="font-medium">Bank</span>
-          <span className="ident truncate text-[11px] text-muted-foreground">bank-2c1e…1220</span>
-        </span>
+      <div className="grid gap-1">
+        <p className="px-3.5 pb-1 text-[11px] text-faint">Tools</p>
+        <NavItem icon={ScanEyeIcon}>Developer lab</NavItem>
       </div>
-      <p className="px-2 pt-3 text-[11px] leading-4 text-faint">Canton sandbox · simulated USYC and USDC</p>
+      <div className="mt-auto grid gap-2">
+        {/* The demo clock, like DemoClock in the real sidebar. */}
+        <div className="num grid gap-1 rounded-2xl bg-foreground/4 p-3 text-xs">
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <CalendarClockIcon className="size-3.5" aria-hidden />
+            Demo date
+            <span className="ml-auto flex items-center gap-1.5 text-foreground">
+              <span className="size-2 rounded-full bg-success" aria-hidden />
+              Live
+            </span>
+          </div>
+          <p className="text-[15px] font-medium text-foreground">{DEMO_TODAY}</p>
+          <p className="text-muted-foreground">{DAYS_LEFT} days to maturity</p>
+        </div>
+        {/* Who is signed in: a round avatar and the party. */}
+        <div className="flex items-center gap-3 rounded-2xl bg-foreground/4 p-2.5">
+          <span className="grid size-9 shrink-0 place-items-center rounded-full bg-foreground/12 text-sm font-semibold">B</span>
+          <span className="grid min-w-0 flex-1 leading-tight">
+            <span className="font-medium">Bank</span>
+            <span className="ident truncate text-[11px] text-muted-foreground">bank-2c1e…1220</span>
+          </span>
+          <ChevronsUpDownIcon className="size-4 text-muted-foreground" aria-hidden />
+        </div>
+        <p className="px-2 text-[11px] leading-4 text-faint">Canton sandbox · simulated USYC and USDC</p>
+      </div>
     </aside>
   )
 }
 
-function PreviewTopBar() {
+function NavItem({ icon: Icon, active = false, children }: { icon: LucideIcon; active?: boolean; children: ReactNode }) {
   return (
-    <div className="flex items-center gap-3 px-1 pt-1">
-      <p className="font-display text-[26px] leading-none">Portfolio</p>
-      <div className="num ml-auto flex items-center gap-2 text-xs">
-        <span className="glass flex h-9 items-center gap-2 rounded-full px-3.5 text-muted-foreground">
-          <CalendarClockIcon className="size-3.5" aria-hidden />
-          Sim <span className="font-medium text-foreground">01 Jan 2027</span>
-          <span className="text-faint">·</span>
-          <span className="font-medium text-foreground">{DAYS_LEFT} d</span> to {MATURITY_DATE}
-        </span>
-        <span className="flex h-9 items-center rounded-full bg-[#eef2f8] px-4 font-semibold text-[#060a13]">New RFQ</span>
+    <li
+      className={cn(
+        'flex h-10 list-none items-center gap-3 rounded-full px-3.5 font-medium',
+        active ? 'bg-white/10 text-foreground' : 'text-muted-foreground',
+      )}
+    >
+      <Icon className="size-4" strokeWidth={1.6} aria-hidden />
+      {children}
+    </li>
+  )
+}
+
+// The page title, like PageHeader on the real Portfolio page.
+function PreviewHeader() {
+  return (
+    <div className="flex items-end gap-4 px-1 pt-1">
+      <div>
+        <p className="font-display text-[30px] leading-tight">Portfolio</p>
+        <p className="mt-1 text-sm text-muted-foreground">Your PT and YT in every market.</p>
       </div>
+      <span className="glass ml-auto flex h-9 items-center gap-1.5 rounded-full px-4 text-sm font-medium">
+        Markets
+        <ArrowRightIcon className="size-4" aria-hidden />
+      </span>
     </div>
   )
 }
 
-// The four numbers of the book, each on its own glass card with a round icon
-// in the corner, like a widget. Big numbers dim their decimals.
+// The four summary cards of the real Portfolio page, with the real StatCard.
 function SummaryCards() {
-  const cards: { icon: LucideIcon; label: string; value: string; unit?: string; sub: string; yieldTone?: boolean }[] = [
-    { icon: SparklesIcon, label: 'Claimable yield', value: '24.390243', unit: 'USYC', sub: '≈ $25.00 at index 1.025000', yieldTone: true },
-    { icon: ShieldCheckIcon, label: 'Principal at maturity', value: '$500.00', sub: `500.00 PT · ${MATURITY_DATE}` },
-    { icon: BanknoteIcon, label: 'Cash', value: '487.50', unit: 'USDC', sub: 'From 1 PT sale' },
-    { icon: CalendarClockIcon, label: 'Next maturity', value: MATURITY_DATE, sub: `${DAYS_LEFT} days · 1 market` },
-  ]
   return (
     <div className="grid grid-cols-4 gap-3">
-      {cards.map((card) => (
-        <div key={card.label} className="glass rounded-[22px] p-4">
-          <div className="flex items-start justify-between">
-            <span className="text-[12.5px] text-muted-foreground">{card.label}</span>
-            <span className={cn('grid size-8 place-items-center rounded-full bg-white/8', card.yieldTone && 'text-yt')}>
-              <card.icon className="size-4" strokeWidth={1.6} aria-hidden />
-            </span>
-          </div>
-          <p className={cn('mt-3 font-display text-[23px] leading-none', card.yieldTone && 'text-yt')}>
-            <Amount value={card.value} unit={card.unit} />
-          </p>
-          <p className="num mt-2 text-xs text-muted-foreground">{card.sub}</p>
-        </div>
-      ))}
+      <StatCard label="Portfolio value" icon={ChartPieIcon} value={<Amount value="$537.50" />} sub="PT and YT, in USD" />
+      <StatCard
+        label="Claimable yield"
+        icon={SparklesIcon}
+        tone="yield"
+        value={<Amount value="24.390243" unit="USYC" />}
+        sub="≈ $25.00"
+      />
+      <StatCard
+        label="Principal at maturity"
+        icon={ShieldCheckIcon}
+        value={<Amount value={QUOTE.atMaturity} />}
+        sub={`${QUOTE.pt} PT · 1 USD of USYC each`}
+      />
+      <StatCard label="Next maturity" icon={CalendarClockIcon} value={MATURITY} sub={`${DAYS_LEFT} demo days left`} />
     </div>
   )
 }
 
-// A glass card with a title row.
-function Panel({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }) {
+// A glass panel with a title and one line, like the app's Card.
+function Panel({ title, description, children }: { title: string; description: string; children: ReactNode }) {
   return (
-    <div className="glass rounded-3xl">
-      <div className="flex h-13 items-center gap-4 px-5">
+    <div className="glass grid gap-4 rounded-3xl p-5">
+      <div className="grid gap-1">
         <p className="text-[15px] font-medium">{title}</p>
-        {action && <div className="ml-auto">{action}</div>}
+        <p className="text-sm text-muted-foreground">{description}</p>
       </div>
       {children}
     </div>
   )
 }
 
-// A round badge that says which instrument a row is about: PT is solid silver,
-// YT is solid yield blue, cash is a quiet grey.
-function InstrumentDot({ kind }: { kind: 'pt' | 'yt' | 'cash' }) {
-  return (
-    <span
-      aria-hidden="true"
-      className={cn(
-        'grid size-9 shrink-0 place-items-center rounded-full text-[10px] font-bold',
-        kind === 'pt' && 'bg-pt text-background',
-        kind === 'yt' && 'bg-yt text-background',
-        kind === 'cash' && 'bg-white/8 text-muted-foreground',
-      )}
-    >
-      {kind === 'pt' ? 'PT' : kind === 'yt' ? 'YT' : '$'}
-    </span>
-  )
-}
-
 type Row = {
-  kind: 'pt' | 'yt' | 'cash'
-  name: string
+  kind: 'pt' | 'yt'
+  symbol: string
   sub: string
   holding: string
-  holdingSub?: string
   value: string
-  valueSub?: string
-  rate: string
-  rateSub?: string
-  maturity: boolean
-  action?: string
-  actionEnabled?: boolean
+  claimable?: string
+  action: string
+  bright: boolean
 }
 
+// One row per PT and per YT, each with its next action (as on /portfolio).
 const ROWS: Row[] = [
   {
-    kind: 'yt',
-    name: 'YT-USYC-APR2027',
-    sub: `Yield · until ${MATURITY_DATE}`,
-    holding: '1,000.00 YT',
-    holdingSub: 'Since index 1.000000',
-    value: '24.390243 USYC',
-    valueSub: 'claimable · ≈ $25.00',
-    // 1.025 ^ (365 / 92) − 1: the index growth since the split, annualised.
-    rate: '10.29%',
-    rateSub: 'Floating, trailing',
-    maturity: true,
-    action: 'Claim',
-    actionEnabled: true,
-  },
-  {
     kind: 'pt',
-    name: 'PT-USYC-APR2027',
-    sub: `Principal · ${MATURITY_DATE}`,
-    holding: '500.00 PT',
-    holdingSub: 'From split at 1.000000',
-    value: '$500.00',
-    valueSub: 'at maturity',
-    rate: '—',
-    rateSub: 'Inventory, not bought',
-    maturity: true,
-    action: 'Redeem',
+    symbol: 'PT-USYC-APR2027',
+    sub: `Principal · pays 1 USD on ${MATURITY}`,
+    holding: `${QUOTE.pt} PT`,
+    value: '$487.50',
+    action: 'Sell',
+    bright: false,
   },
   {
-    kind: 'cash',
-    name: 'USDC',
-    sub: 'Simulated · UsdcIssuer',
-    holding: '487.50 USDC',
-    value: '$487.50',
-    rate: '—',
-    maturity: false,
-    action: 'Send',
+    kind: 'yt',
+    symbol: 'YT-USYC-APR2027',
+    sub: `Yield · until ${MATURITY}`,
+    holding: `${SPLIT.yt} YT`,
+    value: '$50.00',
+    claimable: '24.390243 USYC claimable',
+    action: 'Claim',
+    bright: true,
   },
 ]
 
 function PositionsPanel() {
   return (
-    <Panel
-      title="Positions"
-      action={<span className="glass inline-flex h-8 items-center rounded-full px-3.5 text-xs font-medium">Split USYC</span>}
-    >
-      <table className="num w-full border-collapse">
-        <thead>
-          <tr className="text-left">
-            {['Instrument', 'Holding', 'Value', 'Rate', 'Maturity', ''].map((head, index) => (
-              <th
-                key={head || 'action'}
-                className={cn('px-3.5 pb-2 text-[11.5px] font-normal text-faint', (index === 1 || index === 2) && 'text-right')}
-              >
-                {head}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {ROWS.map((row) => {
-            const isYield = row.kind === 'yt'
-            return (
-              <tr key={row.name} className="border-t border-white/6">
-                <td className="px-3.5 py-3">
-                  <span className="flex items-center gap-3">
-                    <InstrumentDot kind={row.kind} />
-                    <span>
-                      <span className="block font-medium whitespace-nowrap">{row.name}</span>
-                      <span className="block text-xs whitespace-nowrap text-muted-foreground">{row.sub}</span>
-                    </span>
-                  </span>
-                </td>
-                <td className="px-3.5 py-3 text-right whitespace-nowrap">
-                  {row.holding}
-                  {row.holdingSub && <span className="block text-xs text-muted-foreground">{row.holdingSub}</span>}
-                </td>
-                <td className="px-3.5 py-3 text-right whitespace-nowrap">
-                  <span className={cn(isYield && 'text-yt')}>{row.value}</span>
-                  {row.valueSub && <span className="block text-xs text-muted-foreground">{row.valueSub}</span>}
-                </td>
-                <td className="px-3.5 py-3 whitespace-nowrap">
-                  <span className={cn(isYield && 'text-yt')}>{row.rate}</span>
-                  {row.rateSub && <span className="block text-xs text-muted-foreground">{row.rateSub}</span>}
-                </td>
-                <td className="px-3.5 py-3 whitespace-nowrap">
-                  {row.maturity ? (
-                    <span className="flex items-center gap-2.5">
-                      <MaturityBar elapsedDays={JAN_1} totalDays={TERM_DAYS} className="w-14" />
-                      {DAYS_LEFT} d
-                    </span>
-                  ) : (
-                    '—'
-                  )}
-                </td>
-                <td className="px-3.5 py-3 text-right">
-                  {row.action && (
-                    <span
-                      className={cn(
-                        'inline-flex h-8 items-center rounded-full px-3.5 text-xs font-medium',
-                        row.actionEnabled ? 'bg-[#eef2f8] font-semibold text-[#060a13]' : 'bg-white/6 text-muted-foreground',
-                      )}
-                    >
-                      {row.action}
-                    </span>
-                  )}
-                </td>
-              </tr>
-            )
-          })}
-        </tbody>
-      </table>
-      <p className="border-t border-white/6 px-3.5 py-3 text-xs text-muted-foreground">
-        PT and YT are visible to Bank and the Operator. USDC to Bank and the USDC Issuer.
-      </p>
-    </Panel>
-  )
-}
-
-function MaturitiesPanel() {
-  return (
-    <Panel title="Maturities">
-      <div className="grid gap-3 px-5 pb-5">
-        <div className="num flex justify-between">
-          <span className="font-medium">APR 2027</span>
-          <span className="text-muted-foreground">
-            {MATURITY_DATE} · {DAYS_LEFT} d
-          </span>
+    <Panel title="Positions" description="Only you and the Operator (who signs PT and YT) can see them.">
+      <div className="num grid">
+        <div className="grid grid-cols-[minmax(0,1.5fr)_1fr_1fr_96px] gap-4 px-2 pb-2 text-[11.5px] text-faint">
+          <span>Token</span>
+          <span className="text-right">Holding</span>
+          <span className="text-right">Value</span>
+          <span />
         </div>
-        <MaturityBar elapsedDays={JAN_1} totalDays={TERM_DAYS} className="w-full" />
-        <div className="num flex justify-between">
-          <span>500.00 PT</span>
-          <span className="text-yt">1,000.00 YT</span>
-        </div>
+        {ROWS.map((row) => (
+          <div
+            key={row.symbol}
+            className="grid grid-cols-[minmax(0,1.5fr)_1fr_1fr_96px] items-center gap-4 border-t border-white/6 px-2 py-3.5"
+          >
+            <span className="flex min-w-0 items-center gap-3">
+              <TokenIcon kind={row.kind} />
+              <span className="grid min-w-0">
+                <span className="ident truncate text-sm font-medium">{row.symbol}</span>
+                <span className="truncate text-xs text-muted-foreground">{row.sub}</span>
+              </span>
+            </span>
+            <span className="text-right text-sm font-medium">{row.holding}</span>
+            <span className="grid text-right text-sm">
+              {row.value}
+              {row.claimable !== undefined && <span className="text-xs text-yt">{row.claimable}</span>}
+            </span>
+            <span
+              className={cn(
+                'flex h-8 items-center justify-center rounded-full text-[13px] font-medium',
+                row.bright ? 'bg-[#eef2f8] font-semibold text-[#060a13]' : 'border border-white/14 bg-white/4',
+              )}
+            >
+              {row.action}
+            </span>
+          </div>
+        ))}
       </div>
     </Panel>
   )
 }
 
+// The market activity, newest first, like ActivityCard on /portfolio.
 function ActivityPanel() {
-  const items = [
-    { title: 'Sold 500 PT to Alice', detail: 'at 0.9750 · +487.50 USDC', date: '01 Oct 2026' },
-    { title: 'Split 1,000 USYC', detail: '→ 1,000 PT + 1,000 YT', date: '01 Oct 2026' },
+  const items: { icon: LucideIcon; label: string; when: string; changes: { text: string; incoming: boolean }[] }[] = [
+    {
+      icon: ArrowUpRightIcon,
+      label: 'Sold PT',
+      when: 'Oct 1, 10:24',
+      changes: [
+        { text: `−${QUOTE.pt} PT`, incoming: false },
+        { text: `+${QUOTE.cash} USDC`, incoming: true },
+      ],
+    },
+    {
+      icon: SplitIcon,
+      label: 'Minted PT + YT',
+      when: 'Oct 1, 09:58',
+      changes: [
+        { text: `−${SPLIT.usyc} USYC`, incoming: false },
+        { text: `+${SPLIT.pt} PT`, incoming: true },
+        { text: `+${SPLIT.yt} YT`, incoming: true },
+      ],
+    },
   ]
   return (
-    <Panel title="Activity">
-      <ul className="px-2 pb-2">
+    <Panel title="Market activity" description="Read from the Canton ledger. Only you (and the token issuers) can see it.">
+      <ul className="-mx-2 grid">
         {items.map((item) => (
-          <li key={item.title} className="num flex items-center gap-3 rounded-[16px] px-3 py-2.5">
-            <span className="grid size-8 shrink-0 place-items-center rounded-full bg-white/8">
-              <ArrowUpRightIcon className="size-4" strokeWidth={1.6} aria-hidden />
+          <li key={item.label} className="flex items-center gap-3 rounded-2xl px-2 py-2.5">
+            <span className="grid size-9 shrink-0 place-items-center rounded-full bg-white/8">
+              <item.icon className="size-4" aria-hidden />
             </span>
             <span className="grid min-w-0 flex-1">
-              <span className="font-medium">{item.title}</span>
-              <span className="text-xs text-muted-foreground">{item.detail}</span>
+              <span className="text-sm font-medium">{item.label}</span>
+              <span className="num text-xs text-muted-foreground">{item.when}</span>
             </span>
-            <span className="grid justify-items-end text-xs">
-              <span className="flex items-center gap-1.5">
-                <span className="size-1.5 rounded-full bg-success" aria-hidden />
-                Settled
-              </span>
-              <span className="text-muted-foreground">{item.date}</span>
+            <span className="num grid text-right text-sm">
+              {item.changes.map((change) => (
+                <span key={change.text} className={change.incoming ? 'text-foreground' : 'text-muted-foreground'}>
+                  {change.text}
+                </span>
+              ))}
             </span>
           </li>
         ))}
