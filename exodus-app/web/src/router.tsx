@@ -1,7 +1,9 @@
 // The list of pages (URL → component).
 //
 // - The landing page (/) uses MarketingLayout: editorial, full-width diagrams.
-// - Every other page uses SiteLayout: a compact app frame.
+// - Sign-up, login and onboarding use FocusLayout: one centred column, no
+//   navigation (before approval there is nowhere to go).
+// - Every other page uses AppLayout: the floating glass sidebar.
 //
 // Every page except the landing page is loaded lazily: its code is downloaded
 // only when someone opens it. The app pages pull in the ledger client, the
@@ -15,8 +17,9 @@
 import type { ComponentType } from 'react'
 import { createBrowserRouter, type RouteObject } from 'react-router'
 import { RequireStage, type Stage } from '@/auth/RequireStage'
+import { AppLayout } from '@/components/layout/AppLayout'
+import { FocusLayout } from '@/components/layout/FocusLayout'
 import { MarketingLayout } from '@/components/layout/MarketingLayout'
-import { SiteLayout } from '@/components/layout/SiteLayout'
 import { PageLoading } from '@/components/PageLoading'
 import { LandingPage } from '@/pages/LandingPage'
 import { NotFoundPage } from '@/pages/NotFoundPage'
@@ -54,7 +57,7 @@ export const router = createBrowserRouter([
     children: [{ path: '/', element: <LandingPage /> }],
   },
   {
-    element: <SiteLayout />,
+    element: <FocusLayout />,
     children: [
       // Only for visitors: a logged-in user is sent to their home page.
       { path: '/signup', ...lazyPage(() => import('@/pages/SignupPage').then((module) => module.SignupPage), 'signed-out') },
@@ -64,6 +67,11 @@ export const router = createBrowserRouter([
         path: '/onboarding',
         ...lazyPage(() => import('@/pages/OnboardingPage').then((module) => module.OnboardingPage), 'signed-in'),
       },
+    ],
+  },
+  {
+    element: <AppLayout />,
+    children: [
       // Approved clients only (they have a wallet).
       { path: '/app', ...lazyPage(() => import('@/pages/AppPage').then((module) => module.AppPage), 'approved') },
       // The markets (the Pendle part). Anyone logged in may look; only approved
