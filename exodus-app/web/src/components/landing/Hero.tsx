@@ -64,8 +64,9 @@ export function Hero() {
           headline lines up with the logo and the instrument ends under the
           "Open the demo" button. Without a box the instrument's column ran to
           the screen's right edge: on a 1920 px screen it was ~950 px wide and
-          leaned far right of the nav. Now it is at most ~690 px, centred.
-          Example (1920 px screen): 1280 px of content = 540 text + 48 gap + 692 instrument. */}
+          leaned far right of the nav. Now its column is at most 692 px
+          (1280 px of content = 540 text + 48 gap + 692), and the instrument
+          itself is capped smaller still (see below). */}
       <div className="mx-auto grid w-full max-w-330 items-center gap-y-12 lg:grid-cols-[minmax(0,460px)_minmax(0,1fr)] lg:gap-x-10 lg:px-5 xl:grid-cols-[minmax(0,540px)_minmax(0,1fr)] xl:gap-x-12">
         <div>
           <h1
@@ -95,9 +96,20 @@ export function Hero() {
           </div>
         </div>
 
-        {/* The instrument and its chips, as one scaled artboard.
-            On tall-but-narrow laptops it is also capped by the screen height. */}
-        <div style={director} className="mx-auto w-full lg:max-w-[calc((100svh-120px)*1.267)]">
+        {/* The instrument and its chips, as one scaled artboard. On desktop its
+            width is the smaller of two limits, so it never dwarfs the headline:
+              - 580 px at most, however wide the screen;
+              - its height at most 60% of the hero (the screen minus the 80 px
+                nav), turned into a width with the artboard's ratio 1.267.
+            Examples: 1366 × 768 → ~523 px wide (the height limit wins);
+            1536 × 864, 1920 × 1080, 2560 × 1440 → 580 px.
+            `lg:mr-0` pushes it against the column's right edge, so the hero
+            has the same margin on both sides, in line with the nav pill.
+            Phones and tablets keep it full width and centred (mx-auto). */}
+        <div
+          style={director}
+          className="mx-auto w-full lg:mr-0 lg:max-w-[min(580px,calc((100svh-80px)*0.6*1.267))]"
+        >
           <GlassArtboard
             frame={F}
             eager

@@ -18,7 +18,7 @@ export function MarketingLayout() {
     // `isolate` makes this the stacking context, so the ambient layer (z −10)
     // paints above this div's own background but under the content.
     <div className="dark relative isolate flex min-h-svh flex-col bg-background text-foreground" onPointerMove={followPointer}>
-      <AmbientLight />
+      {/* <AmbientLight /> */}
       <LandingNav />
       <main className="flex-1">
         <Outlet />
@@ -67,19 +67,19 @@ function followPointer(event: PointerEvent<HTMLDivElement>) {
 //      way a photo is blurred behind a glass dashboard. So every glass panel
 //      on the page picks up the object's own colours.
 //   2. A deeper pool of navy light, lower left, drifting slowly.
-function AmbientLight() {
-  return (
-    <div aria-hidden="true" className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
-      <img
-        src="/glass/hero-joined-sm.webp"
-        alt=""
-        className="absolute top-[-18vh] right-[-12vw] w-[78vw] max-w-none opacity-55 blur-[90px] saturate-150"
-        style={{ animation: 'drift-a 30s ease-in-out infinite' }}
-      />
-      <div
-        className="absolute bottom-[-35vh] left-[-25vw] size-[85vmax] rounded-full bg-[radial-gradient(closest-side,rgb(40_70_170/0.2),transparent)]"
-        style={{ animation: 'drift-b 36s ease-in-out infinite' }}
-      />
-    </div>
-  )
-}
+// function AmbientLight() {
+//   return (
+//     <div aria-hidden="true" className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
+//       <img
+//         src="/glass/hero-joined-sm.webp"
+//         alt=""
+//         className="absolute top-[-18vh] right-[-12vw] w-[78vw] max-w-none opacity-55 blur-[90px] saturate-150"
+//         style={{ animation: 'drift-a 30s ease-in-out infinite' }}
+//       />
+//       <div
+//         className="absolute bottom-[-35vh] left-[-25vw] size-[85vmax] rounded-full bg-[radial-gradient(closest-side,rgb(40_70_170/0.2),transparent)]"
+//         style={{ animation: 'drift-b 36s ease-in-out infinite' }}
+//       />
+//     </div>
+//   )
+// }
