@@ -54,7 +54,7 @@ export function ApproveDialog({ application, onClose }: ReviewDialogProps) {
     <Dialog open={application !== null} onOpenChange={(open) => !open && closeDialog()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Approve {application?.fullName}?</DialogTitle>
+          <DialogTitle className="font-display text-[22px] font-medium">Approve {application?.fullName}?</DialogTitle>
           <DialogDescription>
             This creates their Canton party and ledger user, and an access pass signed by the Operator. They can then
             use the faucet, subscribe to USYC and send tokens to other approved clients.
@@ -65,7 +65,7 @@ export function ApproveDialog({ application, onClose }: ReviewDialogProps) {
           <DialogClose asChild>
             <Button variant="outline">Cancel</Button>
           </DialogClose>
-          <Button onClick={handleApprove} disabled={approve.isPending}>
+          <Button variant="bright" onClick={handleApprove} disabled={approve.isPending}>
             {approve.isPending ? 'Creating wallet…' : 'Approve'}
           </Button>
         </DialogFooter>
@@ -103,7 +103,7 @@ export function RejectDialog({ application, onClose }: ReviewDialogProps) {
     <Dialog open={application !== null} onOpenChange={(open) => !open && closeDialog()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Reject {application?.fullName}?</DialogTitle>
+          <DialogTitle className="font-display text-[22px] font-medium">Reject {application?.fullName}?</DialogTitle>
           <DialogDescription>They will see your reason and can apply again.</DialogDescription>
         </DialogHeader>
         <Field>
