@@ -89,6 +89,21 @@ export function isQuoteLive(quote: Quote, marginMs = 2000, nowMs = Date.now()): 
   return nowMs + marginMs < Date.parse(quote.validUntil);
 }
 
+// The ids of the USDC holdings `dealer` has set aside for its live SELL
+// quotes (Alice sells PT, Bank pays). Unlike PT, a USDC holding cannot be
+// locked, so the dealer must leave these alone until the quote is accepted,
+// rejected or withdrawn. Example: Bank quoted "buy 200 PT at 0.985" and set
+// aside a 197 USDC holding: that holding's id is in the set.
+export function setAsideUsdcIds(quotes: Contract<Quote>[], dealer: string): Set<string> {
+  const ids = new Set<string>();
+  for (const quote of quotes) {
+    if (quote.payload.dealer === dealer && quote.payload.dealerUsdcCid !== null) {
+      ids.add(quote.payload.dealerUsdcCid);
+    }
+  }
+  return ids;
+}
+
 // ---------------------------------------------------------------------------
 // Requester side (Alice)
 // ---------------------------------------------------------------------------
@@ -276,9 +291,15 @@ export async function quoteRfq(ledger: LedgerClient, input: QuoteRfqInput): Prom
     const pts = (await getPrincipalTokens(ledger, input.dealer, terms.marketId)).filter(isFreePt);
     dealerPtCids = pickInputs(pts, ptAmount, "free PT").map((pt) => pt.contractId as ContractId<PrincipalToken>);
   } else {
+    // Never spend USDC already set aside for another live sell quote: that
+    // quote's accept would then fail ("the dealer no longer has the USDC").
+    const setAside = setAsideUsdcIds(await getQuotes(ledger, input.dealer), input.dealer);
     const owned = await getOwnedHoldings(ledger, input.dealer);
     const usdc = owned.filter(
-      (holding) => holding.payload.instrumentId.id === "USDC" && holding.payload.instrumentId.admin === usdcIssuer,
+      (holding) =>
+        holding.payload.instrumentId.id === "USDC" &&
+        holding.payload.instrumentId.admin === usdcIssuer &&
+        !setAside.has(holding.contractId),
     );
     const cash = previewQuoteCash(input.price, ptAmount);
     dealerUsdcCids = pickInputs(usdc, cash, "USDC").map((holding) => holding.contractId as ContractId<Holding>);

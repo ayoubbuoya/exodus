@@ -11,6 +11,7 @@ import { AuthModule } from "./auth/auth.module.ts";
 import { SessionGuard } from "./auth/session.guard.ts";
 import { validateEnvironment } from "./config/environment.ts";
 import { LedgerModule } from "./ledger/ledger.module.ts";
+import { MarketsModule } from "./markets/markets.module.ts";
 import { PricesModule } from "./prices/prices.module.ts";
 import { PrismaModule } from "./prisma/prisma.module.ts";
 import { WalletsModule } from "./wallets/wallets.module.ts";
@@ -35,6 +36,7 @@ const DEFAULT_RATE_LIMIT = { ttl: 60_000, limit: 120 };
     AdminModule,
     WalletsModule,
     PricesModule,
+    MarketsModule,
   ],
   providers: [
     // Global guards run in this order: rate limit first, then the login check.

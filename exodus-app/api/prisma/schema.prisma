@@ -153,3 +153,39 @@ model PricePoint {
   @@unique([instrument, simTime, index])
   @@map("price_points")
 }
+
+// The house dealer's quoting settings (decision D2 in docs/markets-plan.md).
+// One row per dealer party name; the demo has one: "Bank". Admins edit it on
+// the dealer desk. The row is created with these defaults on first use.
+//
+// PRICES FOLLOW PENDLE: the dealer quotes from a target fixed APY, and the
+// spread is in APY points, like Pendle's swap fee is a rate. Example with
+// 182 days left, target 5.2 %, spread 0.10 %:
+//   Alice buys PT  at 5.1 % -> price 0.975503 (rounded up)
+//   Alice sells PT at 5.3 % -> price 0.974577 (rounded down)
+model DealerSettings {
+  id         String  @id @default(uuid()) @db.Uuid
+  // The demo party the settings belong to, for example "Bank".
+  dealerName String  @unique @map("dealer_name") @db.VarChar(64)
+  // Answer RFQs automatically. When false, requests wait for an admin on /dealer.
+  autoQuote  Boolean @default(true) @map("auto_quote")
+
+  // Target APY = the underlying's 30-day APY + this offset (decision 2B,
+  // Phase 6). Example: underlying 10.29 %, offset -0.50 -> target 9.79 %.
+  apyOffsetPercent   Decimal @default(0) @map("apy_offset_percent") @db.Decimal(9, 4)
+  // Used while there is not enough price history for a 30-day APY (the first
+  // 7 demo days). 5.2 % gives the spec's price 0.975 on Oct 1.
+  fallbackApyPercent Decimal @default(5.2) @map("fallback_apy_percent") @db.Decimal(9, 4)
+  // Half the gap between the buy and the sell rate, in APY points.
+  spreadPercent      Decimal @default(0.1) @map("spread_percent") @db.Decimal(9, 4)
+
+  // Bigger requests are declined by the bot (an admin can still quote them by hand).
+  maxPtPerQuote     Decimal @default(1000) @map("max_pt_per_quote") @db.Decimal(38, 10)
+  // How long a quote is firm (decision R1: a short expiry).
+  quoteValidSeconds Int     @default(60) @map("quote_valid_seconds")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("dealer_settings")
+}

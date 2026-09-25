@@ -57,6 +57,18 @@ export class EnvironmentVariables {
   @Min(1)
   REDEEM_SETTLE_SECONDS: number = 2;
 
+  // How often the Operator's bot matures due markets and pays open PT/YT
+  // claims, PT redeems and merges (docs/markets-plan.md, Phase 6).
+  @IsInt()
+  @Min(1)
+  MARKET_SETTLE_SECONDS: number = 2;
+
+  // How often the house dealer bot (Bank) answers new RFQs and cleans up
+  // expired quotes. 1 s gives Alice a quote in about 2 s (decision D2).
+  @IsInt()
+  @Min(1)
+  DEALER_POLL_SECONDS: number = 1;
+
   // Only used by `npm run db:seed`, so optional for the API itself.
   @IsOptional()
   @IsString()

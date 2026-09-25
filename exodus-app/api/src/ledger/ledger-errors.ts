@@ -30,9 +30,7 @@ export function toHttpError(error: unknown, action: string, logger: Logger): Htt
     logger.error(`${action}: ledger not reachable`, error.stack);
     return new ServiceUnavailableException("The ledger is not reachable right now. Please try again later.");
   }
-  // The @exodus/ledger helpers throw a plain Error with a message written for
-  // users (for example "Amount must be greater than 0"), so we pass it on.
-  if (error instanceof Error && error.constructor === Error) {
+  if (isUserMessageError(error)) {
     return new UnprocessableEntityException(error.message);
   }
   logger.error(`${action} failed`, error instanceof Error ? error.stack : String(error));
@@ -63,4 +61,12 @@ function readDamlFailureMessage(text: string): string | null {
   }
   const match = /\(error category \d+\): (.+)$/s.exec(text);
   return match === null ? null : match[1].trim();
+}
+
+// True for the plain Errors the @exodus/ledger helpers throw with a message
+// written for users, for example "Amount must be greater than 0" or
+// "Not enough free PT: you have 400, you need 500". Subclasses (TypeError,
+// LedgerError, ...) are technical errors and return false.
+export function isUserMessageError(error: unknown): error is Error {
+  return error instanceof Error && error.constructor === Error;
 }

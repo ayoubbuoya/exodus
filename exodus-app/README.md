@@ -57,6 +57,8 @@ The API checks every `.env` value at startup (see `api/.env.example`). It also p
 
 - every `PRICE_POLL_SECONDS` (5) it stores the USYC index when it changed, for the price chart;
 - every `REDEEM_SETTLE_SECONDS` (2) it settles open USYC redeem requests as the fund (UsycIssuer): it pays each one in USDC at the current price;
+- every `MARKET_SETTLE_SECONDS` (2) the Operator bot matures markets that reached their date and pays open PT/YT claims, PT redeems and merges from its USYC vault;
+- every `DEALER_POLL_SECONDS` (1) the house dealer bot (Bank) withdraws expired quotes and answers new RFQs (price from the dealer settings in PostgreSQL, editable by admins at `/api/dealer/settings`);
 - every `WALLET_CHECK_SECONDS` (30) it re-creates client wallets whose party no longer exists. The sandbox forgets everything when it restarts, so after `npm run ledger` + `npm run bootstrap`, approved clients get a new, empty wallet on their own.
 
 To change the database schema: edit `api/prisma/schema.prisma`, then `npm run db:migrate:dev -w @exodus/api -- --name what_changed`.

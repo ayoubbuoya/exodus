@@ -15,7 +15,7 @@ Read first: the contract design in [`exodus.md`](exodus.md) (sections 7–12) an
 What a user can do when we are finished (the spec section 9 example):
 
 1. **Bank** (dealer) splits 1000 USYC and gets **1000 PT + 1000 YT** for the market `PT-USYC-APR2027`.
-2. **Alice** opens **Markets** and sees: *USYC · matures Apr 1 2027 · underlying APY 5.1% · fixed APY ~5.19%*.
+2. **Alice** opens **Markets** and sees: *USYC · matures Apr 1 2027 · underlying APY · fixed APY from the house dealer* (on Oct 1, before there is price history: 5.2 % target → buy at 0.975503, 5.1 % fixed; from Oct 8 the target follows the demo's underlying APY of ~10.3 %, see M2). The spec's own quote of **0.975 → ~5.19 %** stays the math proof in `DemoTest` and `demo:markets`.
 3. Alice clicks **Buy PT** for 500 PT and gets a private quote of **0.975**. She accepts, and in one transaction **487.5 USDC** goes to Bank and **500 PT** to Alice. The Operator never sees the price.
 4. On Jan 1 Bank claims **24.390243 USYC** of YT yield.
 5. On Apr 1 the market **matures** by itself. Alice redeems and gets **476.190476 USYC** (worth 500 USD).
@@ -53,6 +53,8 @@ What a user can do when we are finished (the spec section 9 example):
 | R4 | Cash leg (Phase 3) | **USDC** (cash-for-bond DvP) | Institutional story; keeps the privacy split (UsdcIssuer sees cash, Operator sees PT) | B: USYC, like Pendle's SY |
 | L1 | Dealer stock from bootstrap (Phase 5, 2026-09-25) | **Bank splits its 1000 USYC** into 1000 PT + 1000 YT (spec step 1) and gets **10,000 USDC** of dealer cash to buy PT back | The spec section 9 numbers stay exact; the sell side works from day one | B: Bank starts with 10,000 USYC (changes the profit table). C: no dealer cash (sell side only in Phase 6) |
 | L2 | Activity rows for payouts (Phase 5) | **PT/YT inside the owner's open request still count as the owner's**: only the settled result shows (CLAIMED +24.390243 USYC); asking and cancelling add no row; open requests are listed apart | The feed shows what really changed. The fund's USYC redeem keeps its two rows, because there the USYC is really burned | A: two rows per payout, like the USYC redeem ("YT −1000", then "+24.39 USYC, +1000 YT") |
+| M1 | Who runs the dealer desk (Phase 6, 2026-09-25) | **Admins** (`AdminGuard` on `/api/dealer/*`), acting as Bank | No new role or seed; "the platform runs the house dealer" (D2) | B: a new `DEALER` role linked to Bank |
+| M2 | Where the dealer's target APY comes from (Phase 6) | **Follow the underlying, like Pendle's implied rate**: target = underlying 30-day APY + offset (default 0), fallback 5.2 % until 7 demo days of history; spread in APY points like Pendle's fee (`lnFeeRateRoot`); rounding in the dealer's favour | A consistent Markets page ("underlying 10.29 % · fixed 10.19 %") instead of a fixed rate far below the floating one. Note: the demo's index path (1.00 → 1.025 in 92 days) is ~10.3 % a year; the old "underlying 5.1 %" was the 6-month return | A: a fixed 5.2 % target (reproduces 0.975 but shows "underlying 10.3 % · fixed 5.2 %") |
 | L3 | Demo script and the clock (Phase 5) | **`npm run demo:markets` publishes the Jan 1 and Apr 1 prices itself** on a fresh sandbox and stops with a clear message otherwise | The whole section 9 story in ~15 s, checked to 6 decimals | B: only the steps before maturity, never moving the clock |
 
 Settled by the spec (no choice needed): the vault is USYC owned by the Operator; `MarketTerms` is copied into every PT and YT (no contract keys in Daml 3.x); `Market` choices are nonconsuming except `Mature`; every payout uses `roundDown6`; maturity uses the oracle's `simTime`; settlement follows the request → operator settle → owner cancel pattern (same as `UsycRedeemRequest`).
@@ -76,8 +78,8 @@ Settled by the spec (no choice needed): the vault is USYC owned by the Operator;
 | 2 | Life cycle: claim, mature, redeem, merge | Done | 2026-09-25 | (fill in after commit) |
 | 3 | Private RFQ and atomic DvP | Done | 2026-09-25 | (fill in after commit) |
 | 4 | Full demo test (`DemoTest.daml`) | Done | 2026-09-25 | (fill in after commit) |
-| 5 | Ledger client and bootstrap | Done | 2026-09-25 | (fill in after commit) |
-| 6 | Backend: markets API, operator bot, dealer bot | To do | | |
+| 5 | Ledger client and bootstrap | Done | 2026-09-25 | `1bd0dff` |
+| 6 | Backend: markets API, operator bot, dealer bot | Done | 2026-09-25 | (fill in after commit) |
 | 7 | Web app screens | To do | | |
 | 8 | Hardening and token standard (stretch) | To do | | |
 | 9 | Ship: docs, deploy, video, pitch | To do | | |
@@ -155,14 +157,16 @@ File: `test/daml/Exodus/DemoTest.daml`.
 
 ### Phase 6: Backend: markets API, operator bot, dealer bot (`exodus-app/api`)
 
-- [ ] `markets` module: `GET /markets`, `GET /markets/:id` (terms, underlying APY, indicative price + fixed APY (D5), days left, matured)
-- [ ] `GET /portfolio` (PT, YT, claimable yield, open requests, USD value)
-- [ ] Endpoints: split, merge, claim, redeem PT, cancel request; RFQ create / list quotes / accept / reject
-- [ ] `OperatorSettlementService`: settles claim/redeem/merge requests oldest first (like `RedeemSettlementService`): claims with `CurrentRate` before maturity and `AtMaturity` after, redeems with the newest price; merges vault pieces; calls `Mature` with the first price on or after maturity (gap 3)
-- [ ] `DealerBotService` (D2): answers RFQs to Bank with `price = 1 / (1 + targetApy ± spread)^years` (Pendle's formula), declines what it cannot fill, never touches cash it set aside for a sell quote, and after expiry sends `Quote_Withdraw` + `PT_Unlock` in one submission; settings (target APY, spread, max size, on/off) in PostgreSQL via Prisma
-- [ ] Dealer endpoints for `/dealer` (dealer role only): open RFQs, manual quote, settings
-- [ ] Ledger errors mapped in `toHttpError` (expired quote, market matured, not enough PT)
-- [ ] Unit tests (pricing, preview maths, error mapping); Swagger docs; endpoint table in `client-app.md`
+- [x] `markets` module (`api/src/markets/`, apart from the fund's `wallets`): `GET /markets`, `GET /markets/:id` (terms, days left, matured + maturity index, underlying APY, indicative ask/bid/mid + fixed APY (D5))
+- [x] `GET /portfolio` (PT free/locked, YT, claimable yield, USD value with YT = 1 − PT like Pendle, open requests with an estimate), `DELETE /portfolio/requests/:id`
+- [x] Endpoints: splits, merges, claims, pt-redemptions; `quote-requests` (create / list / cancel), `quotes` (list / acceptance / rejection)
+- [x] `OperatorSettlementService` (every `MARKET_SETTLE_SECONDS`): `settleMarketRequests` = mature due markets (gap 3) + pay claims (`CurrentRate` / `AtMaturity`), PT redeems (newest price) and merges, oldest first
+- [x] `DealerBotService` (every `DEALER_POLL_SECONDS`, D2): withdraws expired quotes (`Quote_Withdraw` + `PT_Unlock` in one submission), answers RFQs with `(1 + target ∓ spread)^−years` (M2), declines over-size / at-maturity / unfillable requests (our own error messages; ledger hiccups are retried), leaves RFQs to the desk when auto-quote is off. Fixed in `@exodus/ledger`: `quoteRfq` never spends USDC set aside for another live sell quote (`setAsideUsdcIds`, tested)
+- [x] `DealerSettings` table (Prisma migration `add_dealer_settings`): auto-quote, APY offset, fallback APY, spread, max PT per quote, quote lifetime
+- [x] Dealer desk for admins (M1): `GET /dealer/quote-requests` (with suggested price), manual quote, decline, `GET /dealer/position`, `GET`/`PUT /dealer/settings`
+- [x] Errors: the existing `toHttpError` already maps our messages (422) and stale contracts (409); new tests for the market messages and `isUserMessageError` (now shared with the dealer bot)
+- [x] Unit tests: `dealer-pricing.test.ts`, `portfolio-value.test.ts`, error mapping (27 api tests); Swagger on every endpoint; endpoint table in `client-app.md`
+- [x] Live run over HTTP on a throwaway sandbox + database: sign-up → approve → faucet → subscribe → RFQ quoted in 1.7 s → accept → split → merge (settled in < 3 s) → sell (USDC set aside) → 5000 PT declined → manual desk quote → reject → Jan 1 claim 0.487804 USYC (target 10.29 %) → Apr 1 matured by the bot → PT redeem 23.809523 + final claim 0.464576 USYC
 
 **Done when:** the full demo runs through the HTTP API with curl, and the bots settle and quote by themselves.
 
@@ -203,3 +207,4 @@ File: `test/daml/Exodus/DemoTest.daml`.
 - 2026-09-25: Phase 3 done after reading Pendle V2's limit-order contracts (`IPLimitRouter`, `LimitRouterBase`, `LimitMathCore`, `MarketMathCore`): R1–R4 = A. `Rfq.daml`, PT lock, `splitExact`/`splitExactPt`, `RfqTest.daml`; 54 Daml scripts pass. Next: Phase 4 (`DemoTest.daml`).
 - 2026-09-25: Phase 4 done: `DemoTest.demoWorkedExample` proves spec section 9 end to end (profit table, vault dust 0.000002); 55 Daml scripts pass. The Daml contracts are complete. Next: Phase 5 detailed plan (ledger client and bootstrap).
 - 2026-09-25: Phase 5 done (L1–L3 = recommended). `markets.ts`, `tokens.ts`, `rfq.ts`, `lifecycle.ts`, `market-math.ts`, `oracle.ts`, bootstrap market + Bank split, PT/YT activity rows, `npm run demo:markets` (47/47 checks on a throwaway sandbox). Agreed with the user: the USYC fund (subscribe/redeem) is only the simulated on-ramp; the markets are the product, on their own pages and flows (Phase 7). Next: Phase 6 detailed plan (markets API, operator bot, dealer bot).
+- 2026-09-25: Phase 6 done (M1 = admins run the dealer desk, M2 = target follows the underlying APY). New `api/src/markets/` module: markets, portfolio, trading and dealer endpoints, `OperatorSettlementService`, `DealerBotService`, `DealerSettings` table; fixed `quoteRfq` spending set-aside USDC. 27 api + 48 ledger tests; full live run over HTTP on a throwaway sandbox and database. Found: the demo's underlying APY is ~10.3 %, not 5.1 % (goal text corrected). Next: Phase 7 detailed plan (web screens, on their own pages apart from the fund wallet).

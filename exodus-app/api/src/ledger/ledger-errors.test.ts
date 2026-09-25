@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { ConflictException, HttpException, type Logger } from "@nestjs/common";
 import { LedgerError } from "@exodus/ledger";
-import { toHttpError } from "./ledger-errors.ts";
+import { isUserMessageError, toHttpError } from "./ledger-errors.ts";
 
 // A logger that stays quiet during tests (toHttpError logs unexpected errors).
 const silentLogger = { error: () => undefined } as unknown as Logger;
@@ -52,5 +52,27 @@ describe("toHttpError", () => {
     const http = toHttpError("something odd", "Test action", silentLogger);
     assert.ok(http instanceof HttpException);
     assert.equal(http.getStatus(), 500);
+  });
+
+  it("shows the markets' contract messages as a 422 (expired quote, matured market)", () => {
+    for (const message of ["quote has expired: ask for a new one", "market has matured"]) {
+      const cause = `Interpretation error: Error: User failure: UNHANDLED_EXCEPTION/DA.Exception.AssertionFailed:AssertionFailed (error category 9): ${message}`;
+      assert.deepEqual(statusAndMessage(new LedgerError("DAML_FAILURE", cause, 400)), { status: 422, message });
+    }
+  });
+
+  it("passes on the markets helpers' messages as a 422 (not enough PT)", () => {
+    const message = "Not enough free PT: you have 400, you need 500";
+    assert.deepEqual(statusAndMessage(new Error(message)), { status: 422, message });
+  });
+});
+
+describe("isUserMessageError", () => {
+  it("is true only for the plain Errors written for users", () => {
+    // The dealer bot declines an RFQ on these, and retries on the others.
+    assert.equal(isUserMessageError(new Error("Not enough USDC: you have 60, you need 197")), true);
+    assert.equal(isUserMessageError(new LedgerError("CONTRACT_NOT_FOUND", "gone", 404)), false);
+    assert.equal(isUserMessageError(new TypeError("fetch failed")), false);
+    assert.equal(isUserMessageError("text"), false);
   });
 });

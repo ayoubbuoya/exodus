@@ -136,6 +136,22 @@ Use two browser windows. A private/incognito window gives a second login.
 
 ---
 
+### 3.1 The markets through the API (Swagger)
+
+The market screens come in Phase 7. Until then, try the markets in Swagger (**http://localhost:3000/api/docs**, log in first with `POST /auth/login`, the cookie is kept):
+
+1. `GET /markets`: `PT-USYC-APR2027` with the house dealer's prices, for example `askPrice 0.975503` (5.1 % fixed) on Oct 1.
+2. `POST /quote-requests` `{ "marketId": "PT-USYC-APR2027", "side": "BuyPt", "ptAmount": "20" }`, then `GET /quotes` after about 2 seconds: the dealer bot has answered.
+3. `POST /quotes/{quoteId}/acceptance`: your USDC and Bank's PT change hands in one transaction. `GET /portfolio` shows the PT.
+4. `POST /markets/PT-USYC-APR2027/splits` `{ "usycAmount": "30" }`, then `.../merges` `{ "amount": "10" }`: the merge shows in `openRequests` for about 2 seconds, then the USYC is back.
+5. After the demo clock passes Apr 1 2027, the Operator bot matures the market by itself; then `.../pt-redemptions` and `.../claims`.
+
+As an admin, `GET /dealer/position` shows Bank's inventory and `PUT /dealer/settings` turns auto-quoting off, so requests wait for `POST /dealer/quote-requests/{id}/quotes`.
+
+**After updating the code to Phase 6**, run `npm run db:migrate` once: it adds the `dealer_settings` table.
+
+---
+
 ## 4. Stop and restart
 
 - Stop a program with **Ctrl+C** in its terminal. Stop the database with `npm run db:down -w @exodus/api` (your data stays in a Docker volume).
