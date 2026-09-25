@@ -1,17 +1,21 @@
-// The bottom of the sidebar: who is signed in, with a menu to log out.
+// The bottom of the sidebar: who is signed in, with a menu for the appearance
+// (Dark / Light) and to log out.
 // Visitors get the two ways in instead: "Request access" and "Log in".
 //
 // Example: a round "C", then "Carol Dupont" over "carol@example.com".
 // Before an application exists we only know the email, so it is shown alone.
 import { Link } from 'react-router'
-import { ChevronsUpDownIcon, LogOutIcon } from 'lucide-react'
+import { ChevronsUpDownIcon, LogOutIcon, MoonIcon, SunIcon } from 'lucide-react'
 import { useProfile } from '@/api/hooks'
+import { useTheme } from '@/components/theme/theme-context'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
@@ -20,6 +24,7 @@ import { useSignOut } from './useSignOut.ts'
 export function AccountCard() {
   const { data: profile } = useProfile()
   const { signOut } = useSignOut()
+  const { theme, setTheme } = useTheme()
 
   // Also covers "API not reachable" (profile undefined): offer the ways in.
   if (profile === undefined || profile === null) {
@@ -59,6 +64,20 @@ export function AccountCard() {
       </DropdownMenuTrigger>
       <DropdownMenuContent side="top" align="start" className="w-(--radix-dropdown-menu-trigger-width)">
         <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">{role}</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        {/* Radio items: screen readers announce "Dark, selected" and the menu
+            stays open, so the user sees the change at once. */}
+        <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">Appearance</DropdownMenuLabel>
+        <DropdownMenuRadioGroup value={theme} onValueChange={(value) => setTheme(value === 'light' ? 'light' : 'dark')}>
+          <DropdownMenuRadioItem value="dark" onSelect={(event) => event.preventDefault()}>
+            <MoonIcon />
+            Dark
+          </DropdownMenuRadioItem>
+          <DropdownMenuRadioItem value="light" onSelect={(event) => event.preventDefault()}>
+            <SunIcon />
+            Light
+          </DropdownMenuRadioItem>
+        </DropdownMenuRadioGroup>
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={signOut}>
           <LogOutIcon />

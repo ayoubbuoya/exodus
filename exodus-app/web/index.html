@@ -4,10 +4,21 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <!-- The whole site is always dark Glacier glass (the `dark` class above), so the
-         browser UI and form controls are dark too. -->
-    <meta name="color-scheme" content="dark" />
+    <!-- Dark ("Glacier") is the default: the `dark` class above. The app also has a
+         light ("Frost") appearance, chosen in the account menu. -->
+    <meta name="color-scheme" content="dark light" />
     <meta name="theme-color" content="#060A13" />
+    <!-- Paint the saved appearance before the page shows, so a light-mode user never
+         sees a dark flash. Same rules as src/lib/theme.ts: light only if chosen, and
+         the landing page (/) is always dark. -->
+    <script>
+      try {
+        if (localStorage.getItem('exodus-theme-v2') === 'light' && location.pathname !== '/') {
+          document.documentElement.classList.remove('dark')
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#EEF2F8')
+        }
+      } catch (error) {}
+    </script>
     <meta
       name="description"
       content="Exodus: private fixed-rate yield markets on Canton. Split simulated USYC into principal and yield, and trade them by private RFQ with atomic settlement."

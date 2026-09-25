@@ -92,9 +92,11 @@
      blur. The rim is a gradient: pure white where the light hits (top left),
      a faint blue-grey edge at the bottom right. */
   --glass-fill: rgb(255 255 255 / 0.52);
-  --glass-fill-strong: rgb(255 255 255 / 0.76);
+  /* Floating glass (menus, popovers, the quote card) sits over dark text, which
+     shows through white glass far more than through dark glass: thicker fill. */
+  --glass-fill-strong: rgb(255 255 255 / 0.9);
   /* The nav bar: every section scrolls under it, so it is the most opaque glass. */
-  --glass-fill-bar: rgb(255 255 255 / 0.86);
+  --glass-fill-bar: rgb(255 255 255 / 0.92);
   --glass-rim: linear-gradient(
     145deg,
     rgb(255 255 255 / 1),

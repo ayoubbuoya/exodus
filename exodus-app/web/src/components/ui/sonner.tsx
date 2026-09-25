@@ -1,13 +1,16 @@
 import { Toaster as Sonner, type ToasterProps } from "sonner"
+import { useTheme } from "@/components/theme/theme-context"
 import { CircleCheckIcon, InfoIcon, TriangleAlertIcon, OctagonXIcon, Loader2Icon } from "lucide-react"
 
 const Toaster = ({ ...props }: ToasterProps) => {
+  // Exodus change: our own appearance hook instead of next-themes (see ThemeProvider.tsx).
+  const { theme } = useTheme()
+
   return (
-    // Exodus change: the app is always dark (Glacier), so no theme hook.
     <Sonner
-      theme="dark"
+      theme={theme}
       className="toaster group"
-      // Exodus (Glacier): every toast is the same dark glass; only the icon
+      // Exodus (Glacier): every toast is the same glass (dark or frost); only the icon
       // carries the colour (success green, info violet, warning amber, error red).
       icons={{
         success: (

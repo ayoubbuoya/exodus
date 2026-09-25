@@ -1,6 +1,8 @@
+import { useEffect } from 'react'
 import { Outlet, ScrollRestoration } from 'react-router'
 import { LandingNav } from '@/components/landing/LandingNav'
 import { SPEC_URL } from '@/components/landing/links'
+import { paintTheme, readSavedTheme } from '@/components/theme/theme-dom'
 import { followPointer } from './followPointer.ts'
 import { Logo } from './Logo.tsx'
 
@@ -14,6 +16,15 @@ import { Logo } from './Logo.tsx'
 // It is separate from AppLayout (the app screens and /lab) because the landing
 // page is editorial and cinematic, while the app screens are compact software.
 export function MarketingLayout() {
+  // The `dark` class below keeps the page itself dark. <html> must follow too
+  // (overscroll areas, pop-ups): dark while the landing page is on screen, and
+  // back to the user's appearance when they leave for the app (paintTheme knows
+  // the landing page is always dark).
+  useEffect(() => {
+    paintTheme(readSavedTheme())
+    return () => paintTheme(readSavedTheme())
+  }, [])
+
   return (
     // `isolate` makes this the stacking context, so the soft lights (z −10)
     // paints above this div's own background but under the content.
