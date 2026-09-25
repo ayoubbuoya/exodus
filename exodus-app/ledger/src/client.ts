@@ -17,7 +17,23 @@ import type { components, paths } from "./generated/json-ledger-api-v2.ts";
 
 export type CreatedEvent = components["schemas"]["CreatedEvent"];
 export type IdentifierFilter = components["schemas"]["IdentifierFilter"];
-type Command = components["schemas"]["Command"];
+// One committed transaction: when it happened and its events (created / archived contracts).
+export type Transaction = components["schemas"]["JsTransaction"];
+
+// A contract we attach to a command so the submitter can use it without
+// seeing it on the ledger ("explicit disclosure"). Example: Alice cannot see
+// the UsycFund, so the app reads it as UsycIssuer (with its createdEventBlob)
+// and attaches it to Alice's Subscribe command. See toDisclosedContract in queries.ts.
+export type DisclosedContract = components["schemas"]["DisclosedContract"];
+
+// Extra options for create / exercise.
+export type SubmitOptions = {
+  // Contracts the submitter cannot see but the command uses (see DisclosedContract).
+  disclosedContracts?: DisclosedContract[];
+};
+// One command inside a submission (a create or an exercise).
+export type LedgerCommand = components["schemas"]["Command"];
+type Command = LedgerCommand;
 type CantonError = components["schemas"]["JsCantonError"];
 
 export type LedgerClientOptions = {
@@ -79,6 +95,31 @@ function toLedgerError(body: unknown, response: Response): LedgerError {
   return new LedgerError(`HTTP_${response.status}`, text, response.status);
 }
 
+// Builds one exercise command without sending it. Put several into
+// ledger.submitCommands(...) to run them in ONE transaction: all succeed or
+// none does. Example: the dealer bot withdraws an expired quote and unlocks
+// its PT together:
+//   await ledger.submitCommands(bank, [
+//     exerciseCommand(Quote.Quote_Withdraw, quoteCid, {}),
+//     exerciseCommand(PrincipalToken.PT_Unlock, lockedPtCid, {}),
+//   ]);
+// The commands cannot use each other's results (the second cannot use a
+// contract the first creates), because they are all built before sending.
+export function exerciseCommand<T extends object, C, R, K>(
+  choice: Choice<T, C, R, K>,
+  contractId: string,
+  argument: C,
+): LedgerCommand {
+  return {
+    ExerciseCommand: {
+      templateId: choice.template().templateId,
+      contractId,
+      choice: choice.choiceName,
+      choiceArgument: choice.argumentEncode(argument),
+    },
+  };
+}
+
 export function createLedgerClient(options: LedgerClientOptions) {
   const userId = options.userId ?? "exodus-app";
   const headers: Record<string, string> = {};
@@ -128,6 +169,48 @@ export function createLedgerClient(options: LedgerClientOptions) {
       throw toLedgerError(error, response);
     }
     return data.partyDetails.party;
+  }
+
+  // ---------------------------------------------------------------------
+  // Ledger users
+  // ---------------------------------------------------------------------
+
+  // Makes sure the ledger user `ledgerUserId` exists and may act and read as `party`.
+  //
+  // A ledger user is the login that sends commands; a party is who signs them.
+  // The backend gives every approved client one of each, for example
+  //   ledger user "client-7f3a9c21e4b0"  --CanActAs/CanReadAs-->  party "client-7f3a9c21e4b0::1220ab..."
+  // and then submits the client's commands with that user id (custodial wallet).
+  //
+  // Safe to call twice: if the user already exists, we only (re)grant the rights.
+  async function ensureUserForParty(ledgerUserId: string, party: string): Promise<void> {
+    const rights: components["schemas"]["Right"][] = [
+      { kind: { CanActAs: { value: { party } } } },
+      { kind: { CanReadAs: { value: { party } } } },
+    ];
+    const created = await api.POST("/v2/users", {
+      body: {
+        user: { id: ledgerUserId, primaryParty: party, isDeactivated: false, identityProviderId: "" },
+        rights,
+      },
+    });
+    if (created.error === undefined) {
+      return;
+    }
+    const createError = toLedgerError(created.error, created.response);
+    if (createError.code !== "USER_ALREADY_EXISTS") {
+      throw createError;
+    }
+
+    // The user exists (for example a retry after a half-finished approval): add the rights.
+    // Granting a right the user already has is not an error.
+    const granted = await api.POST("/v2/users/{user-id}/rights", {
+      params: { path: { "user-id": ledgerUserId } },
+      body: { userId: ledgerUserId, rights, identityProviderId: "" },
+    });
+    if (granted.error !== undefined) {
+      throw toLedgerError(granted.error, granted.response);
+    }
   }
 
   // ---------------------------------------------------------------------
@@ -193,18 +276,67 @@ export function createLedgerClient(options: LedgerClientOptions) {
     return events;
   }
 
+  // Every transaction `party` saw, oldest first, keeping only the events that
+  // match `filters` ("ACS delta" shape: which contracts were created and archived).
+  // Several filters are combined with OR: `[holdings, redeemRequests]` returns
+  // the events of both templates, in the same transactions.
+  //
+  // Example: Alice's holding history. The faucet shows as one transaction that
+  // creates a 100 USDC holding; a subscribe as one that archives her USDC
+  // holding and creates USYC (and her USDC change).
+  //
+  // Reads from the start of the ledger up to its current end, so the request
+  // finishes instead of waiting for new transactions. Fine for the demo sandbox;
+  // a long-lived ledger would need paging or a stored checkpoint.
+  async function getTransactions(party: string, filters: IdentifierFilter[]): Promise<Transaction[]> {
+    const ledgerEnd = await getLedgerEnd();
+    if (ledgerEnd === 0) {
+      return [];
+    }
+    const { data, error, response } = await api.POST("/v2/updates", {
+      body: {
+        beginExclusive: 0,
+        endInclusive: ledgerEnd,
+        updateFormat: {
+          includeTransactions: {
+            eventFormat: {
+              filtersByParty: {
+                [party]: { cumulative: filters.map((filter) => ({ identifierFilter: filter })) },
+              },
+              verbose: true,
+            },
+            transactionShape: "TRANSACTION_SHAPE_ACS_DELTA",
+          },
+        },
+      },
+    });
+    if (error !== undefined) {
+      throw toLedgerError(error, response);
+    }
+
+    const transactions: Transaction[] = [];
+    for (const item of data) {
+      const update = item.update;
+      if (update !== undefined && "Transaction" in update) {
+        transactions.push(update.Transaction.value);
+      }
+    }
+    return transactions;
+  }
+
   // ---------------------------------------------------------------------
   // Writing: create a contract or exercise a choice
   // ---------------------------------------------------------------------
 
   // Sends commands as `actAs` and waits until they are committed.
-  async function submit(actAs: string, commands: Command[]): Promise<void> {
+  async function submit(actAs: string, commands: Command[], options: SubmitOptions = {}): Promise<void> {
     const { error, response } = await api.POST("/v2/commands/submit-and-wait", {
       body: {
         commands,
         commandId: crypto.randomUUID(),
         userId,
         actAs: [actAs],
+        disclosedContracts: options.disclosedContracts ?? [],
       },
     });
     if (error !== undefined) {
@@ -227,33 +359,39 @@ export function createLedgerClient(options: LedgerClientOptions) {
   }
 
   // Exercises one choice. Works for template choices and interface choices. Example:
-  //   await ledger.exercise(oracle, RateIndex.Publish, rateCid, { newIndex: "1.025", newSimTime: "2027-01-01T00:00:00Z" });
+  //   await ledger.exercise(oracle, RateFeed.Publish, feedCid, { newIndex: "1.025", newSimTime: "2027-01-01T00:00:00Z" });
+  // With disclosure (Alice uses a fund she cannot see):
+  //   await ledger.exercise(alice, UsycFund.Subscribe, fund.contractId, { ... }, { disclosedContracts: [fund.disclosure] });
   async function exercise<T extends object, C, R, K>(
     actAs: string,
     choice: Choice<T, C, R, K>,
     contractId: string,
     argument: C,
+    options: SubmitOptions = {},
   ): Promise<void> {
-    await submit(actAs, [
-      {
-        ExerciseCommand: {
-          templateId: choice.template().templateId,
-          contractId,
-          choice: choice.choiceName,
-          choiceArgument: choice.argumentEncode(argument),
-        },
-      },
-    ]);
+    await submit(actAs, [exerciseCommand(choice, contractId, argument)], options);
+  }
+
+  // Sends several commands (see exerciseCommand) as `actAs` in ONE transaction.
+  // Example: Bank claims the yield of its 3 YT pieces at once.
+  async function submitCommands(actAs: string, commands: LedgerCommand[], options: SubmitOptions = {}): Promise<void> {
+    if (commands.length === 0) {
+      throw new Error("submitCommands needs at least one command");
+    }
+    await submit(actAs, commands, options);
   }
 
   return {
     listParties,
     allocateParty,
+    ensureUserForParty,
     uploadDar,
     getLedgerEnd,
     getActiveContracts,
+    getTransactions,
     create,
     exercise,
+    submitCommands,
   };
 }
 

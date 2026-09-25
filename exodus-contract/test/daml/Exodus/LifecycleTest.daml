@@ -1,0 +1,629 @@
+-- | Tests for the life cycle of PT and YT (spec sections 8.3 to 8.6):
+-- claim yield, Mature, redeem PT, and merge PT + YT back into USYC.
+--
+-- Every payout is a request (by the owner) that the Operator settles from its
+-- vault, or that the owner cancels. The expected numbers come from the worked
+-- example in spec section 9. 'matureLateLikePendle' checks the Pendle-style
+-- maturity rule (decision Q1 in docs/markets-plan.md).
+--
+-- Run them with:
+--   cd exodus-contract && dpm build --all
+--   cd test && dpm test --files daml/Exodus/LifecycleTest.daml
+module Exodus.LifecycleTest where
+
+import DA.Assert ((===))  -- 'a === b' fails the test if a and b are not equal
+import DA.Date (Month(..), date)
+import DA.Foldable (forA_)  -- run the same checks for each party
+import DA.Time (addRelTime, seconds, time)
+import Daml.Script
+import Exodus.Access
+import Exodus.FundTest (grantAccess, issue, ownedAmounts)
+import Exodus.Holding
+import Exodus.Market
+import Exodus.MarketTest (MarketSetup(..), ptTransfer, publish, setupMarket, split, splitMustFailOn, splitOn)
+import Exodus.Oracle
+import Exodus.OracleTest (apr1, jan1)
+import Exodus.Tokens
+
+
+-- Extra demo dates (apr1 and jan1 come from OracleTest).
+nov1 : Time
+nov1 = time (date 2026 Nov 1) 0 0 0
+
+mar31 : Time
+mar31 = time (date 2027 Mar 31) 0 0 0
+
+apr10 : Time
+apr10 = time (date 2027 Apr 10) 0 0 0
+
+apr20 : Time
+apr20 = time (date 2027 Apr 20) 0 0 0
+
+jul1 : Time
+jul1 = time (date 2027 Jul 1) 0 0 0
+
+
+-- | The Operator's USYC holdings: the vault that pays every claim, redeem and merge.
+vaultHoldings : MarketSetup -> Script [ContractId Holding]
+vaultHoldings s = do
+  holdings <- query @Holding s.operator
+  pure [cid | (cid, h) <- holdings, h.owner == s.operator, h.instrument == "USYC"]
+
+
+-- | The amount of one USYC holding, as its owner sees it.
+usycAmountOf : Party -> ContractId Holding -> Script Decimal
+usycAmountOf owner cid = do
+  Some holding <- queryContractId owner cid
+  pure holding.amount
+
+
+-- | The owner asks for the yield of a whole YT. No disclosure needed: the
+-- owner sees its own YT and its own pass.
+requestClaim : Party -> ContractId ClientAccess -> ContractId YieldToken -> Script (ContractId ClaimRequest)
+requestClaim owner accessCid ytCid = submit owner do
+  exerciseCmd ytCid YT_RequestClaim with accessCid
+
+
+-- | The Operator settles a claim with the whole vault (what the operator bot will do).
+settleClaim : MarketSetup -> ContractId ClaimRequest -> IndexSource -> Script ClaimSettleResult
+settleClaim s requestCid indexSource = do
+  vault <- vaultHoldings s
+  submit s.operator do
+    exerciseCmd requestCid Claim_Settle with indexSource; vaultCids = vault
+
+
+-- | Same as 'settleClaim', but the command must be rejected.
+settleClaimMustFail : MarketSetup -> ContractId ClaimRequest -> IndexSource -> Script ()
+settleClaimMustFail s requestCid indexSource = do
+  vault <- vaultHoldings s
+  submitMustFail s.operator do
+    exerciseCmd requestCid Claim_Settle with indexSource; vaultCids = vault
+
+
+-- | The Operator matures a market with the given price.
+mature : MarketSetup -> ContractId Market -> ContractId RateIndex -> Script MatureResult
+mature s marketCid rateCid = submit s.operator do
+  exerciseCmd marketCid Mature with rateCid
+
+
+-- | The owner asks to redeem a whole PT. Clients cannot see the maturity
+-- snapshot, so the app reads it as the Operator and discloses it.
+requestRedeem : MarketSetup -> Party -> ContractId ClientAccess -> ContractId PrincipalToken -> ContractId MaturitySnapshot -> Script (ContractId RedeemRequest)
+requestRedeem s owner accessCid ptCid snapshotCid = do
+  Some snapshot <- queryDisclosure s.operator snapshotCid
+  submit (actAs owner <> discloseMany [snapshot]) do
+    exerciseCmd ptCid PT_RequestRedeem with accessCid; snapshotCid
+
+
+-- | Same as 'requestRedeem', but the command must be rejected.
+requestRedeemMustFail : MarketSetup -> Party -> ContractId ClientAccess -> ContractId PrincipalToken -> ContractId MaturitySnapshot -> Script ()
+requestRedeemMustFail s owner accessCid ptCid snapshotCid = do
+  Some snapshot <- queryDisclosure s.operator snapshotCid
+  submitMustFail (actAs owner <> discloseMany [snapshot]) do
+    exerciseCmd ptCid PT_RequestRedeem with accessCid; snapshotCid
+
+
+-- | The Operator settles a PT redeem at the given (current) price.
+settleRedeem : MarketSetup -> ContractId RedeemRequest -> ContractId RateIndex -> Script PayoutResult
+settleRedeem s requestCid rateCid = do
+  vault <- vaultHoldings s
+  submit s.operator do
+    exerciseCmd requestCid Redeem_Settle with rateCid; vaultCids = vault
+
+
+-- | Same as 'settleRedeem', but the command must be rejected.
+settleRedeemMustFail : MarketSetup -> ContractId RedeemRequest -> ContractId RateIndex -> Script ()
+settleRedeemMustFail s requestCid rateCid = do
+  vault <- vaultHoldings s
+  submitMustFail s.operator do
+    exerciseCmd requestCid Redeem_Settle with rateCid; vaultCids = vault
+
+
+-- | The owner asks to merge 'mergeAmount' PT + YT. The price is disclosed
+-- (read as the Operator), like for Split: it tells the choice the demo date.
+requestMerge : MarketSetup -> Party -> ContractId ClientAccess -> ContractId PrincipalToken -> ContractId YieldToken -> Decimal -> ContractId RateIndex -> Script MergeRequestResult
+requestMerge s owner accessCid ptCid ytCid mergeAmount rateCid = do
+  Some rate <- queryDisclosure s.operator rateCid
+  submit (actAs owner <> discloseMany [rate]) do
+    exerciseCmd ptCid PT_RequestMerge with ytCid; mergeAmount; accessCid; rateCid
+
+
+-- | Same as 'requestMerge', but the command must be rejected.
+requestMergeMustFail : MarketSetup -> Party -> ContractId ClientAccess -> ContractId PrincipalToken -> ContractId YieldToken -> Decimal -> ContractId RateIndex -> Script ()
+requestMergeMustFail s owner accessCid ptCid ytCid mergeAmount rateCid = do
+  Some rate <- queryDisclosure s.operator rateCid
+  submitMustFail (actAs owner <> discloseMany [rate]) do
+    exerciseCmd ptCid PT_RequestMerge with ytCid; mergeAmount; accessCid; rateCid
+
+
+-- | The Operator settles a merge with the whole vault.
+settleMerge : MarketSetup -> ContractId MergeRequest -> Script PayoutResult
+settleMerge s requestCid = do
+  vault <- vaultHoldings s
+  submit s.operator do
+    exerciseCmd requestCid Merge_Settle with vaultCids = vault
+
+
+-- | The same terms as the setup's market, but for another market (JUL2027).
+julTerms : MarketSetup -> MarketTerms
+julTerms s = s.terms with marketId = "PT-USYC-JUL2027"; maturity = jul1
+
+
+-- | Spec section 9, step 3: on Jan 1 2027 (index 1.025) Bank claims the yield
+-- of its 1000 YT (lastIndex 1.00): 1000/1.00 - 1000/1.025 = 24.390243 USYC.
+claimBeforeMaturity : Script ()
+claimBeforeMaturity = script do
+  s <- setupMarket
+  bankUsyc <- issue s.usycIssuer s.bank "USYC" 1000.0
+  splitResult <- split s s.bank s.bankAccess s.rateCid [bankUsyc] 1000.0
+  (_, rateJan) <- publish s s.feedCid 1.025 jan1
+
+  -- The request holds the YT: the YT itself is archived at once.
+  claimCid <- requestClaim s.bank s.bankAccess splitResult.ytCid
+  None <- queryContractId s.bank splitResult.ytCid
+  Some claim <- queryContractId s.bank claimCid
+  claim.amount    === 1000.0
+  claim.lastIndex === 1.0
+
+  -- The Operator settles: 24.390243 USYC for Bank, the YT comes back at 1.025.
+  result <- settleClaim s claimCid (CurrentRate rateJan)
+  Some usycCid <- pure result.usycCid
+  paid <- usycAmountOf s.bank usycCid
+  paid === 24.390243
+  Some ytCid <- pure result.ytCid
+  Some yt <- queryContractId s.bank ytCid
+  yt.amount    === 1000.0
+  yt.lastIndex === 1.025
+  None <- queryContractId s.bank claimCid
+
+  -- The vault paid it: 1000 - 24.390243.
+  vault <- ownedAmounts s.operator "USYC"
+  vault === [975.609757]
+
+  -- A second claim at the same index pays nothing, and the YT comes back unchanged.
+  claim2Cid <- requestClaim s.bank s.bankAccess ytCid
+  result2 <- settleClaim s claim2Cid (CurrentRate rateJan)
+  result2.usycCid === None
+  Some yt2Cid <- pure result2.ytCid
+  Some yt2 <- queryContractId s.bank yt2Cid
+  yt2.amount    === 1000.0
+  yt2.lastIndex === 1.025
+  vaultAfter <- ownedAmounts s.operator "USYC"
+  vaultAfter === [975.609757]
+  pure ()
+
+
+-- | Claims the Operator must NOT settle, and the owner's Cancel.
+claimFailures : Script ()
+claimFailures = script do
+  s <- setupMarket
+  bankUsyc <- issue s.usycIssuer s.bank "USYC" 1000.0
+  splitResult <- split s s.bank s.bankAccess s.rateCid [bankUsyc] 1000.0
+  -- Two live prices at once (both inside their 30 s window): Nov 1 and Jan 1.
+  (feed2, rateNov) <- publish s s.feedCid 1.01 nov1
+  (feed3, rateJan) <- publish s feed2 1.025 jan1
+  claimCid <- requestClaim s.bank s.bankAccess splitResult.ytCid
+
+  -- Only the Operator settles (it is the only one who can pay from the vault).
+  vault <- vaultHoldings s
+  submitMustFail s.bank do
+    exerciseCmd claimCid Claim_Settle with indexSource = CurrentRate rateJan; vaultCids = vault
+
+  -- A FAKE price: Alice publishes index 2.0 herself (operator = the real
+  -- Operator, so it can be read). The market only trusts its own oracle.
+  now <- getTime
+  fakeRateCid <- submit s.alice do
+    createCmd RateIndex with
+      oracle = s.alice
+      operator = s.operator
+      readers = []
+      instrument = "USYC"
+      index = 2.0
+      simTime = jan1
+      publishedAt = now
+      validUntil = addRelTime now (seconds 30)
+  settleClaimMustFail s claimCid (CurrentRate fakeRateCid)
+
+  -- A home-made snapshot (operator = Alice). The Operator is not even a
+  -- stakeholder of it, so Canton refuses the fetch; the operator check would
+  -- refuse it too.
+  fakeSnapshotCid <- submit s.alice do
+    createCmd MaturitySnapshot with
+      operator = s.alice
+      terms = s.terms
+      index = 2.0
+      simTime = apr1
+      maturedAt = now
+  settleClaimMustFail s claimCid (AtMaturity fakeSnapshotCid)
+
+  -- A real snapshot, but of another market (JUL2027): refused.
+  julSnapshotCid <- submit s.operator do
+    createCmd MaturitySnapshot with
+      operator = s.operator
+      terms = julTerms s
+      index = 1.1
+      simTime = jul1
+      maturedAt = now
+  settleClaimMustFail s claimCid (AtMaturity julSnapshotCid)
+
+  -- The right way: Jan 1, 24.390243 USYC, the YT comes back at lastIndex 1.025.
+  result <- settleClaim s claimCid (CurrentRate rateJan)
+  Some ytCid <- pure result.ytCid
+
+  -- The Nov 1 price (1.01) is still valid, but below the new lastIndex
+  -- 1.025: that would be negative yield, so it is refused.
+  claim2Cid <- requestClaim s.bank s.bankAccess ytCid
+  settleClaimMustFail s claim2Cid (CurrentRate rateNov)
+
+  -- 31 seconds later the Jan 1 price has expired.
+  passTime (seconds 31)
+  settleClaimMustFail s claim2Cid (CurrentRate rateJan)
+
+  -- On the maturity date a live price no longer counts: after maturity,
+  -- claims must use the market's MaturitySnapshot.
+  (_, rateApr) <- publish s feed3 1.05 apr1
+  settleClaimMustFail s claim2Cid (CurrentRate rateApr)
+
+  -- Bank changes its mind: Cancel gives the YT back exactly as it was.
+  ytBackCid <- submit s.bank do exerciseCmd claim2Cid Claim_Cancel
+  Some ytBack <- queryContractId s.bank ytBackCid
+  ytBack.amount    === 1000.0
+  ytBack.lastIndex === 1.025
+
+  -- Only the one good claim was paid.
+  vaultEnd <- ownedAmounts s.operator "USYC"
+  vaultEnd === [975.609757]
+  pure ()
+
+
+-- | Spec section 9, step 4 and spec gap 1: Mature freezes the index once.
+matureMarket : Script ()
+matureMarket = script do
+  s <- setupMarket
+
+  -- Mar 31 is too early.
+  (feed2, rateMar31) <- publish s s.feedCid 1.049 mar31
+  submitMustFail s.operator do exerciseCmd s.marketCid Mature with rateCid = rateMar31
+
+  -- Apr 1: the snapshot freezes 1.05, and the market is re-created as matured.
+  (_, rateApr) <- publish s feed2 1.05 apr1
+  result <- mature s s.marketCid rateApr
+  Some snapshot <- queryContractId s.operator result.snapshotCid
+  snapshot.operator === s.operator
+  snapshot.terms    === s.terms
+  snapshot.index    === 1.05
+  snapshot.simTime  === apr1
+  None <- queryContractId s.operator s.marketCid
+  Some market <- queryContractId s.operator result.marketCid
+  market.matured === True
+  market.terms   === s.terms
+
+  -- Spec gap 1: a second Mature fails, on the new market and on the old one.
+  submitMustFail s.operator do exerciseCmd result.marketCid Mature with rateCid = rateApr
+  submitMustFail s.operator do exerciseCmd s.marketCid Mature with rateCid = rateApr
+  snapshots <- query @MaturitySnapshot s.operator
+  length snapshots === 1
+
+  -- The matured market refuses splits, even with the Mar 31 price (still
+  -- inside its window, and before the maturity date).
+  aliceUsyc <- issue s.usycIssuer s.alice "USYC" 100.0
+  splitMustFailOn s result.marketCid s.alice s.aliceAccess rateMar31 [aliceUsyc] 100.0
+  pure ()
+
+
+-- | Spec section 9, steps 5 to 7: after maturity Alice redeems 500 PT, Bank
+-- redeems its 500 PT and makes its final YT claim. The vault ends with only
+-- rounding dust.
+redeemAndFinalClaim : Script ()
+redeemAndFinalClaim = script do
+  s <- setupMarket
+  bankUsyc <- issue s.usycIssuer s.bank "USYC" 1000.0
+  splitResult <- split s s.bank s.bankAccess s.rateCid [bankUsyc] 1000.0
+  PtSplitResult with splitCid = pt500; restCid = bankPtCid <- submit s.bank do
+    exerciseCmd splitResult.ptCid PT_SplitOff with splitAmount = 500.0
+  alicePtCid <- ptTransfer s s.bank s.bankAccess s.alice s.aliceAccess pt500
+
+  -- Before Mature there is no snapshot, so Alice cannot redeem (spec gap 4).
+  -- Her home-made snapshot (operator = Alice) is refused ...
+  now <- getTime
+  fakeSnapshotCid <- submit s.alice do
+    createCmd MaturitySnapshot with
+      operator = s.alice
+      terms = s.terms
+      index = 1.0
+      simTime = apr1
+      maturedAt = now
+  submitMustFail s.alice do
+    exerciseCmd alicePtCid PT_RequestRedeem with accessCid = s.aliceAccess; snapshotCid = fakeSnapshotCid
+
+  -- ... and so is the real snapshot of another market.
+  julSnapshotCid <- submit s.operator do
+    createCmd MaturitySnapshot with
+      operator = s.operator
+      terms = julTerms s
+      index = 1.1
+      simTime = jul1
+      maturedAt = now
+  requestRedeemMustFail s s.alice s.aliceAccess alicePtCid julSnapshotCid
+
+  -- Apr 1: the market matures at 1.05.
+  (feed2, rateMar31) <- publish s s.feedCid 1.049 mar31
+  (_, rateApr) <- publish s feed2 1.05 apr1
+  matured <- mature s s.marketCid rateApr
+
+  -- Alice asks to redeem her 500 PT. The request copies the frozen index.
+  redeemCid <- requestRedeem s s.alice s.aliceAccess alicePtCid matured.snapshotCid
+  None <- queryContractId s.alice alicePtCid
+  Some request <- queryContractId s.alice redeemCid
+  request.ptAmount      === 500.0
+  request.maturityIndex === 1.05
+
+  -- A price older than the snapshot (Mar 31, 1.049) would pay too much: refused.
+  settleRedeemMustFail s redeemCid rateMar31
+
+  -- 500 / 1.05 = 476.190476 USYC, worth 500 USD.
+  alicePay <- settleRedeem s redeemCid rateApr
+  aliceUsyc <- usycAmountOf s.alice alicePay.usycCid
+  aliceUsyc === 476.190476
+
+  -- Bank asks, cancels (PT back), then asks again and is paid the same.
+  bankRedeemCid <- requestRedeem s s.bank s.bankAccess bankPtCid matured.snapshotCid
+  bankPtBackCid <- submit s.bank do exerciseCmd bankRedeemCid Redeem_Cancel
+  Some bankPtBack <- queryContractId s.bank bankPtBackCid
+  bankPtBack.amount === 500.0
+  bankRedeem2Cid <- requestRedeem s s.bank s.bankAccess bankPtBackCid matured.snapshotCid
+  bankPay <- settleRedeem s bankRedeem2Cid rateApr
+  bankUsyc <- usycAmountOf s.bank bankPay.usycCid
+  bankUsyc === 476.190476
+
+  -- Bank's final YT claim (never claimed before, lastIndex 1.00). A live
+  -- price is refused after maturity; the snapshot works:
+  -- 1000/1.00 - 1000/1.05 = 47.619047 USYC, and the YT is used up.
+  claimCid <- requestClaim s.bank s.bankAccess splitResult.ytCid
+  settleClaimMustFail s claimCid (CurrentRate rateApr)
+  finalClaim <- settleClaim s claimCid (AtMaturity matured.snapshotCid)
+  Some yieldCid <- pure finalClaim.usycCid
+  bankYield <- usycAmountOf s.bank yieldCid
+  bankYield === 47.619047
+  finalClaim.ytCid === None
+
+  -- Vault check (spec section 9, step 7): 1000 - 476.190476 - 476.190476
+  -- - 47.619047 = 0.000001 USYC of rounding dust. Never negative.
+  vault <- ownedAmounts s.operator "USYC"
+  vault === [0.000001]
+  pure ()
+
+
+-- | Decision Q1: maturity works like Pendle. The oracle clock overshoots to
+-- Apr 10 (index 1.052). The market can still mature: the snapshot is the
+-- first price on or after maturity (Pendle's firstPYIndex). YT holders get
+-- yield up to 1.052; PT holders get 1 USD of USYC per PT at the price of the
+-- day their redeem is settled (Apr 20, 1.06).
+matureLateLikePendle : Script ()
+matureLateLikePendle = script do
+  s <- setupMarket
+  bankUsyc <- issue s.usycIssuer s.bank "USYC" 1000.0
+  splitResult <- split s s.bank s.bankAccess s.rateCid [bankUsyc] 1000.0
+  PtSplitResult with splitCid = pt500; restCid = bankPtCid <- submit s.bank do
+    exerciseCmd splitResult.ptCid PT_SplitOff with splitAmount = 500.0
+  alicePtCid <- ptTransfer s s.bank s.bankAccess s.alice s.aliceAccess pt500
+
+  -- Jan 1: Bank claims 24.390243 USYC, its YT moves to lastIndex 1.025.
+  (feed2, rateJan) <- publish s s.feedCid 1.025 jan1
+  claimCid <- requestClaim s.bank s.bankAccess splitResult.ytCid
+  janClaim <- settleClaim s claimCid (CurrentRate rateJan)
+  Some ytCid <- pure janClaim.ytCid
+
+  -- The first price on or after maturity is Apr 10, 1.052. Mature works.
+  (feed3, rateApr10) <- publish s feed2 1.052 apr10
+  matured <- mature s s.marketCid rateApr10
+  Some snapshot <- queryContractId s.operator matured.snapshotCid
+  snapshot.index === 1.052
+
+  -- Bank's final claim is paid up to the snapshot, 1.052:
+  -- 1000/1.025 - 1000/1.052 = 25.039413 USYC (1.81 USYC more than at 1.05).
+  finalClaimCid <- requestClaim s.bank s.bankAccess ytCid
+  finalClaim <- settleClaim s finalClaimCid (AtMaturity matured.snapshotCid)
+  Some yieldCid <- pure finalClaim.usycCid
+  bankYield <- usycAmountOf s.bank yieldCid
+  bankYield === 25.039413
+
+  -- Apr 20, index 1.06. Alice and Bank each redeem 500 PT at TODAY's price:
+  -- 500 / 1.06 = 471.698113 USYC, worth 500 USD. PT holders lose nothing.
+  (_, rateApr20) <- publish s feed3 1.06 apr20
+  aliceRedeemCid <- requestRedeem s s.alice s.aliceAccess alicePtCid matured.snapshotCid
+  alicePay <- settleRedeem s aliceRedeemCid rateApr20
+  aliceUsyc <- usycAmountOf s.alice alicePay.usycCid
+  aliceUsyc === 471.698113
+  bankRedeemCid <- requestRedeem s s.bank s.bankAccess bankPtCid matured.snapshotCid
+  bankPay <- settleRedeem s bankRedeemCid rateApr20
+  bankUsyc <- usycAmountOf s.bank bankPay.usycCid
+  bankUsyc === 471.698113
+
+  -- What stays in the vault is the yield earned after maturity, for the
+  -- treasury (spec gap 5): 1000/1.052 - 1000/1.06 = 7.174116, plus 0.000002
+  -- of rounding dust. 1000 - 24.390243 - 25.039413 - 2 * 471.698113 = 7.174118.
+  vault <- ownedAmounts s.operator "USYC"
+  vault === [7.174118]
+  pure ()
+
+
+-- | Spec section 8.6: merge PT + YT back into USYC before maturity.
+mergeTokens : Script ()
+mergeTokens = script do
+  s <- setupMarket
+  bankUsyc <- issue s.usycIssuer s.bank "USYC" 1000.0
+  splitResult <- split s s.bank s.bankAccess s.rateCid [bankUsyc] 1000.0
+  (feed2, rateJan) <- publish s s.feedCid 1.025 jan1
+
+  -- Bank merges 100 of its 1000 PT + 1000 YT (lastIndex 1.00).
+  -- 900 PT and 900 YT come back as change. The merge pays 100 / 1.00 = 100 USYC.
+  merge1 <- requestMerge s s.bank s.bankAccess splitResult.ptCid splitResult.ytCid 100.0 rateJan
+  Some request1 <- queryContractId s.bank merge1.requestCid
+  request1.amount    === 100.0
+  request1.lastIndex === 1.0
+  Some pt900Cid <- pure merge1.ptChangeCid
+  Some pt900 <- queryContractId s.bank pt900Cid
+  pt900.amount === 900.0
+  Some yt900Cid <- pure merge1.ytChangeCid
+  Some yt900 <- queryContractId s.bank yt900Cid
+  yt900.amount    === 900.0
+  yt900.lastIndex === 1.0
+  pay1 <- settleMerge s merge1.requestCid
+  paid1 <- usycAmountOf s.bank pay1.usycCid
+  paid1 === 100.0
+
+  -- Bank claims the yield of the 900 YT: 900/1.00 - 900/1.025 = 21.951219 USYC.
+  claimCid <- requestClaim s.bank s.bankAccess yt900Cid
+  claim <- settleClaim s claimCid (CurrentRate rateJan)
+  Some yt900JanCid <- pure claim.ytCid
+
+  -- Now merging 100 PT + 100 YT (lastIndex 1.025) pays 100 / 1.025 = 97.560975 USYC.
+  merge2 <- requestMerge s s.bank s.bankAccess pt900Cid yt900JanCid 100.0 rateJan
+  pay2 <- settleMerge s merge2.requestCid
+  paid2 <- usycAmountOf s.bank pay2.usycCid
+  paid2 === 97.560975
+  Some pt800Cid <- pure merge2.ptChangeCid
+  Some yt800Cid <- pure merge2.ytChangeCid
+
+  -- The vault paid exactly that: 1000 - 100 - 21.951219 - 97.560975.
+  vault <- ownedAmounts s.operator "USYC"
+  vault === [780.487806]
+
+  -- Must fail: amount 0, and more than the tokens hold.
+  requestMergeMustFail s s.bank s.bankAccess pt800Cid yt800Cid 0.0 rateJan
+  requestMergeMustFail s s.bank s.bankAccess pt800Cid yt800Cid 900.0 rateJan
+
+  -- Must fail: a YT of another market (JUL2027).
+  julMarketCid <- submit s.operator do
+    createCmd Market with operator = s.operator; terms = julTerms s; matured = False
+  julUsyc <- issue s.usycIssuer s.bank "USYC" 100.0
+  julSplit <- splitOn s julMarketCid s.bank s.bankAccess rateJan [julUsyc] 100.0
+  requestMergeMustFail s s.bank s.bankAccess pt800Cid julSplit.ytCid 100.0 rateJan
+
+  -- Cancel gives both tokens back, the YT with its lastIndex.
+  merge3 <- requestMerge s s.bank s.bankAccess pt800Cid yt800Cid 50.0 rateJan
+  (ptBackCid, ytBackCid) <- submit s.bank do exerciseCmd merge3.requestCid Merge_Cancel
+  Some ptBack <- queryContractId s.bank ptBackCid
+  ptBack.amount === 50.0
+  Some ytBack <- queryContractId s.bank ytBackCid
+  ytBack.amount    === 50.0
+  ytBack.lastIndex === 1.025
+
+  -- Merging the whole of both tokens leaves no change.
+  merge4 <- requestMerge s s.bank s.bankAccess ptBackCid ytBackCid 50.0 rateJan
+  merge4.ptChangeCid === None
+  merge4.ytChangeCid === None
+
+  -- After maturity merge is closed (like Pendle): redeem the PT and make
+  -- the YT's final claim instead.
+  (_, rateApr) <- publish s feed2 1.05 apr1
+  Some pt750Cid <- pure merge3.ptChangeCid
+  Some yt750Cid <- pure merge3.ytChangeCid
+  requestMergeMustFail s s.bank s.bankAccess pt750Cid yt750Cid 100.0 rateApr
+  pure ()
+
+
+-- | Requests need a valid pass; settling and cancelling do not.
+requestsNeedAccessPass : Script ()
+requestsNeedAccessPass = script do
+  s <- setupMarket
+  aliceUsyc <- issue s.usycIssuer s.alice "USYC" 200.0
+  split1 <- split s s.alice s.aliceAccess s.rateCid [aliceUsyc] 100.0
+  Some usyc100 <- pure split1.usycChangeCid
+  split2 <- split s s.alice s.aliceAccess s.rateCid [usyc100] 100.0
+  (feed2, rateJan) <- publish s s.feedCid 1.025 jan1
+
+  -- Alice asks to claim both YTs. Then the admin revokes her.
+  claim1Cid <- requestClaim s.alice s.aliceAccess split1.ytCid
+  claim2Cid <- requestClaim s.alice s.aliceAccess split2.ytCid
+  submit s.operator do exerciseCmd s.aliceAccess Revoke
+
+  -- Her yield is still paid (the YT was already inside the request):
+  -- 100/1.00 - 100/1.025 = 2.439024 USYC.
+  result <- settleClaim s claim1Cid (CurrentRate rateJan)
+  Some yieldCid <- pure result.usycCid
+  paid <- usycAmountOf s.alice yieldCid
+  paid === 2.439024
+  Some ytCid <- pure result.ytCid
+
+  -- She can always take back her own tokens: Cancel needs no pass.
+  ytBackCid <- submit s.alice do exerciseCmd claim2Cid Claim_Cancel
+
+  -- But with a revoked pass she cannot start anything new.
+  submitMustFail s.alice do exerciseCmd ytCid YT_RequestClaim with accessCid = s.aliceAccess
+  requestMergeMustFail s s.alice s.aliceAccess split2.ptCid ytBackCid 100.0 rateJan
+  (_, rateApr) <- publish s feed2 1.05 apr1
+  matured <- mature s s.marketCid rateApr
+  requestRedeemMustFail s s.alice s.aliceAccess split1.ptCid matured.snapshotCid
+
+  -- Approved again (a new pass), she can redeem.
+  newAccess <- grantAccess s.operator [s.usycIssuer, s.usdcIssuer] s.alice
+  _ <- requestRedeem s s.alice newAccess split1.ptCid matured.snapshotCid
+  pure ()
+
+
+-- | Privacy: a request is seen only by its owner and the Operator. Clients
+-- never see the Market or the MaturitySnapshot (they are only disclosed to
+-- their commands). The issuers and the oracle see none of it.
+lifecyclePrivacy : Script ()
+lifecyclePrivacy = script do
+  s <- setupMarket
+  bankUsyc <- issue s.usycIssuer s.bank "USYC" 1000.0
+  splitResult <- split s s.bank s.bankAccess s.rateCid [bankUsyc] 1000.0
+  PtSplitResult with splitCid = pt100; restCid = bankPtCid <- submit s.bank do
+    exerciseCmd splitResult.ptCid PT_SplitOff with splitAmount = 100.0
+  alicePtCid <- ptTransfer s s.bank s.bankAccess s.alice s.aliceAccess pt100
+
+  -- Bank opens a merge and a claim; Alice opens a redeem after maturity.
+  (feed2, rateJan) <- publish s s.feedCid 1.025 jan1
+  merge <- requestMerge s s.bank s.bankAccess bankPtCid splitResult.ytCid 100.0 rateJan
+  Some ytChangeCid <- pure merge.ytChangeCid
+  _ <- requestClaim s.bank s.bankAccess ytChangeCid
+  (_, rateApr) <- publish s feed2 1.05 apr1
+  matured <- mature s s.marketCid rateApr
+  _ <- requestRedeem s s.alice s.aliceAccess alicePtCid matured.snapshotCid
+
+  -- Alice sees her own redeem request, nothing of Bank's, no snapshot, no market.
+  aliceRedeems <- query @RedeemRequest s.alice
+  length aliceRedeems === 1
+  aliceClaims <- query @ClaimRequest s.alice
+  aliceClaims === []
+  aliceMerges <- query @MergeRequest s.alice
+  aliceMerges === []
+  aliceSnapshots <- query @MaturitySnapshot s.alice
+  aliceSnapshots === []
+  aliceMarkets <- query @Market s.alice
+  aliceMarkets === []
+
+  -- Bank sees its own claim and merge, not Alice's redeem, no snapshot.
+  bankRedeems <- query @RedeemRequest s.bank
+  bankRedeems === []
+  bankClaims <- query @ClaimRequest s.bank
+  length bankClaims === 1
+  bankMerges <- query @MergeRequest s.bank
+  length bankMerges === 1
+  bankSnapshots <- query @MaturitySnapshot s.bank
+  bankSnapshots === []
+
+  -- The Operator sees every request (it co-signs them) and the snapshot.
+  operatorRedeems <- query @RedeemRequest s.operator
+  length operatorRedeems === 1
+  operatorClaims <- query @ClaimRequest s.operator
+  length operatorClaims === 1
+  operatorMerges <- query @MergeRequest s.operator
+  length operatorMerges === 1
+  operatorSnapshots <- query @MaturitySnapshot s.operator
+  length operatorSnapshots === 1
+
+  -- The issuers and the oracle see none of it.
+  forA_ [s.usycIssuer, s.usdcIssuer, s.oracle] \party -> do
+    redeems <- query @RedeemRequest party
+    redeems === []
+    claims <- query @ClaimRequest party
+    claims === []
+    merges <- query @MergeRequest party
+    merges === []
+    snapshots <- query @MaturitySnapshot party
+    snapshots === []
+  pure ()

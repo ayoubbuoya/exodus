@@ -3,19 +3,27 @@
 -- These tests act like a Canton WALLET: they only use the standard
 -- interfaces (V1.Holding, V1.TransferFactory), never our own choices.
 --
+-- Like the real app, the wallet:
+--   - gets the factory through explicit disclosure (clients cannot see it),
+--   - puts the sender's and the receiver's ClientAccess passes into
+--     'extraArgs.context', and discloses the receiver's pass (the sender
+--     cannot see it). See 'send' below.
+--
 -- Run them with:
 --   cd exodus-contract && dpm build --all
 --   cd test && dpm test --files daml/Exodus/TokenStandardTest.daml
 module Exodus.TokenStandardTest where
 
 import DA.Assert ((===))
+import qualified DA.TextMap as TextMap
 import DA.Time (addRelTime, days)
 import Daml.Script
 
 import qualified Splice.Api.Token.HoldingV1 as V1
 import qualified Splice.Api.Token.TransferInstructionV1 as V1
-import Splice.Api.Token.MetadataV1 (emptyChoiceContext, emptyMetadata, ExtraArgs(..))
+import Splice.Api.Token.MetadataV1 (AnyValue(..), ChoiceContext(..), emptyChoiceContext, emptyMetadata, ExtraArgs(..))
 
+import Exodus.Access
 import Exodus.Holding
 import Exodus.TransferFactory
 
@@ -23,28 +31,38 @@ import Exodus.TransferFactory
 -- | Everything the tests need: parties, a USYC factory, and Bank's holdings.
 data TestSetup = TestSetup
   with
-    usycIssuer : Party
-    usdcIssuer : Party
-    bank       : Party
-    alice      : Party
-    factoryCid : ContractId V1.TransferFactory  -- the USYC factory, as a wallet sees it
-    bankUsyc1  : ContractId Holding             -- 600 USYC owned by Bank
-    bankUsyc2  : ContractId Holding             -- 400 USYC owned by Bank
-    bankUsdc   : ContractId Holding             -- 500 USDC owned by Bank
+    usycIssuer  : Party
+    usdcIssuer  : Party
+    operator    : Party
+    bank        : Party
+    alice       : Party
+    factory     : ContractId HoldingTransferFactory  -- the USYC factory (template id, to disclose it)
+    factoryCid  : ContractId V1.TransferFactory      -- the same factory, as a wallet sees it
+    bankAccess  : ContractId ClientAccess            -- Bank's pass
+    aliceAccess : ContractId ClientAccess            -- Alice's pass
+    bankUsyc1   : ContractId Holding                 -- 600 USYC owned by Bank
+    bankUsyc2   : ContractId Holding                 -- 400 USYC owned by Bank
+    bankUsdc    : ContractId Holding                 -- 500 USDC owned by Bank
 
 
 setup : Script TestSetup
 setup = do
   usycIssuer <- allocateParty "UsycIssuer"
   usdcIssuer <- allocateParty "UsdcIssuer"
+  operator   <- allocateParty "Operator"
   bank       <- allocateParty "Bank"
   alice      <- allocateParty "Alice"
 
-  -- UsycIssuer creates the transfer factory and shares it with Bank and Alice.
+  -- UsycIssuer creates the transfer factory. It has no observers: wallets
+  -- get it through explicit disclosure. It accepts the Operator's passes.
   factory <- submit usycIssuer do
     createCmd HoldingTransferFactory with
       admin = usycIssuer
-      users = [bank, alice]
+      operator = operator
+
+  -- The Operator approves Bank and Alice.
+  bankAccess <- grantAccess operator [usycIssuer, usdcIssuer] bank
+  aliceAccess <- grantAccess operator [usycIssuer, usdcIssuer] alice
 
   bankUsyc1 <- submit usycIssuer do
     createCmd Holding with issuer = usycIssuer; owner = bank; instrument = "USYC"; amount = 600.0
@@ -54,11 +72,21 @@ setup = do
     createCmd Holding with issuer = usdcIssuer; owner = bank; instrument = "USDC"; amount = 500.0
 
   pure TestSetup with
-    usycIssuer; usdcIssuer; bank; alice
+    usycIssuer; usdcIssuer; operator; bank; alice; factory
     -- A wallet only knows the interface, so we keep the factory ID as a
     -- "V1.TransferFactory" ID, not as our template's ID.
     factoryCid = toInterfaceContractId @V1.TransferFactory factory
+    bankAccess; aliceAccess
     bankUsyc1; bankUsyc2; bankUsdc
+
+
+-- | The operator approves 'client' (what the admin's "Approve" button does).
+grantAccess : Party -> [Party] -> Party -> Script (ContractId ClientAccess)
+grantAccess operator issuers client = submit operator do
+  createCmd ClientAccess with
+    operator = operator
+    client = client
+    issuers = issuers
 
 
 -- | Build a standard transfer request, the way a wallet would.
@@ -77,9 +105,51 @@ makeTransfer sender receiver admin instrument amount inputs = do
     meta = emptyMetadata
 
 
--- | The extra arguments every standard choice takes. We need no extra context.
+-- | The extra arguments every standard choice takes, with no context at all.
+-- Transfers with these must fail (no access passes).
 noExtraArgs : ExtraArgs
 noExtraArgs = ExtraArgs with context = emptyChoiceContext; meta = emptyMetadata
+
+
+-- | The extra arguments of a transfer: the sender's and the receiver's pass.
+-- Example: Bank sends to Alice -> accessArgs bankAccess aliceAccess.
+-- 'coerceContractId' turns a pass id into the standard's generic
+-- 'ContractId AnyContract'; the factory turns it back.
+accessArgs : ContractId ClientAccess -> ContractId ClientAccess -> ExtraArgs
+accessArgs senderAccess receiverAccess = ExtraArgs with
+  context = ChoiceContext with
+    values = TextMap.fromList
+      [ (senderAccessKey, AV_ContractId (coerceContractId senderAccess))
+      , (receiverAccessKey, AV_ContractId (coerceContractId receiverAccess))
+      ]
+  meta = emptyMetadata
+
+
+-- | What the app attaches to a wallet transfer: the factory and the
+-- receiver's pass, both read as the issuer (it signs one and observes the other).
+transferDisclosures : TestSetup -> ContractId ClientAccess -> Script [Disclosure]
+transferDisclosures s receiverAccess = do
+  Some factory <- queryDisclosure s.usycIssuer s.factory
+  Some pass <- queryDisclosure s.usycIssuer receiverAccess
+  pure [factory, pass]
+
+
+-- | The TransferFactory_Transfer command, as a wallet builds it.
+transferCmd : TestSetup -> V1.Transfer -> ExtraArgs -> Commands V1.TransferInstructionResult
+transferCmd s transfer extraArgs =
+  exerciseCmd s.factoryCid V1.TransferFactory_Transfer with
+    expectedAdmin = s.usycIssuer
+    transfer = transfer
+    extraArgs = extraArgs
+
+
+-- | 'transfer.sender' sends through the factory, with the passes in the
+-- context and the factory + receiver's pass disclosed.
+send : TestSetup -> V1.Transfer -> ContractId ClientAccess -> ContractId ClientAccess -> Script V1.TransferInstructionResult
+send s transfer senderAccess receiverAccess = do
+  disclosures <- transferDisclosures s receiverAccess
+  submit (actAs transfer.sender <> discloseMany disclosures) do
+    transferCmd s transfer (accessArgs senderAccess receiverAccess)
 
 
 -- | A wallet can see balances through the standard V1.Holding interface.
@@ -101,9 +171,18 @@ walletSeesHoldings = script do
   map (.owner) bankViews === [s.bank, s.bank, s.bank]
   map (.lock) bankViews === [None, None, None]
 
-  -- Privacy: Alice's wallet sees none of Bank's holdings.
+  -- Privacy: Alice's wallet sees none of Bank's holdings, not the factory
+  -- (it is only ever disclosed), and not Bank's pass.
   aliceHoldings <- queryInterface @V1.Holding s.alice
   aliceHoldings === []
+  aliceFactories <- query @HoldingTransferFactory s.alice
+  aliceFactories === []
+  alicePasses <- query @ClientAccess s.alice
+  [p.client | (_, p) <- alicePasses] === [s.alice]
+
+  -- The issuers see every pass (they check them on transfers, like KYC).
+  issuerPasses <- query @ClientAccess s.usycIssuer
+  length issuerPasses === 2
 
   pure ()
 
@@ -116,11 +195,7 @@ walletTransfer = script do
   -- Bank pays with both USYC holdings: 600 + 400 = 1000.
   transfer <- makeTransfer s.bank s.alice s.usycIssuer "USYC" 700.0 [s.bankUsyc1, s.bankUsyc2]
 
-  result <- submit s.bank do
-    exerciseCmd s.factoryCid V1.TransferFactory_Transfer with
-      expectedAdmin = s.usycIssuer
-      transfer = transfer
-      extraArgs = noExtraArgs
+  result <- send s transfer s.bankAccess s.aliceAccess
 
   -- The transfer finished in one step: Alice got one new holding...
   V1.TransferInstructionResult_Completed [aliceCid] <- pure result.output
@@ -138,8 +213,9 @@ walletTransfer = script do
   None <- queryContractId s.bank s.bankUsyc1
   None <- queryContractId s.bank s.bankUsyc2
 
-  -- A wallet can also check who runs the factory.
-  factoryView <- submit s.alice do
+  -- A wallet can also check who runs the factory (with the factory disclosed).
+  Some factoryDisclosure <- queryDisclosure s.usycIssuer s.factory
+  factoryView <- submit (actAs s.alice <> disclose factoryDisclosure) do
     exerciseCmd s.factoryCid V1.TransferFactory_PublicFetch with
       expectedAdmin = s.usycIssuer
       actor = s.alice
@@ -154,11 +230,7 @@ walletTransferNoChange = script do
   s <- setup
 
   transfer <- makeTransfer s.bank s.alice s.usycIssuer "USYC" 600.0 [s.bankUsyc1]
-  result <- submit s.bank do
-    exerciseCmd s.factoryCid V1.TransferFactory_Transfer with
-      expectedAdmin = s.usycIssuer
-      transfer = transfer
-      extraArgs = noExtraArgs
+  result <- send s transfer s.bankAccess s.aliceAccess
 
   result.senderChangeCids === []
   pure ()
@@ -169,13 +241,15 @@ walletTransferFailures : Script ()
 walletTransferFailures = script do
   s <- setup
 
-  -- Helper: Bank submits a transfer through the factory and it must fail.
+  -- Helper: Bank sends to Alice with both valid passes, and it must fail
+  -- (so each case below fails for its own reason, not for a missing pass).
+  disclosures <- transferDisclosures s s.aliceAccess
   let mustFail transfer expectedAdmin =
-        submitMustFail s.bank do
+        submitMustFail (actAs s.bank <> discloseMany disclosures) do
           exerciseCmd s.factoryCid V1.TransferFactory_Transfer with
             expectedAdmin = expectedAdmin
             transfer = transfer
-            extraArgs = noExtraArgs
+            extraArgs = accessArgs s.bankAccess s.aliceAccess
 
   -- Wallet expects a different admin (it could be talking to the wrong registry).
   t <- makeTransfer s.bank s.alice s.usycIssuer "USYC" 100.0 [s.bankUsyc1]
@@ -207,14 +281,67 @@ walletTransferFailures = script do
 
   -- Alice tries to spend Bank's holding by calling herself the sender.
   t <- makeTransfer s.alice s.alice s.usycIssuer "USYC" 100.0 [s.bankUsyc1]
-  submitMustFail s.alice do
-    exerciseCmd s.factoryCid V1.TransferFactory_Transfer with
-      expectedAdmin = s.usycIssuer
-      transfer = t
-      extraArgs = noExtraArgs
+  aliceDisclosures <- transferDisclosures s s.aliceAccess
+  submitMustFail (actAs s.alice <> discloseMany aliceDisclosures) do
+    transferCmd s t (accessArgs s.aliceAccess s.aliceAccess)
 
   -- Nothing moved: Bank still has all three holdings.
   bankHoldings <- query @Holding s.bank
   length bankHoldings === 3
 
+  pure ()
+
+
+-- | Spec gap 11: only approved clients may send AND receive.
+walletTransferNeedsAccess : Script ()
+walletTransferNeedsAccess = script do
+  s <- setup
+  t <- makeTransfer s.bank s.alice s.usycIssuer "USYC" 100.0 [s.bankUsyc1]
+  disclosures <- transferDisclosures s s.aliceAccess
+
+  -- No passes in the context at all (a plain wallet that does not know Exodus).
+  submitMustFail (actAs s.bank <> discloseMany disclosures) do
+    transferCmd s t noExtraArgs
+
+  -- Only the sender's pass: the receiver's is missing.
+  let senderOnly = ExtraArgs with
+        context = ChoiceContext with
+          values = TextMap.fromList [(senderAccessKey, AV_ContractId (coerceContractId s.bankAccess))]
+        meta = emptyMetadata
+  submitMustFail (actAs s.bank <> discloseMany disclosures) do
+    transferCmd s t senderOnly
+
+  -- The passes swapped (Alice's pass as the sender's): "belongs to another client".
+  submitMustFail (actAs s.bank <> discloseMany disclosures) do
+    transferCmd s t (accessArgs s.aliceAccess s.bankAccess)
+
+  -- Carol was never approved. Bank cannot send to her: whatever pass Bank
+  -- puts in as "receiver pass", it is not Carol's.
+  carol <- allocateParty "Carol"
+  toCarol <- makeTransfer s.bank carol s.usycIssuer "USYC" 100.0 [s.bankUsyc1]
+  submitMustFail (actAs s.bank <> discloseMany disclosures) do
+    transferCmd s toCarol (accessArgs s.bankAccess s.aliceAccess)
+
+  -- A pass Carol made herself (operator = Carol) is not accepted either.
+  carolFakePass <- submit carol do
+    createCmd ClientAccess with operator = carol; client = carol; issuers = [s.usycIssuer]
+  fakeDisclosures <- transferDisclosures s carolFakePass
+  submitMustFail (actAs s.bank <> discloseMany fakeDisclosures) do
+    transferCmd s toCarol (accessArgs s.bankAccess carolFakePass)
+
+  -- Once the Operator approves Carol, Bank can send to her.
+  carolAccess <- grantAccess s.operator [s.usycIssuer, s.usdcIssuer] carol
+  _ <- send s toCarol s.bankAccess carolAccess
+  carolHoldings <- queryInterface @V1.Holding carol
+  [v.amount | (_, Some v) <- carolHoldings] === [100.0]
+
+  -- After Alice's pass is revoked, nobody can send to her, and she cannot send.
+  submit s.operator do exerciseCmd s.aliceAccess Revoke
+  toAlice <- makeTransfer s.bank s.alice s.usycIssuer "USYC" 100.0 [s.bankUsyc2]
+  submitMustFail (actAs s.bank <> discloseMany disclosures) do
+    transferCmd s toAlice (accessArgs s.bankAccess s.aliceAccess)
+
+  -- Nothing else moved: Bank still has its 400 USYC and 500 USDC, plus 500 USYC change.
+  bankHoldings <- query @Holding s.bank
+  length bankHoldings === 3
   pure ()

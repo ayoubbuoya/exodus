@@ -14,7 +14,8 @@ export function SimulatedBadge() {
       <TooltipTrigger asChild>
         <Badge variant="outline" className="gap-1 border-input font-normal text-muted-foreground">
           <FlaskConicalIcon aria-hidden />
-          Simulated tokens
+          {/* On phones only the icon shows (the header is narrow); the tooltip still explains it. */}
+          <span className="sr-only sm:not-sr-only">Simulated tokens</span>
         </Badge>
       </TooltipTrigger>
       <TooltipContent className="max-w-64">

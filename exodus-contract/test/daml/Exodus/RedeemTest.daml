@@ -1,0 +1,337 @@
+-- | Tests for the USYC redeem flow in Exodus.Fund (spec gap 13):
+-- 'RequestRedeem' (client), then 'Settle' (the fund) or 'Cancel' (client).
+--
+-- Like Subscribe, the client cannot see the fund: the test reads it as
+-- UsycIssuer and discloses it to the client's command. 'Settle' is run by
+-- UsycIssuer itself (the backend's settlement loop), which can see the fund's
+-- USDC and the price snapshots directly, so it needs no disclosure.
+--
+-- Run them with:
+--   cd exodus-contract && dpm build --all
+--   cd test && dpm test --files daml/Exodus/RedeemTest.daml
+module Exodus.RedeemTest where
+
+import DA.Assert ((===))
+import DA.Date (Month(..), date)
+import DA.List (sort)
+import DA.Time (addRelTime, seconds, time)
+import Daml.Script
+import Exodus.Access
+import Exodus.Fund
+import Exodus.FundTest (FundSetup(..), grantAccess, issue, ownedAmounts, setupFund, subscribe)
+import Exodus.Holding
+import Exodus.Oracle
+
+
+-- | The RequestRedeem command, as the app would build it.
+requestRedeemCmd : Party -> ContractId ClientAccess -> [ContractId Holding] -> Decimal -> ContractId UsycFund -> Commands RedeemRequestResult
+requestRedeemCmd redeemer accessCid usycCids usycAmount fundCid =
+  exerciseCmd fundCid RequestRedeem with
+    redeemer = redeemer
+    accessCid = accessCid
+    usycCids = usycCids
+    usycAmount = usycAmount
+
+
+-- | 'redeemer' asks to redeem, with the fund disclosed to its command.
+requestRedeem : FundSetup -> Party -> ContractId ClientAccess -> [ContractId Holding] -> Decimal -> Script RedeemRequestResult
+requestRedeem s redeemer accessCid usycCids usycAmount = do
+  Some fund <- queryDisclosure s.usycIssuer s.fundCid
+  submit (actAs redeemer <> disclose fund) do
+    requestRedeemCmd redeemer accessCid usycCids usycAmount s.fundCid
+
+
+-- | Same as 'requestRedeem', but the command must be rejected.
+requestRedeemMustFail : FundSetup -> Party -> ContractId ClientAccess -> [ContractId Holding] -> Decimal -> Script ()
+requestRedeemMustFail s redeemer accessCid usycCids usycAmount = do
+  Some fund <- queryDisclosure s.usycIssuer s.fundCid
+  submitMustFail (actAs redeemer <> disclose fund) do
+    requestRedeemCmd redeemer accessCid usycCids usycAmount s.fundCid
+
+
+-- | The fund settles a request (what the backend's settlement loop does).
+settle : FundSetup -> ContractId UsycRedeemRequest -> ContractId RateIndex -> [ContractId Holding] -> Script RedeemSettleResult
+settle s requestCid rateCid usdcCids = submit s.usycIssuer do
+  exerciseCmd requestCid Settle with rateCid; usdcCids
+
+
+-- | Same as 'settle', but the command must be rejected.
+settleMustFail : FundSetup -> ContractId UsycRedeemRequest -> ContractId RateIndex -> [ContractId Holding] -> Script ()
+settleMustFail s requestCid rateCid usdcCids = submitMustFail s.usycIssuer do
+  exerciseCmd requestCid Settle with rateCid; usdcCids
+
+
+-- | The happy path: Alice redeems 100 of her 150 USYC. The price moves to 1.03
+-- before the fund settles, and she is paid at the SETTLE price:
+-- 100 * 1.03 = 103 USDC.
+redeemRequestAndSettle : Script ()
+redeemRequestAndSettle = script do
+  s <- setupFund
+  aliceUsyc <- issue s.usycIssuer s.alice "USYC" 150.0
+  fundUsdc <- issue s.usdcIssuer s.usycIssuer "USDC" 1000.0
+
+  -- Step 1: the request. 100 USYC is burned, 50 comes back as change.
+  result <- requestRedeem s s.alice s.aliceAccess [aliceUsyc] 100.0
+  Some request <- queryContractId s.alice result.requestCid
+  request.owner      === s.alice
+  request.usycIssuer === s.usycIssuer
+  request.usycAmount === 100.0
+  Some changeCid <- pure result.usycChangeCid
+  Some change <- queryContractId s.alice changeCid
+  change.amount === 50.0
+  aliceUsycAfterRequest <- ownedAmounts s.alice "USYC"
+  aliceUsycAfterRequest === [50.0]
+
+  -- The burned USYC is really gone: the fund does not keep it either.
+  fundUsyc <- ownedAmounts s.usycIssuer "USYC"
+  fundUsyc === []
+
+  -- The price moves to 1.03 while the request waits.
+  passTime (seconds 5)
+  (_, newRateCid) <- submit s.oracle do
+    exerciseCmd s.feedCid Publish with
+      newIndex = 1.03
+      newSimTime = time (date 2027 Feb 1) 0 0 0
+
+  -- Step 2: the fund settles at the new price. 100 * 1.03 = 103 USDC.
+  settled <- settle s result.requestCid newRateCid [fundUsdc]
+  Some paid <- queryContractId s.alice settled.usdcCid
+  paid.issuer     === s.usdcIssuer
+  paid.owner      === s.alice
+  paid.instrument === "USDC"
+  paid.amount     === 103.0
+
+  -- The fund keeps 897 USDC as change, and the request is gone.
+  Some fundChangeCid <- pure settled.fundChangeCid
+  Some fundChange <- queryContractId s.usycIssuer fundChangeCid
+  fundChange.amount === 897.0
+  None <- queryContractId s.alice result.requestCid
+  pure ()
+
+
+-- | A full round trip at one price: subscribe 500 USDC, redeem all the USYC.
+-- Both steps round DOWN, so Alice gets back a tiny bit LESS than she paid
+-- and the fund can never lose money on rounding:
+--   500 / 1.025          = 487.8048780..., so 487.804878 USYC
+--   487.804878 * 1.025   = 499.9999999...,  so 499.999999 USDC
+redeemRoundTrip : Script ()
+redeemRoundTrip = script do
+  s <- setupFund
+  aliceUsdc <- issue s.usdcIssuer s.alice "USDC" 500.0
+
+  subscribed <- subscribe s s.alice s.aliceAccess s.rateCid [aliceUsdc] 500.0
+  requested <- requestRedeem s s.alice s.aliceAccess [subscribed.usycCid] 487.804878
+  requested.usycChangeCid === None
+
+  -- The fund pays from the 500 USDC Alice paid in.
+  [(fundUsdcCid, _)] <- query @Holding s.usycIssuer
+  settled <- settle s requested.requestCid s.rateCid [fundUsdcCid]
+  Some paid <- queryContractId s.alice settled.usdcCid
+  paid.amount === 499.999999
+
+  -- 0.000001 USDC stays with the fund.
+  fundUsdc <- ownedAmounts s.usycIssuer "USDC"
+  fundUsdc === [0.000001]
+  pure ()
+
+
+-- | Alice cancels before the fund settles: she gets her 100 USYC back, and
+-- the fund can no longer settle the request.
+redeemCancel : Script ()
+redeemCancel = script do
+  s <- setupFund
+  aliceUsyc <- issue s.usycIssuer s.alice "USYC" 150.0
+  fundUsdc <- issue s.usdcIssuer s.usycIssuer "USDC" 1000.0
+
+  result <- requestRedeem s s.alice s.aliceAccess [aliceUsyc] 100.0
+
+  -- Bank cannot cancel Alice's request (it cannot even see it).
+  submitMustFail s.bank do exerciseCmd result.requestCid Cancel
+
+  refundCid <- submit s.alice do exerciseCmd result.requestCid Cancel
+  Some refund <- queryContractId s.alice refundCid
+  refund.issuer     === s.usycIssuer
+  refund.instrument === "USYC"
+  refund.amount     === 100.0
+  aliceUsycAmounts <- ownedAmounts s.alice "USYC"
+  sort aliceUsycAmounts === [50.0, 100.0]
+
+  -- The request is gone, so a late Settle fails and pays nothing.
+  settleMustFail s result.requestCid s.rateCid [fundUsdc]
+  Some fundUsdcAfter <- queryContractId s.usycIssuer fundUsdc
+  fundUsdcAfter.amount === 1000.0
+  pure ()
+
+
+-- | Requests that must NOT be accepted. After each one, nothing has moved.
+redeemRequestFailures : Script ()
+redeemRequestFailures = script do
+  s <- setupFund
+  aliceUsyc <- issue s.usycIssuer s.alice "USYC" 100.0
+
+  let aliceMustFail = requestRedeemMustFail s s.alice s.aliceAccess
+
+  -- More than she owns, zero, and more than 6 decimals.
+  aliceMustFail [aliceUsyc] 100.000001
+  aliceMustFail [aliceUsyc] 0.0
+  aliceMustFail [aliceUsyc] 0.0000001
+
+  -- No input holdings at all.
+  aliceMustFail [] 10.0
+
+  -- Redeeming USDC instead of USYC.
+  aliceUsdc <- issue s.usdcIssuer s.alice "USDC" 100.0
+  aliceMustFail [aliceUsdc] 10.0
+
+  -- Home-made "USYC" from an unknown issuer: without the issuer check she
+  -- could print her own USYC and redeem it for the fund's real USDC.
+  fakeIssuer <- allocateParty "FakeIssuer"
+  fakeUsyc <- issue fakeIssuer s.alice "USYC" 1000.0
+  aliceMustFail [fakeUsyc] 10.0
+
+  -- Someone else's USYC (Bank's).
+  bankUsyc <- issue s.usycIssuer s.bank "USYC" 100.0
+  aliceMustFail [bankUsyc] 10.0
+
+  -- Alice cannot redeem in Bank's name, even with Bank's pass.
+  Some fund <- queryDisclosure s.usycIssuer s.fundCid
+  submitMustFail (actAs s.alice <> disclose fund) do
+    requestRedeemCmd s.bank s.bankAccess [bankUsyc] 10.0 s.fundCid
+
+  -- Nothing moved and no request was created.
+  Some aliceUsycAfter <- queryContractId s.alice aliceUsyc
+  aliceUsycAfter.amount === 100.0
+  requests <- query @UsycRedeemRequest s.usycIssuer
+  requests === []
+  pure ()
+
+
+-- | The access pass is the whitelist, for redeem too.
+redeemNeedsAccessPass : Script ()
+redeemNeedsAccessPass = script do
+  s <- setupFund
+
+  -- Carol holds USYC but was never approved: her own home-made pass is refused.
+  carol <- allocateParty "Carol"
+  carolUsyc <- issue s.usycIssuer carol "USYC" 100.0
+  carolFakePass <- submit carol do
+    createCmd ClientAccess with operator = carol; client = carol; issuers = []
+  requestRedeemMustFail s carol carolFakePass [carolUsyc] 10.0
+
+  -- Approved: it works. Then the admin revokes her.
+  carolAccess <- grantAccess s.operator [s.usycIssuer, s.usdcIssuer] carol
+  result <- requestRedeem s carol carolAccess [carolUsyc] 10.0
+  submit s.operator do exerciseCmd carolAccess Revoke
+
+  -- No new requests without a pass ...
+  Some carolChange <- pure result.usycChangeCid
+  requestRedeemMustFail s carol carolAccess [carolChange] 10.0
+
+  -- ... but the open one is still paid: her USYC is already burned, so the
+  -- fund owes her the USDC. 10 * 1.025 = 10.25 USDC.
+  fundUsdc <- issue s.usdcIssuer s.usycIssuer "USDC" 100.0
+  settled <- settle s result.requestCid s.rateCid [fundUsdc]
+  Some paid <- queryContractId carol settled.usdcCid
+  paid.amount === 10.25
+  pure ()
+
+
+-- | Settles that must NOT work. After each one the request is still open,
+-- so the owner can still cancel it.
+redeemSettleFailures : Script ()
+redeemSettleFailures = script do
+  s <- setupFund
+  aliceUsyc <- issue s.usycIssuer s.alice "USYC" 100.0
+  result <- requestRedeem s s.alice s.aliceAccess [aliceUsyc] 100.0
+  let requestCid = result.requestCid
+
+  -- The fund is short: 100 USYC * 1.025 = 102.5 USDC, but it holds only 50.
+  smallFundUsdc <- issue s.usdcIssuer s.usycIssuer "USDC" 50.0
+  settleMustFail s requestCid s.rateCid [smallFundUsdc]
+
+  bigFundUsdc <- issue s.usdcIssuer s.usycIssuer "USDC" 1000.0
+
+  -- A FAKE price from the fund's own party: only the fund's oracle counts.
+  now <- getTime
+  fakeRateCid <- submit s.usycIssuer do
+    createCmd RateIndex with
+      oracle = s.usycIssuer
+      operator = s.usycIssuer
+      readers = []
+      instrument = "USYC"
+      index = 0.0001
+      simTime = time (date 2027 Jan 1) 0 0 0
+      publishedAt = now
+      validUntil = addRelTime now (seconds 30)
+  settleMustFail s requestCid fakeRateCid [bigFundUsdc]
+
+  -- A price from the right oracle for another instrument.
+  otherRateCid <- submit s.oracle do
+    createCmd RateIndex with
+      oracle = s.oracle
+      operator = s.operator
+      readers = [s.usycIssuer]
+      instrument = "OTHER"
+      index = 1.0
+      simTime = time (date 2027 Jan 1) 0 0 0
+      publishedAt = now
+      validUntil = addRelTime now (seconds 30)
+  settleMustFail s requestCid otherRateCid [bigFundUsdc]
+
+  -- Paying with home-made "USDC".
+  fakeIssuer <- allocateParty "FakeIssuer"
+  fakeUsdc <- issue fakeIssuer s.usycIssuer "USDC" 1000.0
+  settleMustFail s requestCid s.rateCid [fakeUsdc]
+
+  -- Alice cannot settle her own request (only the fund pays).
+  submitMustFail s.alice do
+    exerciseCmd requestCid Settle with rateCid = s.rateCid; usdcCids = [bigFundUsdc]
+
+  -- An expired price: 31 seconds later the first snapshot is refused.
+  passTime (seconds 31)
+  settleMustFail s requestCid s.rateCid [bigFundUsdc]
+
+  -- The request survived all of that; Alice can still cancel it.
+  Some _ <- queryContractId s.alice requestCid
+  _ <- submit s.alice do exerciseCmd requestCid Cancel
+  aliceUsycAmounts <- ownedAmounts s.alice "USYC"
+  aliceUsycAmounts === [100.0]
+  pure ()
+
+
+-- | Privacy: only Alice and the fund know that Alice redeemed.
+redeemPrivacy : Script ()
+redeemPrivacy = script do
+  s <- setupFund
+  aliceUsyc <- issue s.usycIssuer s.alice "USYC" 100.0
+  fundUsdc <- issue s.usdcIssuer s.usycIssuer "USDC" 1000.0
+
+  result <- requestRedeem s s.alice s.aliceAccess [aliceUsyc] 40.0
+
+  -- Nobody else sees the open request: not Bank, not the Operator, not the
+  -- Oracle, not the USDC issuer.
+  aliceRequests <- query @UsycRedeemRequest s.alice
+  length aliceRequests === 1
+  fundRequests <- query @UsycRedeemRequest s.usycIssuer
+  length fundRequests === 1
+  bankRequests <- query @UsycRedeemRequest s.bank
+  bankRequests === []
+  operatorRequests <- query @UsycRedeemRequest s.operator
+  operatorRequests === []
+  oracleRequests <- query @UsycRedeemRequest s.oracle
+  oracleRequests === []
+  usdcIssuerRequests <- query @UsycRedeemRequest s.usdcIssuer
+  usdcIssuerRequests === []
+
+  -- Alice gets paid but never sees the fund's USDC: not the holding it
+  -- paid from, and not the change the fund kept (the fund's cash balance).
+  settled <- settle s result.requestCid s.rateCid [fundUsdc]
+  Some fundChangeCid <- pure settled.fundChangeCid
+  None <- queryContractId s.alice fundChangeCid
+  -- 'sort' because the ledger does not promise any order for query results.
+  aliceHoldings <- query @Holding s.alice
+  sort [(h.instrument, h.amount) | (_, h) <- aliceHoldings] === [("USDC", 41.0), ("USYC", 60.0)]
+
+  -- Bank sees nothing of it.
+  None <- queryContractId s.bank settled.usdcCid
+  pure ()

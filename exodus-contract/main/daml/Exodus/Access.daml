@@ -1,0 +1,75 @@
+-- | Client access passes: the on-ledger whitelist of Exodus.
+--
+-- Only approved clients may use Exodus (subscribe to the fund, send and
+-- receive tokens through our transfer factories, and later split and trade).
+-- When the platform admin approves Alice, the Operator creates ONE
+-- 'ClientAccess' contract for her. Client actions take passes and check them:
+--
+--   Alice subscribes 500 USDC
+--     -> Subscribe gets Alice's pass
+--     -> checkAccess: "is this a pass from OUR operator, for Alice?"  yes
+--     -> the subscription goes ahead
+--
+--   Alice sends 50 USYC to Bob
+--     -> the transfer factory gets Alice's pass AND Bob's pass
+--     -> both must be valid, so tokens only move between approved clients
+--        (like the real, permissioned USYC; spec gap 11)
+--
+-- Why one pass per client instead of a 'users : [Party]' list on each shared
+-- contract (the fund, the factories, the price feed)? See docs/client-app.md:
+--   - privacy: with a list, every client sees every other client's name.
+--     With passes, Alice sees only her own pass.
+--   - no contention: approving Carol does not archive and recreate the fund,
+--     so Bob's subscribe at the same moment does not fail.
+--   - revoke: archiving one pass removes all of Carol's access at once.
+--
+-- Clients no longer see the shared contracts at all. The app hands them to
+-- the client's command through "explicit disclosure" (see spec section 8.A).
+module Exodus.Access where
+
+
+-- | One approved client.
+-- Example: ClientAccess(operator = Operator, client = Alice, issuers = [UsycIssuer, UsdcIssuer]).
+template ClientAccess
+  with
+    operator : Party    -- the platform that approved the client (the Operator demo party)
+    client   : Party    -- the approved client, for example Alice or "alice-7f3a::1220..."
+    issuers  : [Party]  -- token issuers that check this pass on transfers, for example [UsycIssuer, UsdcIssuer]
+  where
+    -- The operator vouches for the client. The client cannot make its own pass.
+    signatory operator
+
+    -- WHO SEES THE PASS, and why:
+    --   client:  it has to pass its own pass id into its commands.
+    --   issuers: when Alice sends USYC to Bob, the UsycIssuer's transfer
+    --            factory must read BOB's pass. In Daml a choice may only
+    --            fetch a contract if one of the parties authorizing it can see
+    --            that contract. Alice cannot see Bob's pass, but the issuer
+    --            (who signs the factory) can. Real issuers do KYC, so knowing
+    --            their client list is normal.
+    -- Other clients do NOT see it, so no client can list who else is a client.
+    observer client, issuers
+
+    -- ---------------------------------------------------------------------
+    -- Revoke: the operator removes the client's access. From then on every
+    -- action with this pass fails, because the pass no longer exists. The
+    -- client's tokens stay theirs; they just cannot use Exodus, and nobody
+    -- can send them tokens through our factories.
+    -- ---------------------------------------------------------------------
+    choice Revoke : ()
+      controller operator
+      do
+        pure ()
+
+
+-- | Fail unless 'accessCid' is a pass from 'operator' for 'client'.
+--
+-- Called inside client choices, for example 'Subscribe'. Examples that fail:
+--   - Bob passes Alice's pass                   -> "access pass belongs to another client"
+--   - Alice makes her own pass (operator = Alice) -> "access pass is not from this operator"
+--   - Alice's pass was revoked                   -> the fetch fails (the contract is gone)
+checkAccess : Party -> Party -> ContractId ClientAccess -> Update ()
+checkAccess operator client accessCid = do
+  access <- fetch accessCid
+  assertMsg "access pass is not from this operator" (access.operator == operator)
+  assertMsg "access pass belongs to another client" (access.client == client)

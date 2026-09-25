@@ -87,14 +87,14 @@ type PartyViewProps = {
 // Everything the selected party can see and do.
 function PartyView({ name, parties }: PartyViewProps) {
   const party = parties[name]
-  // Only the two "client" parties hold tokens and can subscribe or send.
+  // Only the two "client" parties have access passes, so only they can subscribe or send.
   const canSend = name === 'Alice' || name === 'Bank'
 
   return (
     <div className="grid gap-4 md:grid-cols-2">
       <OracleCard party={party} partyName={name} />
-      <WalletCard party={party} partyName={name} />
-      {canSend && <SubscribeCard party={party} />}
+      <WalletCard party={party} partyName={name} priceReader={parties.UsycIssuer} />
+      {canSend && <SubscribeCard party={party} usycIssuer={parties.UsycIssuer} />}
       {canSend && <SendForm senderName={name} parties={parties} />}
       {name === 'Oracle' && <OracleControls oracle={party} />}
       <div className="md:col-span-2">

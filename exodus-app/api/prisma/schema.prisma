@@ -1,0 +1,191 @@
+// Database of the Exodus backend (PostgreSQL).
+//
+// What lives here and NOT on the ledger: accounts, passwords, sessions, the
+// access applications (KYC-light form), which Canton party belongs to which
+// account, faucet claims and the price history for the chart.
+// Balances and access passes live on the ledger only; we never copy them here.
+//
+// Naming: models are PascalCase in code, tables and columns are snake_case in SQL.
+
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "esm"
+  // Same import style as the rest of the app ("./enums.ts"); tsc rewrites it to .js.
+  importFileExtension = "ts"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// CLIENT: a normal user (Alice). ADMIN: the platform operator who reviews applications.
+enum Role {
+  CLIENT
+  ADMIN
+}
+
+// PENDING: waiting for an admin. APPROVED: wallet and access pass created. REJECTED: may apply again.
+enum ApplicationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model User {
+  id           String @id @default(uuid()) @db.Uuid
+  // Always stored lower-case, so "Alice@Example.com" and "alice@example.com" are one account.
+  email        String @unique @db.VarChar(254)
+  // Argon2id hash. Never selected in API responses.
+  passwordHash String @map("password_hash")
+  role         Role   @default(CLIENT)
+
+  // When this client last used the faucet. The faucet uses this column as a
+  // lock too (see FaucetService.claim), so two quick clicks cannot mint twice.
+  lastFaucetAt DateTime? @map("last_faucet_at") @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  sessions             Session[]
+  application          AccessApplication? @relation("Applicant")
+  reviewedApplications AccessApplication[] @relation("Reviewer")
+  wallet               Wallet?
+  faucetClaims         FaucetClaim[]
+
+  @@map("users")
+}
+
+// One row per logged-in browser. The cookie holds a random token; we store only
+// its SHA-256 hash, so a leaked database cannot be used to log in.
+model Session {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  tokenHash String   @unique @map("token_hash") @db.Char(64)
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+// The access form: "Alice Martin, FR, understands the tokens are simulated".
+// One per user; after a rejection the same row goes back to PENDING.
+model AccessApplication {
+  id                      String            @id @default(uuid()) @db.Uuid
+  userId                  String            @unique @map("user_id") @db.Uuid
+  fullName                String            @map("full_name") @db.VarChar(100)
+  // ISO 3166-1 alpha-2 code, for example "FR".
+  country                 String            @db.Char(2)
+  acceptedSimulationTerms Boolean           @map("accepted_simulation_terms")
+  status                  ApplicationStatus @default(PENDING)
+
+  reviewedById    String?   @map("reviewed_by_id") @db.Uuid
+  reviewedAt      DateTime? @map("reviewed_at") @db.Timestamptz(3)
+  rejectionReason String?   @map("rejection_reason") @db.VarChar(500)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user       User  @relation("Applicant", fields: [userId], references: [id], onDelete: Cascade)
+  reviewedBy User? @relation("Reviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  // The admin list filters by status and shows the oldest first.
+  @@index([status, createdAt])
+  @@index([reviewedById])
+  @@map("access_applications")
+}
+
+// The custodial Canton wallet of an approved client: which party is theirs,
+// which ledger user submits for them, and their ClientAccess pass.
+// Example: party "client-7f3a9c21e4b0::1220ab...", ledger user "client-7f3a9c21e4b0".
+// These change when the sandbox restarts and the wallet is re-provisioned.
+model Wallet {
+  id               String  @id @default(uuid()) @db.Uuid
+  userId           String  @unique @map("user_id") @db.Uuid
+  partyId          String  @unique @map("party_id") @db.VarChar(255)
+  ledgerUserId     String  @unique @map("ledger_user_id") @db.VarChar(128)
+  accessContractId String? @map("access_contract_id") @db.VarChar(255)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("wallets")
+}
+
+// Audit log of faucet mints ("Alice got 100 test USDC at 10:02").
+model FaucetClaim {
+  id     String  @id @default(uuid()) @db.Uuid
+  userId String  @map("user_id") @db.Uuid
+  // Same precision as a Daml Decimal (Numeric 10).
+  amount Decimal @db.Decimal(38, 10)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("faucet_claims")
+}
+
+// One point of the USYC price chart: "on demo date 2027-01-01 the index was 1.025".
+// Only changes are stored (the oracle's heartbeats repeat the same values).
+model PricePoint {
+  id          String   @id @default(uuid()) @db.Uuid
+  instrument  String   @db.VarChar(16)
+  index       Decimal  @db.Decimal(38, 10)
+  // The oracle's demo clock (simTime), not the real time.
+  simTime     DateTime @map("sim_time") @db.Timestamptz(3)
+  // Real (ledger) time when the oracle published this price.
+  publishedAt DateTime @map("published_at") @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  // Also keeps the chart clean after a sandbox restart replays the same path.
+  @@unique([instrument, simTime, index])
+  @@map("price_points")
+}
+
+// The house dealer's quoting settings (decision D2 in docs/markets-plan.md).
+// One row per dealer party name; the demo has one: "Bank". Admins edit it on
+// the dealer desk. The row is created with these defaults on first use.
+//
+// PRICES FOLLOW PENDLE: the dealer quotes from a target fixed APY, and the
+// spread is in APY points, like Pendle's swap fee is a rate. Example with
+// 182 days left, target 5.2 %, spread 0.10 %:
+//   Alice buys PT  at 5.1 % -> price 0.975503 (rounded up)
+//   Alice sells PT at 5.3 % -> price 0.974577 (rounded down)
+model DealerSettings {
+  id         String  @id @default(uuid()) @db.Uuid
+  // The demo party the settings belong to, for example "Bank".
+  dealerName String  @unique @map("dealer_name") @db.VarChar(64)
+  // Answer RFQs automatically. When false, requests wait for an admin on /dealer.
+  autoQuote  Boolean @default(true) @map("auto_quote")
+
+  // Target APY = the underlying's 30-day APY + this offset (decision 2B,
+  // Phase 6). Example: underlying 10.29 %, offset -0.50 -> target 9.79 %.
+  apyOffsetPercent   Decimal @default(0) @map("apy_offset_percent") @db.Decimal(9, 4)
+  // Used while there is not enough price history for a 30-day APY (the first
+  // 7 demo days). 5.2 % gives the spec's price 0.975 on Oct 1.
+  fallbackApyPercent Decimal @default(5.2) @map("fallback_apy_percent") @db.Decimal(9, 4)
+  // Half the gap between the buy and the sell rate, in APY points.
+  spreadPercent      Decimal @default(0.1) @map("spread_percent") @db.Decimal(9, 4)
+
+  // Bigger requests are declined by the bot (an admin can still quote them by hand).
+  maxPtPerQuote     Decimal @default(1000) @map("max_pt_per_quote") @db.Decimal(38, 10)
+  // How long a quote is firm (decision R1: a short expiry).
+  quoteValidSeconds Int     @default(60) @map("quote_valid_seconds")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("dealer_settings")
+}

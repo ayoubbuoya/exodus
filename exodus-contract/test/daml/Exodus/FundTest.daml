@@ -1,5 +1,9 @@
 -- | Tests for Exodus.Fund (Subscribe) and Exodus.Holding.payFrom.
 --
+-- Clients (Alice, Bank) cannot see the fund or the price snapshots. Like the
+-- real app, every subscribe reads them as UsycIssuer and attaches them to the
+-- client's command with explicit disclosure (see 'subscribe' below).
+--
 -- Run them with:
 --   cd exodus-contract && dpm build --all
 --   cd test && dpm test --files daml/Exodus/FundTest.daml
@@ -9,6 +13,7 @@ import DA.Assert ((===))  -- 'a === b' fails the test if a and b are not equal
 import DA.Date (Month(..), date)
 import DA.Time (addRelTime, seconds, time)
 import Daml.Script
+import Exodus.Access
 import Exodus.Fund
 import Exodus.Holding
 import Exodus.Oracle
@@ -17,21 +22,23 @@ import Exodus.Oracle
 -- | Everything the fund tests need.
 data FundSetup = FundSetup
   with
-    usycIssuer : Party
-    usdcIssuer : Party
-    oracle     : Party
-    operator   : Party
-    alice      : Party
-    bank       : Party
-    fundCid    : ContractId UsycFund
-    feedCid    : ContractId RateFeed   -- the oracle's feed, to publish newer snapshots
-    rateCid    : ContractId RateIndex  -- a price snapshot at 1.025, valid for 30 seconds
+    usycIssuer  : Party
+    usdcIssuer  : Party
+    oracle      : Party
+    operator    : Party
+    alice       : Party
+    bank        : Party
+    fundCid     : ContractId UsycFund
+    feedCid     : ContractId RateFeed      -- the oracle's feed, to publish newer snapshots
+    rateCid     : ContractId RateIndex     -- a price snapshot at 1.025, valid for 30 seconds
+    aliceAccess : ContractId ClientAccess  -- Alice's pass
+    bankAccess  : ContractId ClientAccess  -- Bank's pass
 
 
--- | Parties, a price snapshot at 1.025 (Jan 1 2027) and a fund for Alice and Bank.
+-- | Parties, a price snapshot at 1.025 (Jan 1 2027), a fund, and passes for Alice and Bank.
 --
--- Alice and Bank are also RateIndex readers: 'Subscribe' fetches the index
--- as the subscriber, so the subscriber must be able to see it.
+-- The only RateIndex reader is UsycIssuer: 'Subscribe' fetches the price on
+-- the fund's (UsycIssuer's) authority, because the client cannot see it.
 setupFund : Script FundSetup
 setupFund = do
   usycIssuer <- allocateParty "UsycIssuer"
@@ -45,7 +52,7 @@ setupFund = do
     createCmd RateFeed with
       oracle = oracle
       operator = operator
-      readers = [alice, bank]
+      readers = [usycIssuer]
       instrument = "USYC"
       index = 1.025
       simTime = time (date 2027 Jan 1) 0 0 0
@@ -60,9 +67,21 @@ setupFund = do
       usycIssuer = usycIssuer
       usdcIssuer = usdcIssuer
       oracle = oracle
-      users = [alice, bank]
+      operator = operator
+
+  aliceAccess <- grantAccess operator [usycIssuer, usdcIssuer] alice
+  bankAccess <- grantAccess operator [usycIssuer, usdcIssuer] bank
 
   pure FundSetup with ..
+
+
+-- | The operator approves 'client' (what the admin's "Approve" button does).
+grantAccess : Party -> [Party] -> Party -> Script (ContractId ClientAccess)
+grantAccess operator issuers client = submit operator do
+  createCmd ClientAccess with
+    operator = operator
+    client = client
+    issuers = issuers
 
 
 -- | The issuer creates a holding for 'owner'.
@@ -82,6 +101,42 @@ ownedAmounts owner instrument = do
   pure [h.amount | (_, h) <- holdings, h.owner == owner, h.instrument == instrument]
 
 
+-- | What the app attaches to a client's Subscribe: the fund and the price
+-- snapshot, read by 'reader' (a party that can see both, normally UsycIssuer).
+fundDisclosures : Party -> ContractId UsycFund -> ContractId RateIndex -> Script [Disclosure]
+fundDisclosures reader fundCid rateCid = do
+  Some fund <- queryDisclosure reader fundCid
+  Some rate <- queryDisclosure reader rateCid
+  pure [fund, rate]
+
+
+-- | The Subscribe command, as the app would build it.
+subscribeCmd : Party -> ContractId ClientAccess -> ContractId RateIndex -> [ContractId Holding] -> Decimal -> ContractId UsycFund -> Commands SubscribeResult
+subscribeCmd subscriber accessCid rateCid usdcCids usdcAmount fundCid =
+  exerciseCmd fundCid Subscribe with
+    subscriber = subscriber
+    accessCid = accessCid
+    rateCid = rateCid
+    usdcCids = usdcCids
+    usdcAmount = usdcAmount
+
+
+-- | 'subscriber' subscribes with the fund and 'rateCid' disclosed to it.
+subscribe : FundSetup -> Party -> ContractId ClientAccess -> ContractId RateIndex -> [ContractId Holding] -> Decimal -> Script SubscribeResult
+subscribe s subscriber accessCid rateCid usdcCids usdcAmount = do
+  disclosures <- fundDisclosures s.usycIssuer s.fundCid rateCid
+  submit (actAs subscriber <> discloseMany disclosures) do
+    subscribeCmd subscriber accessCid rateCid usdcCids usdcAmount s.fundCid
+
+
+-- | Same as 'subscribe', but the command must be rejected.
+subscribeMustFail : FundSetup -> Party -> ContractId ClientAccess -> ContractId RateIndex -> [ContractId Holding] -> Decimal -> Script ()
+subscribeMustFail s subscriber accessCid rateCid usdcCids usdcAmount = do
+  disclosures <- fundDisclosures s.usycIssuer s.fundCid rateCid
+  submitMustFail (actAs subscriber <> discloseMany disclosures) do
+    subscribeCmd subscriber accessCid rateCid usdcCids usdcAmount s.fundCid
+
+
 -- | The happy path from the plan: at index 1.025, Alice pays 500 USDC from
 -- holdings of 600 and 400 and gets 487.804878 USYC plus 500 USDC change.
 fundSubscribe : Script ()
@@ -90,12 +145,7 @@ fundSubscribe = script do
   usdc600 <- issue s.usdcIssuer s.alice "USDC" 600.0
   usdc400 <- issue s.usdcIssuer s.alice "USDC" 400.0
 
-  result <- submit s.alice do
-    exerciseCmd s.fundCid Subscribe with
-      subscriber = s.alice
-      rateCid = s.rateCid
-      usdcCids = [usdc600, usdc400]
-      usdcAmount = 500.0
+  result <- subscribe s s.alice s.aliceAccess s.rateCid [usdc600, usdc400] 500.0
 
   -- Alice got 500 / 1.025 = 487.8048780487..., rounded DOWN to 487.804878 USYC.
   Some usyc <- queryContractId s.alice result.usycCid
@@ -120,7 +170,7 @@ fundSubscribe = script do
   None <- queryContractId s.alice usdc400
 
   -- The fund contract is still there (nonconsuming), so Alice can subscribe again.
-  Some _ <- queryContractId s.alice s.fundCid
+  Some _ <- queryContractId s.usycIssuer s.fundCid
   pure ()
 
 
@@ -130,12 +180,7 @@ fundSubscribeExact = script do
   s <- setupFund
   usdc500 <- issue s.usdcIssuer s.bank "USDC" 500.0
 
-  result <- submit s.bank do
-    exerciseCmd s.fundCid Subscribe with
-      subscriber = s.bank
-      rateCid = s.rateCid
-      usdcCids = [usdc500]
-      usdcAmount = 500.0
+  result <- subscribe s s.bank s.bankAccess s.rateCid [usdc500] 500.0
 
   result.usdcChangeCid === None
   bankUsdc <- ownedAmounts s.bank "USDC"
@@ -168,32 +213,17 @@ fundOldSnapshot = script do
 
   -- The old snapshot A still works: 100 / 1.025 = 97.5609756..., so 97.560975 USYC.
   -- Before the fix, this command failed because A had been archived.
-  resultA <- submit s.alice do
-    exerciseCmd s.fundCid Subscribe with
-      subscriber = s.alice
-      rateCid = s.rateCid
-      usdcCids = [usdc1]
-      usdcAmount = 100.0
+  resultA <- subscribe s s.alice s.aliceAccess s.rateCid [usdc1] 100.0
   Some usycA <- queryContractId s.alice resultA.usycCid
   usycA.amount === 97.560975
 
   -- 11 seconds later, A is past its window and is refused. Nothing moves.
   passTime (seconds 11)
-  submitMustFail s.alice do
-    exerciseCmd s.fundCid Subscribe with
-      subscriber = s.alice
-      rateCid = s.rateCid
-      usdcCids = [usdc2]
-      usdcAmount = 100.0
+  subscribeMustFail s s.alice s.aliceAccess s.rateCid [usdc2] 100.0
   Some _ <- queryContractId s.alice usdc2
 
   -- The newer snapshot B works, at the new price: 100 / 1.03 = 97.0873786..., so 97.087378.
-  resultB <- submit s.alice do
-    exerciseCmd s.fundCid Subscribe with
-      subscriber = s.alice
-      rateCid = snapshotB
-      usdcCids = [usdc3]
-      usdcAmount = 100.0
+  resultB <- subscribe s s.alice s.aliceAccess snapshotB [usdc3] 100.0
   Some usycB <- queryContractId s.alice resultB.usycCid
   usycB.amount === 97.087378
   pure ()
@@ -205,82 +235,64 @@ fundFailures = script do
   s <- setupFund
   usdc <- issue s.usdcIssuer s.alice "USDC" 400.0
 
-  let subscribe rateCid usdcCids usdcAmount =
-        submitMustFail s.alice do
-          exerciseCmd s.fundCid Subscribe with
-            subscriber = s.alice
-            rateCid = rateCid
-            usdcCids = usdcCids
-            usdcAmount = usdcAmount
+  let aliceMustFail = subscribeMustFail s s.alice s.aliceAccess
 
   -- Not enough USDC: she has 400 and wants to pay 500.
-  subscribe s.rateCid [usdc] 500.0
+  aliceMustFail s.rateCid [usdc] 500.0
 
   -- Zero, and an amount so small it buys less than 0.000001 USYC.
-  subscribe s.rateCid [usdc] 0.0
-  subscribe s.rateCid [usdc] 0.0000001
+  aliceMustFail s.rateCid [usdc] 0.0
+  aliceMustFail s.rateCid [usdc] 0.0000001
 
   -- No input holdings at all.
-  subscribe s.rateCid [] 100.0
+  aliceMustFail s.rateCid [] 100.0
 
   -- A FAKE RateIndex: Alice publishes her own index of 0.0001 to mint
   -- 1,000,000 USYC for 100 USDC. The fund only trusts its own oracle.
+  -- (Alice made it, so she can see it; UsycIssuer is a reader so the fetch is allowed.)
   now <- getTime
   fakeRateCid <- submit s.alice do
     createCmd RateIndex with
       oracle = s.alice
       operator = s.alice
-      readers = []
+      readers = [s.usycIssuer]
       instrument = "USYC"
       index = 0.0001
       simTime = time (date 2027 Jan 1) 0 0 0
       publishedAt = now
       validUntil = addRelTime now (seconds 30)
-  subscribe fakeRateCid [usdc] 100.0
+  aliceMustFail fakeRateCid [usdc] 100.0
 
   -- A RateIndex from the right oracle, but for another instrument.
   otherRateCid <- submit s.oracle do
     createCmd RateIndex with
       oracle = s.oracle
       operator = s.operator
-      readers = [s.alice]
+      readers = [s.usycIssuer]
       instrument = "OTHER"
       index = 1.0
       simTime = time (date 2027 Jan 1) 0 0 0
       publishedAt = now
       validUntil = addRelTime now (seconds 30)
-  subscribe otherRateCid [usdc] 100.0
+  aliceMustFail otherRateCid [usdc] 100.0
 
   -- Paying with USYC instead of USDC.
   aliceUsyc <- issue s.usycIssuer s.alice "USYC" 1000.0
-  subscribe s.rateCid [aliceUsyc] 100.0
+  aliceMustFail s.rateCid [aliceUsyc] 100.0
 
   -- Paying with home-made "USDC" from an unknown issuer.
   fakeIssuer <- allocateParty "FakeIssuer"
   fakeUsdc <- issue fakeIssuer s.alice "USDC" 1000.0
-  subscribe s.rateCid [fakeUsdc] 100.0
+  aliceMustFail s.rateCid [fakeUsdc] 100.0
 
   -- Paying with someone else's USDC (Bank's).
   bankUsdc <- issue s.usdcIssuer s.bank "USDC" 1000.0
-  subscribe s.rateCid [bankUsdc] 100.0
+  aliceMustFail s.rateCid [bankUsdc] 100.0
 
-  -- A party that is not a user of the fund cannot subscribe.
-  carol <- allocateParty "Carol"
-  carolUsdc <- issue s.usdcIssuer carol "USDC" 1000.0
-  submitMustFail carol do
-    exerciseCmd s.fundCid Subscribe with
-      subscriber = carol
-      rateCid = s.rateCid
-      usdcCids = [carolUsdc]
-      usdcAmount = 100.0
-
-  -- Alice cannot subscribe in Bank's name.
-  submitMustFail s.alice do
-    exerciseCmd s.fundCid Subscribe with
-      subscriber = s.bank
-      rateCid = s.rateCid
-      usdcCids = [bankUsdc]
-      usdcAmount = 100.0
+  -- Alice cannot subscribe in Bank's name, even with Bank's pass.
+  disclosures <- fundDisclosures s.usycIssuer s.fundCid s.rateCid
+  submitMustFail (actAs s.alice <> discloseMany disclosures) do
+    subscribeCmd s.bank s.bankAccess s.rateCid [bankUsdc] 100.0 s.fundCid
 
   -- Nothing moved: Alice's real 400 USDC holding is untouched, and she has no
   -- new USYC (only the 1000 USYC issued above). She also still owns the fake
@@ -292,18 +304,92 @@ fundFailures = script do
   pure ()
 
 
--- | Privacy: a subscription is visible only to the parties involved.
+-- | The access pass is the whitelist: without a valid pass of her own, a
+-- party cannot subscribe.
+fundNeedsAccessPass : Script ()
+fundNeedsAccessPass = script do
+  s <- setupFund
+
+  -- Carol has USDC but was never approved. She tries Alice's pass: refused
+  -- ("access pass belongs to another client"). Carol cannot even see Alice's
+  -- pass; here the test hands it to her command to prove the contract checks it.
+  carol <- allocateParty "Carol"
+  carolUsdc <- issue s.usdcIssuer carol "USDC" 1000.0
+  Some alicePass <- queryDisclosure s.alice s.aliceAccess
+  fundAndRate <- fundDisclosures s.usycIssuer s.fundCid s.rateCid
+  submitMustFail (actAs carol <> discloseMany (alicePass :: fundAndRate)) do
+    subscribeCmd carol s.aliceAccess s.rateCid [carolUsdc] 100.0 s.fundCid
+
+  -- Carol makes her own "pass" (operator = Carol). The fund only accepts
+  -- passes from its operator: refused.
+  carolFakePass <- submit carol do
+    createCmd ClientAccess with operator = carol; client = carol; issuers = []
+  subscribeMustFail s carol carolFakePass s.rateCid [carolUsdc] 100.0
+
+  -- The admin approves Carol: now it works. 100 / 1.025 = 97.560975 USYC.
+  carolAccess <- grantAccess s.operator [s.usycIssuer, s.usdcIssuer] carol
+  result <- subscribe s carol carolAccess s.rateCid [carolUsdc] 100.0
+  Some usyc <- queryContractId carol result.usycCid
+  usyc.amount === 97.560975
+
+  -- The admin revokes Carol: her next subscribe is refused, her USYC stays hers.
+  submit s.operator do exerciseCmd carolAccess Revoke
+  Some carolChange <- pure result.usdcChangeCid
+  subscribeMustFail s carol carolAccess s.rateCid [carolChange] 100.0
+  carolUsyc <- ownedAmounts carol "USYC"
+  carolUsyc === [97.560975]
+  pure ()
+
+
+-- | Subscribe reads the price on UsycIssuer's authority, so UsycIssuer must be
+-- a reader of the snapshot. A snapshot without it cannot be used.
+fundNeedsIssuerAsRateReader : Script ()
+fundNeedsIssuerAsRateReader = script do
+  s <- setupFund
+  usdc <- issue s.usdcIssuer s.alice "USDC" 100.0
+
+  -- A second feed from the same oracle, but its snapshots are readable by the operator only.
+  wrongFeedCid <- submit s.oracle do
+    createCmd RateFeed with
+      oracle = s.oracle
+      operator = s.operator
+      readers = []
+      instrument = "USYC"
+      index = 1.025
+      simTime = time (date 2027 Jan 1) 0 0 0
+      validFor = seconds 30
+  (_, hiddenRateCid) <- submit s.oracle do
+    exerciseCmd wrongFeedCid Publish with
+      newIndex = 1.025
+      newSimTime = time (date 2027 Jan 1) 0 0 0
+
+  -- Alice gets both contracts disclosed, but nobody who authorizes the
+  -- Subscribe (Alice, UsycIssuer) is a stakeholder of the snapshot, so
+  -- Canton refuses the fetch.
+  Some fund <- queryDisclosure s.usycIssuer s.fundCid
+  Some rate <- queryDisclosure s.oracle hiddenRateCid
+  submitMustFail (actAs s.alice <> discloseMany [fund, rate]) do
+    subscribeCmd s.alice s.aliceAccess hiddenRateCid [usdc] 100.0 s.fundCid
+  pure ()
+
+
+-- | Privacy: a subscription is visible only to the parties involved, and
+-- clients see neither the fund, nor the price, nor each other.
 fundPrivacy : Script ()
 fundPrivacy = script do
   s <- setupFund
   usdc <- issue s.usdcIssuer s.alice "USDC" 1000.0
 
-  result <- submit s.alice do
-    exerciseCmd s.fundCid Subscribe with
-      subscriber = s.alice
-      rateCid = s.rateCid
-      usdcCids = [usdc]
-      usdcAmount = 500.0
+  result <- subscribe s s.alice s.aliceAccess s.rateCid [usdc] 500.0
+
+  -- Alice used the fund and the price, but still sees neither: they were
+  -- only disclosed to her command. She sees her own pass, not Bank's.
+  aliceFunds <- query @UsycFund s.alice
+  aliceFunds === []
+  aliceRates <- query @RateIndex s.alice
+  aliceRates === []
+  alicePasses <- query @ClientAccess s.alice
+  [p.client | (_, p) <- alicePasses] === [s.alice]
 
   -- Bank sees none of Alice's holdings, old or new.
   None <- queryContractId s.bank result.usycCid

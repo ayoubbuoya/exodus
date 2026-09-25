@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "target": "es2023",
+    "lib": ["ES2023"],
+    "types": ["node"],
+    "module": "nodenext",
+    "strict": true,
+    "skipLibCheck": true,
+    "rootDir": "src",
+    "outDir": "dist",
+    "sourceMap": true,
+
+    /* NestJS finds what to inject from constructor parameter types. It needs the old
+       ("experimental") decorators and the type metadata that tsc writes next to them. */
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+
+    /* Same import style as the other packages ("./foo.ts"); tsc writes "./foo.js" in dist/. */
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
+
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["src"]
+}

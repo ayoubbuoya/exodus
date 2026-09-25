@@ -1,0 +1,75 @@
+-- | Tests for Exodus.Access: the ClientAccess pass itself.
+--
+-- How the pass is USED is tested where it is used:
+--   FundTest.fundNeedsAccessPass            (subscribe)
+--   TokenStandardTest.walletTransferNeedsAccess  (send and receive)
+--
+-- Run them with:
+--   cd exodus-contract && dpm build --all
+--   cd test && dpm test --files daml/Exodus/AccessTest.daml
+module Exodus.AccessTest where
+
+import DA.Assert ((===))
+import Daml.Script
+import Exodus.Access
+
+
+-- | Who can create and revoke a pass.
+accessLifecycle : Script ()
+accessLifecycle = script do
+  operator   <- allocateParty "Operator"
+  usycIssuer <- allocateParty "UsycIssuer"
+  alice      <- allocateParty "Alice"
+
+  -- Alice cannot approve herself: a pass with operator = Operator needs the
+  -- Operator's signature.
+  submitMustFail alice do
+    createCmd ClientAccess with operator = operator; client = alice; issuers = [usycIssuer]
+
+  -- The Operator approves Alice.
+  aliceAccess <- submit operator do
+    createCmd ClientAccess with operator = operator; client = alice; issuers = [usycIssuer]
+  Some pass <- queryContractId alice aliceAccess
+  pass.client === alice
+
+  -- Neither Alice nor an issuer can revoke it. Only the Operator can.
+  submitMustFail alice do exerciseCmd aliceAccess Revoke
+  submitMustFail usycIssuer do exerciseCmd aliceAccess Revoke
+  submit operator do exerciseCmd aliceAccess Revoke
+  None <- queryContractId alice aliceAccess
+  pure ()
+
+
+-- | Privacy: the client list is known only to the Operator and the issuers.
+accessPrivacy : Script ()
+accessPrivacy = script do
+  operator   <- allocateParty "Operator"
+  usycIssuer <- allocateParty "UsycIssuer"
+  usdcIssuer <- allocateParty "UsdcIssuer"
+  oracle     <- allocateParty "Oracle"
+  alice      <- allocateParty "Alice"
+  bank       <- allocateParty "Bank"
+
+  let grant client = submit operator do
+        createCmd ClientAccess with operator = operator; client = client; issuers = [usycIssuer, usdcIssuer]
+  _ <- grant alice
+  _ <- grant bank
+
+  -- Each client sees only its own pass: Alice cannot tell that Bank is a client.
+  alicePasses <- query @ClientAccess alice
+  [p.client | (_, p) <- alicePasses] === [alice]
+  bankPasses <- query @ClientAccess bank
+  [p.client | (_, p) <- bankPasses] === [bank]
+
+  -- The Operator and the issuers see both (they approve and check clients).
+  operatorPasses <- query @ClientAccess operator
+  length operatorPasses === 2
+  usycIssuerPasses <- query @ClientAccess usycIssuer
+  length usycIssuerPasses === 2
+  usdcIssuerPasses <- query @ClientAccess usdcIssuer
+  length usdcIssuerPasses === 2
+
+  -- The Oracle has nothing to do with clients and sees none.
+  oraclePasses <- query @ClientAccess oracle
+  oraclePasses === []
+  pure ()

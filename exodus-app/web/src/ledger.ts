@@ -6,6 +6,7 @@ import { useQuery } from '@tanstack/react-query'
 import {
   createLedgerClient,
   findDemoParties,
+  getClientAccess,
   getOwnedHoldings,
   getRateFeed,
   getRateIndex,
@@ -29,6 +30,15 @@ export function useRateIndex(party: string) {
   return useQuery({
     queryKey: ['rateIndex', party],
     queryFn: () => getRateIndex(ledger, party),
+    refetchInterval: POLL_MS,
+  })
+}
+
+// The party's own access pass (null if it is not an approved client).
+export function useClientAccess(party: string) {
+  return useQuery({
+    queryKey: ['clientAccess', party],
+    queryFn: () => getClientAccess(ledger, party, party),
     refetchInterval: POLL_MS,
   })
 }

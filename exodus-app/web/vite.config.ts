@@ -12,10 +12,17 @@ export default defineConfig({
     alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
   },
   server: {
-    // The browser calls /v2/... on this dev server, and Vite forwards it to the
-    // Canton JSON Ledger API. Same origin for the browser, so no CORS setup.
+    // The browser calls /v2/... and /api/... on this dev server, and Vite forwards
+    // them. Same origin for the browser, so no CORS setup and the API's session
+    // cookie just works.
+    // - /v2: the Canton JSON Ledger API, used directly by the developer lab (/lab).
+    // - /api: our NestJS backend (exodus-app/api), used by the client app.
+    //   xfwd adds X-Forwarded-For, so the API rate-limits by the real client IP.
+    // Point them elsewhere with LEDGER_URL / API_URL, for example to run a
+    // second copy of Exodus next to your usual one.
     proxy: {
-      '/v2': 'http://localhost:7575',
+      '/v2': process.env.LEDGER_URL ?? 'http://localhost:7575',
+      '/api': { target: process.env.API_URL ?? 'http://localhost:3000', xfwd: true },
     },
   },
   optimizeDeps: {

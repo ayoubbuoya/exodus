@@ -1,0 +1,462 @@
+-- | Tests for Exodus.Rfq: private request for quote and atomic DvP, and the
+-- PT lock in Exodus.Tokens (spec sections 8.2 and 10, spec gap 8).
+--
+-- Like the app will do, every command gets the contracts its party cannot see
+-- through explicit disclosure:
+--   - Bank's quote:   Alice's pass (read as the Operator);
+--   - Alice's accept: the price snapshot and Bank's pass (read as the
+--     Operator) and, when selling, Bank's set-aside USDC (read as Bank).
+--
+-- Run them with:
+--   cd exodus-contract && dpm build --all
+--   cd test && dpm test --files daml/Exodus/RfqTest.daml
+module Exodus.RfqTest where
+
+import DA.Assert ((===))  -- 'a === b' fails the test if a and b are not equal
+import DA.Foldable (forA_)  -- run the same checks for each party
+import DA.List (sort)
+import DA.Optional (optionalToList)
+import DA.Time (addRelTime, seconds)
+import Daml.Script
+import Exodus.Access
+import Exodus.FundTest (grantAccess, issue, ownedAmounts)
+import Exodus.Holding
+import Exodus.MarketTest (MarketSetup(..), ptAmounts, ptTransfer, publish, setupMarket, split)
+import Exodus.Oracle
+import Exodus.OracleTest (apr1, oct1)
+import Exodus.Rfq
+import Exodus.Tokens
+
+
+-- | Everything the RFQ tests need: the market setup, plus Bank's 1000 PT and
+-- 1000 USDC for each side.
+data RfqSetup = RfqSetup
+  with
+    s            : MarketSetup
+    bankPtCid    : ContractId PrincipalToken  -- 1000 PT from Bank's split at index 1.00
+    bankYtCid    : ContractId YieldToken      -- 1000 YT from the same split
+    aliceUsdcCid : ContractId Holding         -- 1000 USDC
+    bankUsdcCid  : ContractId Holding         -- 1000 USDC
+
+
+-- | Spec section 9, step 1: Bank splits 1000 USYC at 1.00 and holds 1000 PT.
+-- Alice and Bank each get 1000 USDC.
+setupRfq : Script RfqSetup
+setupRfq = do
+  s <- setupMarket
+  bankUsyc <- issue s.usycIssuer s.bank "USYC" 1000.0
+  splitResult <- split s s.bank s.bankAccess s.rateCid [bankUsyc] 1000.0
+  aliceUsdcCid <- issue s.usdcIssuer s.alice "USDC" 1000.0
+  bankUsdcCid <- issue s.usdcIssuer s.bank "USDC" 1000.0
+  pure RfqSetup with
+    s
+    bankPtCid = splitResult.ptCid
+    bankYtCid = splitResult.ytCid
+    aliceUsdcCid
+    bankUsdcCid
+
+
+-- | Ledger time 'n' seconds from now, for a quote's validUntil.
+secondsFromNow : Int -> Script Time
+secondsFromNow n = do
+  now <- getTime
+  pure (addRelTime now (seconds n))
+
+
+-- | 'requester' asks Bank (the house dealer) for a price.
+askQuote : MarketSetup -> Party -> ContractId ClientAccess -> RfqSide -> Decimal -> Script (ContractId RfqRequest)
+askQuote s requester requesterAccessCid side ptAmount = do
+  now <- getTime
+  submit requester do
+    createCmd RfqRequest with
+      operator = s.operator
+      requester
+      dealer = s.bank
+      usdcIssuer = s.usdcIssuer
+      requesterAccessCid
+      terms = s.terms
+      side
+      ptAmount
+      requestedAt = now
+
+
+-- | What Bank's quote needs disclosed: the requester's pass (read as the Operator).
+quoteDisclosures : MarketSetup -> ContractId RfqRequest -> Script [Disclosure]
+quoteDisclosures s rfqCid = do
+  Some rfq <- queryContractId s.bank rfqCid
+  Some requesterPass <- queryDisclosure s.operator rfq.requesterAccessCid
+  pure [requesterPass]
+
+
+-- | Bank answers an RFQ.
+quote : MarketSetup -> ContractId RfqRequest -> Decimal -> Time -> [ContractId PrincipalToken] -> [ContractId Holding] -> Script RfqQuoteResult
+quote s rfqCid price validUntil dealerPtCids dealerUsdcCids = do
+  disclosures <- quoteDisclosures s rfqCid
+  submit (actAs s.bank <> discloseMany disclosures) do
+    exerciseCmd rfqCid Rfq_Quote with
+      price
+      validUntil
+      dealerAccessCid = s.bankAccess
+      dealerPtCids
+      dealerUsdcCids
+
+
+-- | Same as 'quote', but the command must be rejected.
+quoteMustFail : MarketSetup -> ContractId RfqRequest -> Decimal -> Time -> [ContractId PrincipalToken] -> [ContractId Holding] -> Script ()
+quoteMustFail s rfqCid price validUntil dealerPtCids dealerUsdcCids = do
+  disclosures <- quoteDisclosures s rfqCid
+  submitMustFail (actAs s.bank <> discloseMany disclosures) do
+    exerciseCmd rfqCid Rfq_Quote with
+      price
+      validUntil
+      dealerAccessCid = s.bankAccess
+      dealerPtCids
+      dealerUsdcCids
+
+
+-- | What Alice's accept needs disclosed: the price snapshot and Bank's pass
+-- (read as the Operator) and, for a sell quote, Bank's set-aside USDC (read
+-- as Bank). If Bank has spent that USDC, there is nothing to disclose.
+acceptDisclosures : MarketSetup -> Party -> ContractId Quote -> ContractId RateIndex -> Script [Disclosure]
+acceptDisclosures s requester quoteCid rateCid = do
+  Some q <- queryContractId requester quoteCid
+  Some rate <- queryDisclosure s.operator rateCid
+  Some dealerPass <- queryDisclosure s.operator q.dealerAccessCid
+  dealerUsdc <- case q.dealerUsdcCid of
+    None -> pure []
+    Some usdcCid -> do
+      found <- queryDisclosure q.dealer usdcCid
+      pure (optionalToList found)
+  pure ([rate, dealerPass] ++ dealerUsdc)
+
+
+-- | 'requester' accepts a quote.
+accept : MarketSetup -> Party -> ContractId ClientAccess -> ContractId Quote -> ContractId RateIndex -> [ContractId Holding] -> [ContractId PrincipalToken] -> Script QuoteAcceptResult
+accept s requester requesterAccessCid quoteCid rateCid usdcCids ptCids = do
+  disclosures <- acceptDisclosures s requester quoteCid rateCid
+  submit (actAs requester <> discloseMany disclosures) do
+    exerciseCmd quoteCid Quote_Accept with requesterAccessCid; rateCid; usdcCids; ptCids
+
+
+-- | Same as 'accept', but the command must be rejected.
+acceptMustFail : MarketSetup -> Party -> ContractId ClientAccess -> ContractId Quote -> ContractId RateIndex -> [ContractId Holding] -> [ContractId PrincipalToken] -> Script ()
+acceptMustFail s requester requesterAccessCid quoteCid rateCid usdcCids ptCids = do
+  disclosures <- acceptDisclosures s requester quoteCid rateCid
+  submitMustFail (actAs requester <> discloseMany disclosures) do
+    exerciseCmd quoteCid Quote_Accept with requesterAccessCid; rateCid; usdcCids; ptCids
+
+
+-- | Spec section 9, step 2: Alice buys 500 PT at 0.975 for 487.5 USDC.
+rfqBuyPt : Script ()
+rfqBuyPt = script do
+  r <- setupRfq
+  let s = r.s
+
+  -- 1. Alice asks. Only Alice and Bank see the request.
+  rfqCid <- askQuote s s.alice s.aliceAccess BuyPt 500.0
+  Some _ <- queryContractId s.bank rfqCid
+  None <- queryContractId s.operator rfqCid
+
+  -- 2. Bank quotes 0.975 for 60 seconds, from its 1000 PT.
+  validUntil <- secondsFromNow 60
+  quoted <- quote s rfqCid 0.975 validUntil [r.bankPtCid] []
+  Some q <- queryContractId s.alice quoted.quoteCid
+  q.price      === 0.975
+  q.usdcAmount === 487.5
+  q.validUntil === validUntil
+
+  -- Exactly 500 PT is locked for Alice. She sees that PT (to settle), but not
+  -- Bank's other 500 PT, which stays unlocked.
+  Some lockedCid <- pure q.lockedPtCid
+  Some locked <- queryContractId s.alice lockedCid
+  locked.owner  === s.bank
+  locked.amount === 500.0
+  locked.lock   === Some PtLock with holder = s.alice; lockedUntil = validUntil
+  Some bankRestCid <- pure quoted.ptChangeCid
+  None <- queryContractId s.alice bankRestCid
+  alicePtsSeen <- ptAmounts s.alice
+  alicePtsSeen === [500.0]
+
+  -- 3. Alice accepts: cash and PT move in ONE transaction.
+  result <- accept s s.alice s.aliceAccess quoted.quoteCid s.rateCid [r.aliceUsdcCid] []
+
+  Some pt <- queryContractId s.alice result.ptCid
+  pt.owner  === s.alice
+  pt.amount === 500.0
+  pt.lock   === None
+  Some cash <- queryContractId s.bank result.usdcCid
+  cash.owner  === s.bank
+  cash.amount === 487.5
+  aliceUsdcLeft <- ownedAmounts s.alice "USDC"
+  aliceUsdcLeft === [512.5]
+
+  -- The quote is used up; Bank keeps its other 500 PT, unlocked.
+  None <- queryContractId s.alice quoted.quoteCid
+  Some bankRest <- queryContractId s.bank bankRestCid
+  bankRest.amount === 500.0
+  bankRest.lock   === None
+  pure ()
+
+
+-- | Alice sells 200 PT back to Bank at 0.985 for 197 USDC.
+rfqSellPt : Script ()
+rfqSellPt = script do
+  r <- setupRfq
+  let s = r.s
+  -- Alice first holds 500 PT (Bank sends them to her).
+  PtSplitResult with splitCid = pt500; restCid = _ <- submit s.bank do
+    exerciseCmd r.bankPtCid PT_SplitOff with splitAmount = 500.0
+  alicePtCid <- ptTransfer s s.bank s.bankAccess s.alice s.aliceAccess pt500
+
+  rfqCid <- askQuote s s.alice s.aliceAccess SellPt 200.0
+  validUntil <- secondsFromNow 60
+  quoted <- quote s rfqCid 0.985 validUntil [] [r.bankUsdcCid]
+
+  -- Bank set aside exactly 0.985 * 200 = 197 USDC. Alice cannot see it
+  -- (it is disclosed to her accept only); Bank keeps 803 USDC as change.
+  Some q <- queryContractId s.alice quoted.quoteCid
+  q.usdcAmount === 197.0
+  q.lockedPtCid === None
+  Some setAsideCid <- pure q.dealerUsdcCid
+  None <- queryContractId s.alice setAsideCid
+  Some setAside <- queryContractId s.bank setAsideCid
+  setAside.amount === 197.0
+  Some bankChangeCid <- pure quoted.usdcChangeCid
+  Some bankChange <- queryContractId s.bank bankChangeCid
+  bankChange.amount === 803.0
+
+  -- Alice accepts: 200 of her 500 PT go to Bank, 197 USDC go to Alice.
+  result <- accept s s.alice s.aliceAccess quoted.quoteCid s.rateCid [] [alicePtCid]
+  Some soldPt <- queryContractId s.bank result.ptCid
+  soldPt.owner  === s.bank
+  soldPt.amount === 200.0
+  Some cash <- queryContractId s.alice result.usdcCid
+  cash.owner  === s.alice
+  cash.amount === 197.0
+  Some aliceRestCid <- pure result.ptChangeCid
+  Some aliceRest <- queryContractId s.alice aliceRestCid
+  aliceRest.amount === 300.0
+  pure ()
+
+
+-- | Spec gap 8: a quote expires. Before that it is firm.
+quoteExpiry : Script ()
+quoteExpiry = script do
+  r <- setupRfq
+  let s = r.s
+  rfqCid <- askQuote s s.alice s.aliceAccess BuyPt 500.0
+  validUntil <- secondsFromNow 60
+  quoted <- quote s rfqCid 0.975 validUntil [r.bankPtCid] []
+  Some q <- queryContractId s.bank quoted.quoteCid
+  Some lockedCid <- pure q.lockedPtCid
+
+  -- Firm: Bank can neither withdraw the quote nor unlock the PT before 60 s.
+  submitMustFail s.bank do exerciseCmd quoted.quoteCid Quote_Withdraw
+  submitMustFail s.bank do exerciseCmd lockedCid PT_Unlock
+
+  -- 61 seconds later the quote has expired. Alice's accept is refused, even
+  -- with a fresh price (an oracle heartbeat), and nothing moves.
+  passTime (seconds 61)
+  (_, freshRate) <- publish s s.feedCid 1.0 oct1
+  acceptMustFail s s.alice s.aliceAccess quoted.quoteCid freshRate [r.aliceUsdcCid] []
+  aliceUsdc <- ownedAmounts s.alice "USDC"
+  aliceUsdc === [1000.0]
+
+  -- Now Bank may withdraw the quote and unlock its 500 PT.
+  submit s.bank do exerciseCmd quoted.quoteCid Quote_Withdraw
+  unlockedCid <- submit s.bank do exerciseCmd lockedCid PT_Unlock
+  Some unlocked <- queryContractId s.bank unlockedCid
+  unlocked.lock   === None
+  unlocked.amount === 500.0
+  -- Alice no longer sees it.
+  None <- queryContractId s.alice unlockedCid
+  pure ()
+
+
+-- | A locked PT cannot be moved by anyone; the holder can release it.
+lockedPtRules : Script ()
+lockedPtRules = script do
+  r <- setupRfq
+  let s = r.s
+  rfqCid <- askQuote s s.alice s.aliceAccess BuyPt 500.0
+  validUntil <- secondsFromNow 60
+  quoted <- quote s rfqCid 0.975 validUntil [r.bankPtCid] []
+  Some q <- queryContractId s.bank quoted.quoteCid
+  Some lockedCid <- pure q.lockedPtCid
+  Some bankRestCid <- pure quoted.ptChangeCid
+
+  -- Bank cannot move the locked PT in any way: transfer, split, merge
+  -- (either way round), lock again, or merge it with YT into USYC.
+  Some alicePass <- queryDisclosure s.operator s.aliceAccess
+  submitMustFail (actAs s.bank <> discloseMany [alicePass]) do
+    exerciseCmd lockedCid PT_Transfer with
+      newOwner = s.alice
+      senderAccessCid = s.bankAccess
+      receiverAccessCid = s.aliceAccess
+  submitMustFail s.bank do exerciseCmd lockedCid PT_SplitOff with splitAmount = 100.0
+  submitMustFail s.bank do exerciseCmd lockedCid PT_MergeWith with otherCid = bankRestCid
+  submitMustFail s.bank do exerciseCmd bankRestCid PT_MergeWith with otherCid = lockedCid
+  submitMustFail s.bank do exerciseCmd lockedCid PT_Lock with holder = s.alice; lockedUntil = validUntil
+  Some rate <- queryDisclosure s.operator s.rateCid
+  submitMustFail (actAs s.bank <> discloseMany [rate]) do
+    exerciseCmd lockedCid PT_RequestMerge with
+      ytCid = r.bankYtCid
+      mergeAmount = 500.0
+      accessCid = s.bankAccess
+      rateCid = s.rateCid
+
+  -- Alice cannot take the PT alone without paying: delivery needs Bank too.
+  Some bankPass <- queryDisclosure s.operator s.bankAccess
+  submitMustFail (actAs s.alice <> discloseMany [bankPass]) do
+    exerciseCmd lockedCid PT_DeliverLocked with
+      holder = s.alice
+      ownerAccessCid = s.bankAccess
+      holderAccessCid = s.aliceAccess
+
+  -- Bank's other 500 PT is not locked and moves freely.
+  _ <- submit s.bank do exerciseCmd bankRestCid PT_SplitOff with splitAmount = 100.0
+
+  -- Alice rejects before expiry: the lock is released at once.
+  submit s.alice do exerciseCmd quoted.quoteCid Quote_Reject
+  None <- queryContractId s.alice lockedCid
+  bankPts <- query @PrincipalToken s.bank
+  [(pt.amount, pt.lock) | (_, pt) <- bankPts, pt.amount == 500.0] === [(500.0, None)]
+  pure ()
+
+
+-- | Quotes and accepts that must NOT work. After each one, nothing has moved.
+rfqFailures : Script ()
+rfqFailures = script do
+  r <- setupRfq
+  let s = r.s
+  validUntil <- secondsFromNow 60
+
+  -- Alice cannot ask herself.
+  now <- getTime
+  submitMustFail s.alice do
+    createCmd RfqRequest with
+      operator = s.operator
+      requester = s.alice
+      dealer = s.alice
+      usdcIssuer = s.usdcIssuer
+      requesterAccessCid = s.aliceAccess
+      terms = s.terms
+      side = BuyPt
+      ptAmount = 500.0
+      requestedAt = now
+
+  -- Bad quotes: price 0, price above 1, validUntil in the past, more PT
+  -- than Bank holds.
+  rfqCid <- askQuote s s.alice s.aliceAccess BuyPt 500.0
+  quoteMustFail s rfqCid 0.0 validUntil [r.bankPtCid] []
+  quoteMustFail s rfqCid 1.01 validUntil [r.bankPtCid] []
+  quoteMustFail s rfqCid 0.975 now [r.bankPtCid] []
+  bigRfqCid <- askQuote s s.alice s.aliceAccess BuyPt 1500.0
+  quoteMustFail s bigRfqCid 0.975 validUntil [r.bankPtCid] []
+
+  -- A cancelled RFQ cannot be quoted; a declined one is gone.
+  cancelledCid <- askQuote s s.alice s.aliceAccess BuyPt 100.0
+  submit s.alice do exerciseCmd cancelledCid Rfq_Cancel
+  submitMustFail s.bank do
+    exerciseCmd cancelledCid Rfq_Quote with
+      price = 0.975
+      validUntil
+      dealerAccessCid = s.bankAccess
+      dealerPtCids = [r.bankPtCid]
+      dealerUsdcCids = []
+  submit s.bank do exerciseCmd bigRfqCid Rfq_Decline
+  None <- queryContractId s.alice bigRfqCid
+
+  -- A good quote for 500 PT at 0.975.
+  quoted <- quote s rfqCid 0.975 validUntil [r.bankPtCid] []
+
+  -- Only Alice can accept it.
+  disclosures <- acceptDisclosures s s.alice quoted.quoteCid s.rateCid
+  submitMustFail (actAs s.bank <> discloseMany disclosures) do
+    exerciseCmd quoted.quoteCid Quote_Accept with
+      requesterAccessCid = s.aliceAccess
+      rateCid = s.rateCid
+      usdcCids = [r.aliceUsdcCid]
+      ptCids = []
+
+  -- Not enough USDC: 100 USDC for a 487.5 USDC quote.
+  smallUsdc <- issue s.usdcIssuer s.alice "USDC" 100.0
+  acceptMustFail s s.alice s.aliceAccess quoted.quoteCid s.rateCid [smallUsdc] []
+
+  -- On the maturity date PT trading is closed (like Pendle): refused.
+  (_, rateApr) <- publish s s.feedCid 1.05 apr1
+  acceptMustFail s s.alice s.aliceAccess quoted.quoteCid rateApr [r.aliceUsdcCid] []
+
+  -- Sell side: Bank sets aside 197 USDC, then spends it. Alice's accept
+  -- fails and nothing moves (the sell side cannot lock USDC).
+  Some q <- queryContractId s.alice quoted.quoteCid
+  Some bankRestCid <- pure quoted.ptChangeCid
+  PtSplitResult with splitCid = pt200; restCid = _ <- submit s.bank do
+    exerciseCmd bankRestCid PT_SplitOff with splitAmount = 200.0
+  alicePt200 <- ptTransfer s s.bank s.bankAccess s.alice s.aliceAccess pt200
+  sellRfqCid <- askQuote s s.alice s.aliceAccess SellPt 200.0
+  sellQuoted <- quote s sellRfqCid 0.985 validUntil [] [r.bankUsdcCid]
+  Some sellQuote <- queryContractId s.alice sellQuoted.quoteCid
+  Some setAsideCid <- pure sellQuote.dealerUsdcCid
+  _ <- submit s.bank do exerciseCmd setAsideCid Transfer with newOwner = s.usdcIssuer
+  acceptMustFail s s.alice s.aliceAccess sellQuoted.quoteCid s.rateCid [] [alicePt200]
+  Some _ <- queryContractId s.alice alicePt200
+
+  -- Alice's pass is revoked: she can no longer accept.
+  submit s.operator do exerciseCmd s.aliceAccess Revoke
+  acceptMustFail s s.alice s.aliceAccess quoted.quoteCid s.rateCid [r.aliceUsdcCid] []
+
+  -- Nothing moved: Alice still has her USDC and only the 200 PT from Bank;
+  -- the buy quote's 500 PT is still locked with Bank.
+  aliceUsdc <- ownedAmounts s.alice "USDC"
+  sort aliceUsdc === [100.0, 1000.0]
+  Some lockedCid <- pure q.lockedPtCid
+  Some locked <- queryContractId s.bank lockedCid
+  locked.owner === s.bank
+  pure ()
+
+
+-- | Spec section 10: in a DvP, the Operator and UsdcIssuer never see the
+-- Quote (the price). The Operator sees the PT leg but no USDC; UsdcIssuer
+-- sees the USDC leg but no PT. Other clients see nothing.
+rfqPrivacy : Script ()
+rfqPrivacy = script do
+  r <- setupRfq
+  let s = r.s
+  carol <- allocateParty "Carol"
+  _ <- grantAccess s.operator [s.usycIssuer, s.usdcIssuer] carol
+
+  rfqCid <- askQuote s s.alice s.aliceAccess BuyPt 500.0
+  validUntil <- secondsFromNow 60
+  quoted <- quote s rfqCid 0.975 validUntil [r.bankPtCid] []
+
+  -- While the quote is open: only Alice and Bank see it.
+  aliceQuotes <- query @Quote s.alice
+  length aliceQuotes === 1
+  bankQuotes <- query @Quote s.bank
+  length bankQuotes === 1
+  forA_ [s.operator, s.usdcIssuer, s.usycIssuer, s.oracle, carol] \party -> do
+    quotes <- query @Quote party
+    quotes === []
+    requests <- query @RfqRequest party
+    requests === []
+
+  result <- accept s s.alice s.aliceAccess quoted.quoteCid s.rateCid [r.aliceUsdcCid] []
+
+  -- The Operator sees Alice's new PT (it signs every PT) but none of the
+  -- USDC: it cannot tell what she paid.
+  Some _ <- queryContractId s.operator result.ptCid
+  None <- queryContractId s.operator result.usdcCid
+  operatorUsdc <- query @Holding s.operator
+  [h.amount | (_, h) <- operatorUsdc, h.instrument == "USDC"] === []
+
+  -- UsdcIssuer sees the 487.5 USDC payment (it signs USDC) but no PT: it
+  -- cannot tell what was bought.
+  Some _ <- queryContractId s.usdcIssuer result.usdcCid
+  usdcIssuerPts <- query @PrincipalToken s.usdcIssuer
+  usdcIssuerPts === []
+
+  -- Carol sees nothing of the trade.
+  None <- queryContractId carol result.ptCid
+  None <- queryContractId carol result.usdcCid
+  pure ()

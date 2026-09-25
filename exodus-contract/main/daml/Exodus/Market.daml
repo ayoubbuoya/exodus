@@ -1,0 +1,187 @@
+-- | A market: one yield asset (USYC) plus one maturity date, for example
+-- PT-USYC-APR2027. Its main job is 'Split': USYC in, PT + YT out.
+--
+-- Example on Oct 1 2026 at index 1.00:
+--   Bank splits 1000 USYC.
+--   -> 1000 USYC goes from Bank to the Operator's vault
+--   -> Bank gets 1000 PT + 1000 YT (lastIndex 1.00)
+-- All in ONE transaction. If any check fails, nothing moves.
+--
+-- WHO SEES THE MARKET: nobody but the Operator (decision D1 in
+-- docs/markets-plan.md). Clients use it through EXPLICIT DISCLOSURE: the app
+-- reads the Market as the Operator and attaches it to Alice's command, exactly
+-- like the UsycFund. Access is checked with Alice's 'ClientAccess' pass inside
+-- the choice. So approving a new client never re-creates the market, and no
+-- client can see who else uses it. (The old spec had a 'members' observer
+-- list instead; see spec section 11.)
+--
+-- Its second job is 'Mature': once the demo clock reaches the maturity date,
+-- the Operator freezes the index in a 'MaturitySnapshot' and the market stops
+-- splitting. Merge, claim and redeem live on the tokens (Exodus.Tokens), like
+-- in Pendle, where they live on the yield token contract.
+module Exodus.Market where
+
+import Exodus.Access
+import Exodus.Holding
+import Exodus.Oracle (RateIndex)
+import Exodus.Tokens
+
+
+-- | What 'Split' gives back.
+--
+-- Example: Alice splits 600 USYC from a 1000 USYC holding at index 1.00.
+--   ptCid         -> PrincipalToken(owner = Alice, amount = 600)
+--   ytCid         -> YieldToken(owner = Alice, amount = 600, lastIndex = 1.00)
+--   usycChangeCid -> Some Holding(owner = Alice, instrument = "USYC", amount = 400)
+data MarketSplitResult = MarketSplitResult
+  with
+    ptCid         : ContractId PrincipalToken
+    ytCid         : ContractId YieldToken
+    usycChangeCid : Optional (ContractId Holding)
+  deriving (Eq, Show)
+
+
+template Market
+  with
+    operator : Party        -- runs the market, owns the vault, signs every PT and YT
+    terms    : MarketTerms  -- asset, oracle and maturity; copied into every PT and YT
+    matured  : Bool         -- False until the Operator calls 'Mature'
+  where
+    ensure terms.marketId /= "" && terms.instrument /= ""
+
+    signatory operator
+
+    -- No observers on purpose (decision D1): clients get the market through
+    -- explicit disclosure, like the UsycFund.
+
+    -- ---------------------------------------------------------------------
+    -- Split: put USYC into the vault, get PT + YT for the same USD value.
+    --
+    --   PT = YT = roundDown6 (usycAmount * index)
+    --
+    -- Examples:
+    --   1000 USYC at index 1.00        -> 1000 PT + 1000 YT
+    --   1000 USYC at index 1.025       -> 1025 PT + 1025 YT
+    --   333.333333 USYC at index 1.025 -> 341.666666 PT + YT
+    --                                     (341.666666325 rounded DOWN)
+    -- Rounding down means the market never issues more PT/YT than the USYC in
+    -- the vault is worth, so the vault can never go negative.
+    --
+    -- NONCONSUMING: the Market is not archived, so Alice and Bank can split at
+    -- the same moment without fighting over this contract (UTXO contention).
+    -- ---------------------------------------------------------------------
+    nonconsuming choice Split : MarketSplitResult
+      with
+        splitter   : Party                   -- who pays the USYC and gets PT + YT, for example Bank
+        accessCid  : ContractId ClientAccess  -- the splitter's own access pass
+        rateCid    : ContractId RateIndex     -- a USYC price snapshot that has not expired
+        usycCids   : [ContractId Holding]     -- the USYC holdings to pay from
+        usycAmount : Decimal                  -- how much USYC to split, for example 1000.0
+      controller splitter
+      do
+        -- 1. Only approved clients may split (the on-ledger whitelist).
+        checkAccess operator splitter accessCid
+
+        -- 2. The amount. Holdings never have more than 6 decimals, so an
+        --    amount like 0.0000001 USYC cannot be paid anyway.
+        assertMsg "usycAmount must be greater than 0" (usycAmount > 0.0)
+        assertMsg "usycAmount can have at most 6 decimals" (roundDown6 usycAmount == usycAmount)
+
+        -- 3. The price: not expired, from this market's oracle, for USYC
+        --    ('fetchMarketRate' in Exodus.Tokens). The Operator observes every
+        --    RateIndex, and it signs this Market, so the fetch is allowed even
+        --    though Alice cannot see the snapshot herself.
+        rate <- fetchMarketRate terms rateCid
+
+        -- 4. No new PT/YT at or after maturity. We check BOTH:
+        --    - 'matured': set once the Operator has called Mature;
+        --    - the oracle's demo clock: on Apr 1 the market is over even if
+        --      nobody has called Mature yet. Without this, Bank could split at
+        --      the maturity index and redeem at once.
+        assertMsg "market has matured" (not matured)
+        assertMsg "market has reached its maturity date" (rate.simTime < terms.maturity)
+
+        -- 5. The USYC goes into the Operator's vault. 'payFrom' checks that
+        --    each input is real USYC from the market's issuer and owned by
+        --    the splitter, then merges, splits and transfers the exact amount.
+        payment <- payFrom splitter terms.assetIssuer terms.instrument usycAmount operator usycCids
+
+        -- 6. The USD notional of the USYC, rounded down.
+        let notional = roundDown6 (usycAmount * rate.index)
+        assertMsg "usycAmount is too small: it is worth less than 0.000001 USD" (notional > 0.0)
+
+        -- 7. Mint PT and YT. The Operator's authority is available because it
+        --    signed this Market. The YT starts earning yield from today's index.
+        ptCid <- create PrincipalToken with
+          operator
+          owner = splitter
+          terms
+          amount = notional
+          lock = None
+        ytCid <- create YieldToken with
+          operator
+          owner = splitter
+          terms
+          amount = notional
+          lastIndex = rate.index
+
+        pure MarketSplitResult with
+          ptCid
+          ytCid
+          usycChangeCid = payment.changeCid
+
+    -- ---------------------------------------------------------------------
+    -- Mature: freeze the index once the demo clock reaches the maturity date.
+    --
+    -- Example (spec section 9, step 4): on Apr 1 2027 the price is 1.05.
+    --   -> MaturitySnapshot(index = 1.05) is created
+    --   -> this Market is archived and re-created with matured = True
+    -- From then on: Split is refused, YT final claims are paid up to 1.05,
+    -- and PT holders can redeem (they need the snapshot).
+    --
+    -- CONSUMING, unlike Split. That fixes spec gap 1: a second Mature would
+    -- make a second snapshot with another index. Now the first Mature archives
+    -- this contract, and the new one says matured = True, so a second call fails.
+    --
+    -- WHICH PRICE (decision Q1, like Pendle): the first price on OR AFTER
+    -- maturity, not "exactly on Apr 1". Pendle freezes the index at the first
+    -- transaction after expiry (firstPYIndex), whenever that is. So a late
+    -- Mature never gets stuck. What a late Mature changes:
+    --   - YT holders get a little extra yield (up to the later index), as in Pendle;
+    --   - PT holders lose nothing: Redeem_Settle pays 1 USD of USYC per PT at
+    --     the price of the settle day.
+    -- The operator bot calls Mature at the first price on or after maturity,
+    -- so in practice the index is the maturity-date index (spec gap 2).
+    -- ---------------------------------------------------------------------
+    choice Mature : MatureResult
+      with
+        rateCid : ContractId RateIndex  -- the first price on or after the maturity date
+      controller operator
+      do
+        assertMsg "market has already matured" (not matured)
+        rate <- fetchMarketRate terms rateCid
+        assertMsg "the maturity date has not been reached yet" (rate.simTime >= terms.maturity)
+
+        maturedAt <- getTime
+        snapshotCid <- create MaturitySnapshot with
+          operator
+          terms
+          index = rate.index
+          simTime = rate.simTime
+          maturedAt
+
+        -- Mature is consuming, so this Market is already archived.
+        marketCid <- create this with matured = True
+        pure MatureResult with marketCid; snapshotCid
+
+
+-- | What 'Mature' gives back.
+--
+-- Example on Apr 1 2027 at index 1.05:
+--   marketCid   -> Market(matured = True)   (a NEW contract id: the old one is archived)
+--   snapshotCid -> MaturitySnapshot(index = 1.05)
+data MatureResult = MatureResult
+  with
+    marketCid   : ContractId Market
+    snapshotCid : ContractId MaturitySnapshot
+  deriving (Eq, Show)

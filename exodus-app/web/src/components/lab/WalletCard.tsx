@@ -1,13 +1,19 @@
 import { decimalToUnits, formatAmount, formatUsd, unitsToDecimal, type Contract, type HoldingView } from '@exodus/ledger'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { BadgeCheckIcon } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { ErrorMessage } from '@/components/ErrorMessage'
-import { useOwnedHoldings, useRateIndex } from '@/ledger'
+import { useClientAccess, useOwnedHoldings, useRateIndex } from '@/ledger'
 
 type WalletCardProps = {
   party: string
   partyName: string
+  // A party that can read the USYC price, used only to show USD values.
+  // Clients cannot see the price themselves, so the lab reads it as the fund
+  // (UsycIssuer). The real app will get it from the backend.
+  priceReader: string
 }
 
 // One row per instrument, for example:
@@ -52,9 +58,10 @@ function usdPrice(instrument: string, usycIndex: string | null): number | null {
 
 // The party's balances, read ONLY through the CIP-56 Holding interface
 // (the way any Canton wallet would see them).
-export function WalletCard({ party, partyName }: WalletCardProps) {
+export function WalletCard({ party, partyName, priceReader }: WalletCardProps) {
   const holdings = useOwnedHoldings(party)
-  const rate = useRateIndex(party)
+  const rate = useRateIndex(priceReader)
+  const access = useClientAccess(party)
   const usycIndex = rate.data ? rate.data.payload.index : null
 
   return (
@@ -62,6 +69,15 @@ export function WalletCard({ party, partyName }: WalletCardProps) {
       <CardHeader>
         <CardTitle>{partyName}'s wallet</CardTitle>
         <CardDescription>Read only through the CIP-56 Holding interface, as any Canton wallet would.</CardDescription>
+        {/* The on-ledger whitelist: an access pass from the Operator means "approved client". */}
+        {access.data && (
+          <CardAction>
+            <Badge variant="outline" className="gap-1 border-success/40 text-success">
+              <BadgeCheckIcon aria-hidden />
+              Approved client
+            </Badge>
+          </CardAction>
+        )}
       </CardHeader>
       <CardContent>
         {holdings.isPending && <Skeleton className="h-24" />}

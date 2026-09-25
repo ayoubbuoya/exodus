@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --test \"src/**/*.test.ts\""
   },
   "dependencies": {
     "@exodus/ledger": "^0.0.1",
@@ -17,12 +18,15 @@
     "@tailwindcss/vite": "^4.3.3",
     "@tanstack/react-query": "^5.103.2",
     "class-variance-authority": "^0.7.1",
+    "cmdk": "^1.1.1",
     "cn": "^0.4.0",
+    "i18n-iso-countries": "^7.14.0",
     "lucide-react": "^1.47.0",
     "radix-ui": "^1.6.7",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "react-router": "^8.4.0",
+    "recharts": "^3.10.1",
     "shadcn": "^4.21.0",
     "sonner": "^2.0.8",
     "tailwindcss": "^4.3.3",
