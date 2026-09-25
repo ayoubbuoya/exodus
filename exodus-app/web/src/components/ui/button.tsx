@@ -12,7 +12,7 @@ const buttonVariants = cva(
         default: "bg-primary text-primary-foreground hover:bg-primary/85",
         // A quiet secondary action: a thin rim and a faint glass fill.
         outline:
-          "border-foreground/14 bg-foreground/[0.04] hover:bg-foreground/[0.09] hover:text-foreground aria-expanded:bg-foreground/[0.09] aria-expanded:text-foreground",
+          "border-foreground/14 bg-foreground/4 hover:bg-foreground/9 hover:text-foreground aria-expanded:bg-foreground/9 aria-expanded:text-foreground",
         secondary:
           "bg-secondary text-secondary-foreground hover:bg-[color-mix(in_oklch,var(--secondary),var(--foreground)_5%)] aria-expanded:bg-secondary aria-expanded:text-secondary-foreground",
         ghost:

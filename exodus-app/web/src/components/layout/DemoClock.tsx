@@ -26,20 +26,20 @@ export function DemoClock({ variant }: DemoClockProps) {
   // Before the first answer (or with the ledger not set up yet) there is
   // nothing true to show: keep the space quiet rather than guess a date.
   if (price.data === undefined) {
-    return variant === 'card' ? <div className="h-[74px] rounded-2xl bg-foreground/[0.03]" aria-hidden /> : null
+    return variant === 'card' ? <div className="h-[74px] rounded-2xl bg-foreground/3" aria-hidden /> : null
   }
   const { simTime, isLive, daysToMaturity } = price.data
 
   if (variant === 'chip') {
     return (
-      <span className="num flex h-9 items-center gap-2 rounded-full bg-foreground/[0.06] px-3 text-xs">
+      <span className="num flex h-9 items-center gap-2 rounded-full bg-foreground/6 px-3 text-xs">
         <FeedDot isLive={isLive} />
         {formatDemoDate(simTime)}
       </span>
     )
   }
   return (
-    <div className="num grid gap-1 rounded-2xl bg-foreground/[0.04] p-3 text-xs">
+    <div className="num grid gap-1 rounded-2xl bg-foreground/4 p-3 text-xs">
       <div className="flex items-center gap-2 text-muted-foreground">
         <CalendarClockIcon className="size-3.5" aria-hidden />
         Demo date

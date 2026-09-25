@@ -45,7 +45,7 @@ export function AccountCard() {
         <button
           type="button"
           aria-label="Account menu"
-          className="flex w-full items-center gap-3 rounded-2xl bg-foreground/[0.04] p-2.5 text-left transition-colors hover:bg-foreground/[0.08]"
+          className="flex w-full items-center gap-3 rounded-2xl bg-foreground/4 p-2.5 text-left transition-colors hover:bg-foreground/8"
         >
           <span className="grid size-9 shrink-0 place-items-center rounded-full bg-foreground/12 text-sm font-semibold">
             {initial}

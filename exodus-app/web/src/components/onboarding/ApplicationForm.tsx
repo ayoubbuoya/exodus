@@ -16,9 +16,11 @@ import { CountryCombobox } from './CountryCombobox.tsx'
 type ApplicationFormProps = {
   initialValues?: { fullName: string; country: string }
   submitLabel: string
+  // Shown on the button while the request runs, for example "Sending…".
+  pendingLabel: string
 }
 
-export function ApplicationForm({ initialValues, submitLabel }: ApplicationFormProps) {
+export function ApplicationForm({ initialValues, submitLabel, pendingLabel }: ApplicationFormProps) {
   const [fullName, setFullName] = useState(initialValues?.fullName ?? '')
   const [country, setCountry] = useState(initialValues?.country ?? '')
   // Always unticked, even when applying again: the user confirms it each time.
@@ -58,7 +60,12 @@ export function ApplicationForm({ initialValues, submitLabel }: ApplicationFormP
           {countryError !== undefined && <FieldError>{countryError}</FieldError>}
         </Field>
 
-        <Field orientation="horizontal" data-invalid={termsError !== undefined}>
+        {/* The one thing we ask the user to confirm, in its own quiet box. */}
+        <Field
+          orientation="horizontal"
+          data-invalid={termsError !== undefined}
+          className="rounded-2xl bg-foreground/3 p-4 ring-1 ring-foreground/8 ring-inset"
+        >
           <Checkbox
             id="acceptsSimulatedTokens"
             checked={acceptsSimulatedTokens}
@@ -80,8 +87,8 @@ export function ApplicationForm({ initialValues, submitLabel }: ApplicationFormP
 
         <FormError error={submit.error} />
 
-        <Button type="submit" disabled={submit.isPending}>
-          {submit.isPending ? 'Sending…' : submitLabel}
+        <Button type="submit" variant="bright" size="lg" className="w-full" disabled={submit.isPending}>
+          {submit.isPending ? pendingLabel : submitLabel}
         </Button>
       </FieldGroup>
     </form>

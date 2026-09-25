@@ -16,14 +16,15 @@ export function LoginPage() {
       footer={
         <span>
           New here?{' '}
-          <Link to="/signup" className="text-primary underline-offset-4 hover:underline">
-            Create an account
+          <Link to="/signup" className="font-medium text-foreground underline-offset-4 hover:underline">
+            Request access
           </Link>
         </span>
       }
     >
       <CredentialsForm
         submitLabel="Log in"
+        pendingLabel="Logging in…"
         passwordAutoComplete="current-password"
         isSubmitting={login.isPending}
         error={login.error}

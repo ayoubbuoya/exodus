@@ -10,11 +10,11 @@ const alertVariants = cva(
     // like yield (yield blue is reserved for yield).
     variants: {
       variant: {
-        default: "border-foreground/10 bg-foreground/[0.03] text-card-foreground",
+        default: "border-foreground/10 bg-foreground/3 text-card-foreground",
         destructive:
-          "border-destructive/30 bg-destructive/[0.08] text-destructive *:data-[slot=alert-description]:text-destructive/90 *:[svg]:text-current",
-        info: "border-info/30 bg-info/[0.08] text-card-foreground *:[svg]:text-info",
-        warning: "border-warning/30 bg-warning/[0.08] text-card-foreground *:[svg]:text-warning",
+          "border-destructive/30 bg-destructive/8 text-destructive *:data-[slot=alert-description]:text-destructive/90 *:[svg]:text-current",
+        info: "border-info/30 bg-info/8 text-card-foreground *:[svg]:text-info",
+        warning: "border-warning/30 bg-warning/8 text-card-foreground *:[svg]:text-warning",
       },
     },
     defaultVariants: {

@@ -28,7 +28,8 @@ export function CountryCombobox({ id, value, onChange, invalid = false }: Countr
           role="combobox"
           aria-expanded={open}
           aria-invalid={invalid}
-          className="w-full justify-between font-normal"
+          // Shaped like the text inputs around it (not a pill button).
+          className="h-10 w-full justify-between rounded-xl border-foreground/12 bg-foreground/3 px-3.5 font-normal"
         >
           {value === '' ? <span className="text-muted-foreground">Select your country</span> : countryName(value)}
           <ChevronsUpDownIcon data-icon="inline-end" className="opacity-50" />

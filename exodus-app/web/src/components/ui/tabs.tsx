@@ -28,7 +28,7 @@ const tabsListVariants = cva(
   {
     variants: {
       variant: {
-        default: "bg-foreground/[0.05] ring-1 ring-foreground/8 ring-inset",
+        default: "bg-foreground/5 ring-1 ring-foreground/8 ring-inset",
         line: "gap-1 bg-transparent",
       },
     },
