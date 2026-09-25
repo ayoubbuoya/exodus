@@ -168,6 +168,16 @@
     backdrop-filter: blur(32px) saturate(180%);
     -webkit-backdrop-filter: blur(32px) saturate(180%);
   }
+  /* The thickest glass, for the landing page's nav bar only. Every section
+     scrolls under it, and with .glass-strong big text (like "1,000 PT") was
+     still readable through it. Use it together with .glass-strong:
+     <div class="glass-strong glass-bar">…</div> (it only changes the fill
+     and the blur, so it must come after .glass-strong in this file). */
+  .glass-bar {
+    background-color: var(--glass-fill-bar);
+    backdrop-filter: blur(40px) saturate(180%);
+    -webkit-backdrop-filter: blur(40px) saturate(180%);
+  }
   /* The rim. The mask keeps only a 1 px ring: it shows the whole box, minus
      its content box (the box shrunk by the 1 px padding). */
   .glass::before,

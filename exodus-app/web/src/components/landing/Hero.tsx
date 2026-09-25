@@ -9,6 +9,7 @@ import { artH, artRight, artSize, artX, artY } from '@/landing/artboard'
 import { FIXED_APY_LABEL, MATURITY_DATE, QUOTE, SPLIT } from '@/landing/demo-numbers'
 import { ANCHORS, GLASS_FRAME as F } from '@/landing/glass-geometry'
 import { GlassArtboard } from './GlassStage.tsx'
+import { SoftLight } from './SoftLight.tsx'
 import { DEMO_ENTRY } from './links.ts'
 
 // The top of the landing page, about one screen tall.
@@ -60,15 +61,17 @@ export function Hero() {
       className="relative px-4 pt-12 pb-16 sm:px-6 lg:flex lg:min-h-[calc(100svh-80px)] lg:items-center lg:px-10 lg:py-10"
     >
       {/* The hero sits in the same centred box as the nav pill (same outer
-          padding, max-w-330, 20 px inside like the pill's logo), so the
-          headline lines up with the logo and the instrument ends under the
-          "Open the demo" button. Without a box the instrument's column ran to
-          the screen's right edge: on a 1920 px screen it was ~950 px wide and
-          leaned far right of the nav. Now its column is at most 692 px
-          (1280 px of content = 540 text + 48 gap + 692), and the instrument
-          itself is capped smaller still (see below). */}
-      <div className="mx-auto grid w-full max-w-330 items-center gap-y-12 lg:grid-cols-[minmax(0,460px)_minmax(0,1fr)] lg:gap-x-10 lg:px-5 xl:grid-cols-[minmax(0,540px)_minmax(0,1fr)] xl:gap-x-12">
-        <div>
+          padding, max-w-330, 20 px inside like the pill's logo), so it never
+          runs past the nav on wide screens.
+          On desktop the text and the instrument stay TOGETHER: a fixed gap
+          (64 px, 96 px from xl) between them, and the pair is centred in the
+          box. So the gap is the same on every screen, and both page margins
+          match. (With a stretchy column, short laptops left ~270 px of empty
+          space between the text and the smaller instrument.)
+          Examples: 1920 × 1080 → 540 + 96 + 580 = 1216 px, centred in 1280;
+          a laptop at 125% zoom (1510 × 697) → 540 + 96 + 469 = 1105 px, centred. */}
+      <div className="mx-auto grid w-full max-w-330 items-center gap-y-12 lg:flex lg:justify-center lg:gap-x-16 lg:px-5 xl:gap-x-24">
+        <div className="lg:w-[460px] lg:shrink-0 xl:w-[540px]">
           <h1
             id="hero-title"
             className="font-display text-[44px] leading-[1.02] sm:text-[58px] lg:text-[62px] xl:text-[76px] xl:leading-[0.98]"
@@ -103,13 +106,17 @@ export function Hero() {
                 nav), turned into a width with the artboard's ratio 1.267.
             Examples: 1366 × 768 → ~523 px wide (the height limit wins);
             1536 × 864, 1920 × 1080, 2560 × 1440 → 580 px.
-            `lg:mr-0` pushes it against the column's right edge, so the hero
-            has the same margin on both sides, in line with the nav pill.
-            Phones and tablets keep it full width and centred (mx-auto). */}
+            On a narrow desktop (1024 px) it shrinks to fit (`min-w-0`, and
+            flex items shrink by default). Phones and tablets keep it full
+            width and centred (mx-auto). */}
         <div
           style={director}
-          className="mx-auto w-full lg:mr-0 lg:max-w-[min(580px,calc((100svh-80px)*0.6*1.267))]"
+          className="relative mx-auto w-full lg:mx-0 lg:w-[min(580px,calc((100svh-80px)*0.6*1.267))] lg:min-w-0"
         >
+          {/* A dim blue and silver light behind the instrument, so the glass
+              chips around it have something to pick up. It comes in with the
+              intro (--rise). */}
+          <SoftLight className="inset-[-12%]" color="rgb(110 145 230 / 0.16)" style={{ opacity: 'var(--rise)' }} />
           <GlassArtboard
             frame={F}
             eager

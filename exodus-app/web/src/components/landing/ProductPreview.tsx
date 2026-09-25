@@ -18,6 +18,7 @@ import { Mark } from '@/components/brand/Mark'
 import { Amount } from '@/components/finance/Amount'
 import { MaturityBar } from '@/components/finance/MaturityBar'
 import { JAN_1, MATURITY_DATE, TERM_DAYS } from '@/landing/demo-numbers'
+import { SoftLight } from './SoftLight.tsx'
 
 // "The product": the Exodus app itself, rendered with real components (no
 // device mockup, no screenshot), as one of the landing page's visual assets.
@@ -36,11 +37,19 @@ const DAYS_LEFT = TERM_DAYS - JAN_1 // 90
 
 export function ProductPreview() {
   return (
-    <section id="app" aria-labelledby="product-title" className="scroll-mt-[72px] border-t border-border">
-      <div className="mx-auto max-w-[1280px] px-4 py-20 sm:px-6 lg:px-10 lg:py-28">
+    // No divider line above: the space already separates the sections.
+    // Less padding on short desktop screens (short:), so a laptop does not
+    // scroll through ~230 px of nothing between two sections.
+    <section id="app" aria-labelledby="product-title" className="scroll-mt-[72px]">
+      <div className="relative mx-auto max-w-[1280px] px-4 py-20 sm:px-6 lg:px-10 short:py-16 tall:py-28">
         <h2 id="product-title" className="reveal font-display text-[32px] leading-[1.02] sm:text-[40px] xl:text-[52px]">
           Every position, <span className="block text-foreground/40">one maturity away.</span>
         </h2>
+
+        {/* A faint silver light behind the app window, so its glass has
+            something to blur (see SoftLight). Silver, not blue: the app is
+            about the whole book, not only yield. */}
+        <SoftLight className="top-[18%] left-[10%] h-[80%] w-[80%]" color="rgb(190 205 235 / 0.1)" />
 
         {/* The app window: one large pane of glass. Phones scroll it sideways. */}
         <div className="reveal mt-12 overflow-x-auto rounded-4xl pb-2">

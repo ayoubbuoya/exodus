@@ -5,6 +5,7 @@ import { OUTCOME, SPLIT } from '@/landing/demo-numbers'
 import { ANCHORS, GLASS_FRAME as F } from '@/landing/glass-geometry'
 import { artH, artRight, artSize, artX, artY } from '@/landing/artboard'
 import { GlassArtboard } from './GlassStage.tsx'
+import { SoftLight } from './SoftLight.tsx'
 
 // Signature B: USYC → PT + YT, told by scrolling (spec §9, step 1).
 //
@@ -156,7 +157,14 @@ export function SplitStory() {
               Example: 1536 x 700 → 640 px wide, ~505 px tall, in a 628 px frame.
             - phones and tablets: the full width. */}
         <div className="flex min-h-0 items-center justify-center py-6 short:col-start-2 short:row-span-2 short:row-start-1 short:py-0 tall:py-2 tall:[container-type:size]">
-          <div className="w-full short:w-[min(640px,100%,calc((100svh-160px)*1.267))] tall:w-[min(640px,100cqw,calc(100cqh*1.267))]">
+          <div className="relative w-full short:w-[min(640px,100%,calc((100svh-160px)*1.267))] tall:w-[min(640px,100cqw,calc(100cqh*1.267))]">
+            {/* A dim light behind the instrument (see SoftLight). It brightens
+                as the wedge slides out and the glass lights up (--glow). */}
+            <SoftLight
+              className="inset-[-10%]"
+              color="rgb(110 145 230 / 0.18)"
+              style={{ opacity: 'calc(0.5 + 0.5 * var(--glow))' }}
+            />
             <GlassArtboard
               frame={F}
               label={

@@ -30,35 +30,43 @@ export function PrivacyLens() {
   const name = nameOf(seat)
   const stored = partsStoredBy(seat)
 
+  // Layout:
+  //   up to 1279 px: the party tabs in a row, the count, then the plates;
+  //   wide screens (xl, 1280 px and up): the plates on the left, and a column
+  //   on the right with the four parties as a vertical list and the count
+  //   under them. The panel is
+  //   then about as tall as the plates (~410 px at 1280 px wide), so it fits
+  //   a laptop screen, and the right side is no longer a big empty area.
   return (
-    <div>
-      <SeatTabs seat={seat} onChange={setSeat} />
+    <div className="grid gap-8 xl:grid-cols-[minmax(0,1fr)_300px] xl:items-center xl:gap-14">
+      <div className="xl:col-start-2 xl:row-start-1">
+        <SeatTabs seat={seat} onChange={setSeat} />
+
+        <div className="mt-8">
+          <p className="text-[15px] text-muted-foreground">On {name}&rsquo;s node</p>
+          {/* A live region, so screen readers hear the new count when the seat changes. */}
+          <p aria-live="polite" className="mt-3 font-display text-[40px] leading-none">
+            <span className="num">{stored.length} of 3</span>{' '}
+            <span className="text-muted-foreground">parts</span>
+          </p>
+        </div>
+      </div>
 
       <div
         role="tabpanel"
         id="lens-panel"
         aria-labelledby={`seat-${seat}`}
-        className="mt-10 grid items-center gap-10 lg:grid-cols-[minmax(0,8fr)_minmax(0,4fr)] lg:gap-14"
+        className="xl:col-start-1 xl:row-start-1"
       >
         <PlateStack seat={seat} name={name} />
 
-        <div>
-          <p className="text-[15px] text-muted-foreground">On {name}&rsquo;s node</p>
-          {/* A live region, so screen readers hear the new count when the seat changes. */}
-          <p aria-live="polite" className="mt-3 font-display text-[40px] leading-none xl:text-[56px]">
-            <span className="num">{stored.length} of 3</span>{' '}
-            <span className="text-muted-foreground">parts</span>
-          </p>
-
-          {/* The parts as a list. Phones see it (the labels beside the plates
-              are hidden there); on bigger screens it is for screen readers only. */}
-          <ul className="mt-6 grid border-t border-border sm:sr-only">
-            {PARTS.map((part) => (
-              <PartRow key={part.layer} part={part} stored={part.visibleTo.includes(seat)} name={name} />
-            ))}
-          </ul>
-
-        </div>
+        {/* The parts as a list. Phones see it (the labels beside the plates
+            are hidden there); on bigger screens it is for screen readers only. */}
+        <ul className="mt-6 grid border-t border-border sm:sr-only">
+          {PARTS.map((part) => (
+            <PartRow key={part.layer} part={part} stored={part.visibleTo.includes(seat)} name={name} />
+          ))}
+        </ul>
       </div>
     </div>
   )
@@ -71,12 +79,17 @@ type SeatTabsProps = {
   onChange: (seat: Seat) => void
 }
 
-// Four tabs, one per party. Arrow keys move between them (and select).
+// Four tabs, one per party. A row up to 1279 px wide, a vertical list on
+// wide screens (xl), where the selected tab's line moves from the bottom edge to
+// the left edge. Arrow keys move between them (and select): left/right for
+// the row, up/down for the list (both work everywhere).
 function SeatTabs({ seat, onChange }: SeatTabsProps) {
   const buttons = useRef<(HTMLButtonElement | null)[]>([])
 
   function onKeyDown(event: KeyboardEvent<HTMLButtonElement>, index: number) {
-    const delta = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0
+    const forward = event.key === 'ArrowRight' || event.key === 'ArrowDown'
+    const back = event.key === 'ArrowLeft' || event.key === 'ArrowUp'
+    const delta = forward ? 1 : back ? -1 : 0
     if (delta === 0) return
     event.preventDefault()
     const next = (index + delta + SEATS.length) % SEATS.length
@@ -85,7 +98,7 @@ function SeatTabs({ seat, onChange }: SeatTabsProps) {
   }
 
   return (
-    <div role="tablist" aria-label="View the trade as" className="grid grid-cols-2 border-b border-input sm:grid-cols-4">
+    <div role="tablist" aria-label="View the trade as" className="grid grid-cols-2 border-b border-input sm:grid-cols-4 xl:grid-cols-1 xl:border-b-0 xl:border-l">
       {SEATS.map((entry, index) => {
         const selected = entry.seat === seat
         const count = partsStoredBy(entry.seat).length
@@ -104,7 +117,7 @@ function SeatTabs({ seat, onChange }: SeatTabsProps) {
             onClick={() => onChange(entry.seat)}
             onKeyDown={(event) => onKeyDown(event, index)}
             className={cn(
-              'relative grid gap-1 py-4 pr-4 text-left transition-colors duration-200',
+              'relative grid gap-1 py-4 pr-4 text-left transition-colors duration-200 xl:py-3 xl:pl-5',
               selected ? 'text-foreground' : 'text-faint hover:text-muted-foreground',
             )}
           >
@@ -118,11 +131,12 @@ function SeatTabs({ seat, onChange }: SeatTabsProps) {
               ))}
               <span className="num ml-2 text-xs">{count}/3</span>
             </span>
-            {/* The selected tab's underline sits on the tab bar's line. */}
+            {/* The selected tab's line sits on the tab bar's line: at the
+                bottom in a row, on the left edge in the xl list. */}
             <span
               aria-hidden="true"
               className={cn(
-                'absolute inset-x-0 -bottom-px h-0.5 transition-colors duration-200',
+                'absolute inset-x-0 -bottom-px h-0.5 transition-colors duration-200 xl:top-0 xl:right-auto xl:bottom-0 xl:-left-px xl:h-auto xl:w-0.5',
                 selected ? 'bg-foreground' : 'bg-transparent',
               )}
             />

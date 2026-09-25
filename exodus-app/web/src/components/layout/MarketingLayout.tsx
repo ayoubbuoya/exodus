@@ -15,9 +15,16 @@ import { Logo } from './Logo.tsx'
 // editorial and cinematic, while the app screens are compact software.
 export function MarketingLayout() {
   return (
-    // `isolate` makes this the stacking context, so the ambient layer (z −10)
+    // `isolate` makes this the stacking context, so the soft lights (z −10)
     // paints above this div's own background but under the content.
-    <div className="dark relative isolate flex min-h-svh flex-col bg-background text-foreground" onPointerMove={followPointer}>
+    // `overflow-x-clip` cuts off decoration that reaches past the screen's
+    // edge (the soft lights behind the pictures), so phones never scroll
+    // sideways. `clip`, unlike `hidden`, does not make a scroll box, so the
+    // sticky nav and the sticky split story still work.
+    <div
+      className="dark relative isolate flex min-h-svh flex-col overflow-x-clip bg-background text-foreground"
+      onPointerMove={followPointer}
+    >
       {/* <AmbientLight /> */}
       <LandingNav />
       <main className="flex-1">

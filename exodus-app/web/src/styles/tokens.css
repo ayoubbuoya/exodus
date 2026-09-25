@@ -84,6 +84,8 @@
      The rim is a gradient: bright where the light hits (top left), faint elsewhere. */
   --glass-fill: rgb(255 255 255 / 0.6);
   --glass-fill-strong: rgb(255 255 255 / 0.85);
+  /* The nav bar: every section scrolls under it, so it is the most opaque glass. */
+  --glass-fill-bar: rgb(255 255 255 / 0.92);
   --glass-rim: linear-gradient(145deg, rgb(255 255 255 / 0.95), rgb(11 18 32 / 0.08) 40%, rgb(11 18 32 / 0.14));
   --glass-shadow: 0 24px 60px -28px rgb(29 60 120 / 0.35);
 
@@ -138,6 +140,7 @@
      bounces faintly at the bottom right, a deep soft shadow. */
   --glass-fill: rgb(255 255 255 / 0.045);
   --glass-fill-strong: rgb(16 22 36 / 0.72);
+  --glass-fill-bar: rgb(12 17 29 / 0.86);
   --glass-rim: linear-gradient(
     145deg,
     rgb(255 255 255 / 0.36),

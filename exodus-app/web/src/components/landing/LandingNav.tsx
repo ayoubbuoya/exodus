@@ -63,7 +63,7 @@ export function LandingNav() {
 
   return (
     <header className="sticky top-0 z-40 px-4 pt-3 sm:px-6 lg:px-10">
-      <div className="glass-strong mx-auto grid h-15 max-w-330 grid-cols-[1fr_auto_1fr] items-center rounded-full pr-2 pl-5">
+      <div className="glass-strong glass-bar mx-auto grid h-15 max-w-330 grid-cols-[1fr_auto_1fr] items-center rounded-full pr-2 pl-5">
         <Logo size="lg" className="justify-self-start" />
 
         <nav aria-label="Chapters" className="hidden h-11 items-center gap-1 min-[900px]:flex">
