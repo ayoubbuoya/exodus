@@ -58,6 +58,19 @@ export function MaturityPanel({ market }: { market: MarketView }) {
     })
   }
 
+  // Matured, but no PT left (never held, or already redeemed): nothing to do
+  // here except a payout still on its way.
+  if (!hasPt) {
+    return (
+      <div className="grid gap-4">
+        <p className="rounded-2xl bg-foreground/3 px-4 py-6 text-center text-sm text-muted-foreground">
+          The market matured at index {formatAmount(market.maturityIndex ?? '0', 4)}. You have no PT left to redeem here.
+        </p>
+        <OpenRequests marketId={market.marketId} />
+      </div>
+    )
+  }
+
   return (
     <div className="grid gap-4">
       <p className="text-sm text-muted-foreground">

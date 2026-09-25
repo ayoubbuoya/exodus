@@ -94,7 +94,7 @@ function Summary({ portfolio, markets }: { portfolio: Portfolio | undefined; mar
         icon={CalendarClockIcon}
         loading={loading || markets === undefined}
         value={next === null ? '—' : formatDemoDate(next.maturity)}
-        sub={next === null ? 'No open position' : `${next.daysToMaturity} demo days left`}
+        sub={next === null ? 'No upcoming maturity' : `${next.daysToMaturity} demo days left`}
       />
     </div>
   )
