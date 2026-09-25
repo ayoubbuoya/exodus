@@ -26,3 +26,7 @@ __pycache__/
 .env
 exodus-app/api/dist/
 exodus-app/api/src/generated/
+
+# Demo recordings (large; regenerate with docs/demo/record-demo.mjs)
+docs/demo/recordings/
+docs/demo/package*.json

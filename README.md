@@ -11,22 +11,27 @@ PTs trade through **private RFQ** with **atomic delivery versus payment**: only 
 
 > **Simulation notice.** "USYC" and "USDC" in Exodus are **simulated** tokens issued by our own demo parties (`UsycIssuer`, `UsdcIssuer`). They behave like the real ones but are **not** issued by, connected to, or endorsed by Circle or Hashnote.
 
-![The Wallet (/app): wallet value, USYC, USDC and the fund's 30-day APY, the USYC price chart, Subscribe / Redeem, holdings with Send, the test USDC faucet and the activity read from the ledger, next to the glass sidebar with the demo clock](docs/images/dashboard.png)
+![The market page: a firm private quote from the house dealer, 0.975503 USDC per PT, 5.10 % fixed, with a countdown and Accept / Reject](docs/images/quote.png)
 
 ## What works today
 
 | Part | Status |
 |---|---|
-| **Daml contracts** (`exodus-contract/`) | USYC/USDC holdings with the Canton Token Standard (CIP-56) `Holding` and `TransferFactory`, the oracle price feed with short-lived price snapshots, the USYC fund (subscribe USDC → USYC in one atomic step), and `ClientAccess` passes (the on-ledger client whitelist). 24 Daml Script tests. |
-| **Client app** (`exodus-app/web` + `exodus-app/api`) | Sign up → access form → admin approval (creates your custodial Canton party, ledger user and access pass) → dashboard: faucet, subscribe, holdings, send to other approved clients, activity read from the ledger, and a live price chart. |
-| **Developer lab** (`/lab`) | Act as any demo party, move the demo clock, and see exactly which contracts each party can see (the privacy demo). |
-| **Next** | PT/YT tokens, the market (split, claim, redeem, merge) and private RFQ trading. |
+| **Daml contracts** (`exodus-contract/`) | USYC/USDC holdings with the Canton Token Standard (CIP-56), the oracle price feed, the USYC fund (subscribe and redeem), `ClientAccess` passes, and the markets: **split** USYC into PT + YT, **private RFQ** with firm locked quotes and **atomic DvP**, YT **claims**, Pendle-style **maturity**, PT **redeem** and **merge**. **55 Daml Script tests**, including the full worked example (`DemoTest`). |
+| **Markets app** (`exodus-app/web` + `exodus-app/api`) | Markets list, a market page (*Fixed Yield (PT)* with a firm quote in about 2 seconds, *Mint / Redeem*, *Yield (YT)*, *At maturity*), a portfolio with Pendle-style USD value, and a dealer desk for admins. An **Operator bot** matures markets and pays every payout; a **house dealer bot** quotes with Pendle's formula. |
+| **Wallet** (the simulated USYC on-ramp) | Sign up → access form → admin approval (custodial Canton party + access pass) → faucet, subscribe USDC → USYC, redeem, send, activity read from the ledger, price chart. |
+| **Developer lab** (`/lab`) | Act as any demo party, move the demo clock, and see which contracts each party can see: the Operator sees **0 quotes**. |
+| **Demo** | `docker compose up` runs everything; a 3-minute [demo script](docs/demo/script.md); `npm run demo:markets` replays the worked example through the ledger client (47 checks). |
 
-| Landing page | Admin review queue |
+| Markets | Portfolio |
 |---|---|
-| ![Landing page with "Request access"](docs/images/landing.png) | ![Applications page listing access requests with their status and Approve / Reject buttons](docs/images/admin.png) |
-| **Private firm quote** | **Portfolio** |
-| ![Market page: buying PT with the indicative price, then a firm quote from the house dealer with a countdown and Accept / Reject](docs/images/market.png) | ![Portfolio: value, claimable yield, principal at maturity, one row per PT and YT with Sell / Claim, and the market activity](docs/images/portfolio.png) |
+| ![Market card: maturity Apr 1 2027, fixed APY 5.10 %, PT price 0.975503](docs/images/markets.png) | ![Portfolio: PT and YT value and the market activity](docs/images/portfolio.png) |
+| **Dealer desk (admins)** | **Privacy (/lab as the Operator)** |
+| ![Dealer desk: Bank's position, open requests and bot settings](docs/images/dealer.png) | ![Lab: the Operator sees 1 Market and 0 Quote](docs/images/lab-privacy.png) |
+
+The **Wallet**, the simulated USYC on-ramp (faucet, subscribe, redeem, send):
+
+![The /app wallet: USYC price, 30-day APY, demo date, price chart, subscribe panel, faucet, holdings, send form and activity](docs/images/dashboard.png)
 
 ## Why Canton
 
@@ -36,9 +41,15 @@ PTs trade through **private RFQ** with **atomic delivery versus payment**: only 
 
 ## Run it
 
-Follow **[docs/run-locally.md](docs/run-locally.md)**: tools to install, one-time setup, the four terminals to start, a 5-minute demo and troubleshooting.
+**With Docker (one command).** From the repository root:
 
-Short version, from `exodus-app/`:
+```bash
+docker compose up --build     # first build: 10-20 min (downloads the Daml SDK)
+```
+
+Open **http://localhost:8080**. Admin login: `admin@exodus.local` / `exodus-demo-admin` (demo only). The demo clock stays on Oct 1 2026 until you move it on `/lab` as the Oracle. `docker compose down` then `up` gives a fresh demo. The [demo script](docs/demo/script.md) walks through the 3-minute story.
+
+**By hand (for development):** follow **[docs/run-locally.md](docs/run-locally.md)**. Short version, from `exodus-app/`:
 
 ```bash
 npm run codegen:daml && npm install
@@ -58,9 +69,12 @@ npm run web                           # terminal 4 -> http://localhost:5173
 | [`docs/exodus.md`](docs/exodus.md) | The design spec: parties, contracts, flows, the maths with a worked example, the privacy model, known gaps |
 | [`docs/client-app.md`](docs/client-app.md) | The client app's decisions, pages, API endpoints and build log |
 | [`docs/run-locally.md`](docs/run-locally.md) | How to run everything on your machine |
+| [`docs/markets-plan.md`](docs/markets-plan.md) | The markets (Pendle part) tracker: every decision, the phases and the session log |
+| [`docs/demo/`](docs/demo/) | The 3-minute demo script and the screen recorder (`record-demo.mjs`) |
+| `docker-compose.yml`, `docker/` | The one-command demo: sandbox, PostgreSQL, bootstrap, oracle, API, web |
 | `exodus-contract/` | Daml smart contracts (`main`) and Daml Script tests (`test`), SDK 3.5.11 |
 | `exodus-app/ledger` | Typed client for the Canton JSON Ledger API v2, shared by everything below |
-| `exodus-app/api` | NestJS + Prisma + PostgreSQL backend: accounts, approvals, custodial wallets, faucet, price history |
+| `exodus-app/api` | NestJS + Prisma + PostgreSQL backend: accounts, approvals, custodial wallets, faucet, price history, markets, the Operator and house dealer bots |
 | `exodus-app/web` | React + Vite + Tailwind + shadcn/ui web app |
 | `exodus-app/oracle-bot` | Publishes the simulated USYC price and moves the demo clock |
 
@@ -69,7 +83,7 @@ npm run web                           # terminal 4 -> http://localhost:5173
 Run each line from the repository root:
 
 ```bash
-(cd exodus-contract && dpm build --all && cd test && dpm test)        # Daml contracts: 24 tests
-(cd exodus-app && npm test)                                           # off-ledger unit tests: 43 tests
+(cd exodus-contract && dpm build --all && cd test && dpm test)        # Daml contracts: 55 tests
+(cd exodus-app && npm test)                                           # off-ledger unit tests: 99 tests
 (cd exodus-app && npm run typecheck && npm run lint -w @exodus/web)   # types and lint
 ```

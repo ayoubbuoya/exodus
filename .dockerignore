@@ -1,0 +1,14 @@
+# Keep the Docker build context small and free of local state: the image
+# builds the DAR, the codegen and node_modules itself.
+**/node_modules
+**/.daml
+**/dist
+**/log
+**/*.tsbuildinfo
+**/.env
+exodus-app/generated
+exodus-app/api/src/generated
+.git
+.vscode
+dev-docs
+docs
