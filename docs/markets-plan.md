@@ -6,6 +6,8 @@ Read first: the contract design in [`exodus.md`](exodus.md) (sections 7–12) an
 
 > **Simulation notice.** "USYC" and "USDC" are simulated tokens issued by our `UsycIssuer` and `UsdcIssuer` demo parties. They are not issued by, connected to, or endorsed by Circle or Hashnote. PT and YT are Exodus tokens on top of that simulation.
 
+**Guiding rule: we build our version of Pendle on Canton.** For every design question, first check what Pendle V2 actually does (read its contracts, for example [`PendleYieldToken.sol`](https://github.com/pendle-finance/pendle-core-v2-public/blob/main/contracts/core/YieldContracts/PendleYieldToken.sol)), explain it with real numbers, and follow it. Differ only where Canton needs it (privacy, UTXO contention, no contract keys), and write each difference and its reason in the decisions table below and in spec section 11.
+
 **How to use this file:** before starting work, read the status table and the session log. When a task is done, tick its box. When a phase is done, fill in its row in the status table (date + commit). At the end of each session, add one line to the session log.
 
 ## The goal
@@ -42,6 +44,8 @@ What a user can do when we are finished (the spec section 9 example):
 | D4 | Creating markets | **One demo market `APR2027` from bootstrap now**; an admin "Create market" form later (Phase 8) | The oracle's demo schedule ends at Apr 1 2027, so more markets need a longer clock anyway | B: admin form from the start |
 | D5 | Public price on the Markets page | **Indicative price from the house dealer's settings**, served off-ledger by the API ("Indicative 0.975 · 5.19% fixed"). Real quotes stay private on the ledger | A useful product page without leaking any real trade | B: no price until you ask for a quote (most private, weak page) |
 | P1 | Pass check on PT/YT transfers (Phase 1, 2026-09-25) | **Both passes**: `PT_Transfer` / `YT_Transfer` take the sender's and the receiver's `ClientAccess` pass, like the USYC/USDC factory. The app discloses the receiver's pass (read as the Operator) | PT/YT only move between approved clients; we do not repeat spec gap 11 | B: no check, like `Holding.Transfer` |
+| Q1 | Maturity rule (Phase 2, 2026-09-25) | **Like Pendle.** `Mature` takes the first price on or after maturity (Pendle's `firstPYIndex` = first transaction after expiry); YT final claims stop at that snapshot; a PT redeem pays `ptAmount / index at settle time`, so 1 PT always pays 1 USD of value; post-maturity yield stays in the vault for the treasury (gap 5) | A market can never get stuck if the clock jumps past the date; PT holders never lose; same trade-off as Pendle (a late snapshot gives YT holders a little extra) | A: strict `simTime == maturity` and PT pays `ptAmount / maturityIndex` (the old spec): exact, but stuck forever if the clock overshoots |
+| Q2 | Where merge lives (Phase 2, 2026-09-25) | **On the token**: `PT_RequestMerge` (YT of the same market, `mergeAmount`, pass, live price), before maturity only, like Pendle's `redeemPY` on the yield token | No Market disclosure; not affected by `Mature` re-creating the Market; after maturity merge = PT redeem + YT final claim, as in Pendle | B: `Market.RequestMerge` (the old spec) |
 | P2 | When to build the PT lock (Phase 1, 2026-09-25) | **In Phase 3, with the RFQ** | The lock only exists for quotes, so its rules (who unlocks, what happens on quote expiry) are designed together with `Quote` | B: build it in Phase 1 and guess its rules |
 
 Settled by the spec (no choice needed): the vault is USYC owned by the Operator; `MarketTerms` is copied into every PT and YT (no contract keys in Daml 3.x); `Market` choices are nonconsuming except `Mature`; every payout uses `roundDown6`; maturity uses the oracle's `simTime`; settlement follows the request → operator settle → owner cancel pattern (same as `UsycRedeemRequest`).
@@ -52,7 +56,7 @@ Settled by the spec (no choice needed): the vault is USYC owned by the Operator;
 |---|---|---|
 | Split | PT = YT = `roundDown6 (usycAmount * index)` | 1000 USYC at 1.00 → 1000 PT + 1000 YT |
 | YT yield | `notional * (1/lastIndex - 1/newIndex)` USYC | 1000 YT, 1.00 → 1.025: 24.390243 USYC |
-| PT redeem | `ptAmount / maturityIndex` USYC | 500 PT at 1.05: 476.190476 USYC |
+| PT redeem | `ptAmount / index at settle time` USYC (never below the maturity index; Q1) | 500 PT at 1.05: 476.190476 USYC; at 1.06: 471.698113 USYC (still 500 USD) |
 | Merge | `amount / yt.lastIndex` USYC | 100 PT + 100 YT with lastIndex 1.025: 97.560975 USYC |
 | Fixed APY | `(1/price)^(1/years) - 1` | 0.975 with 0.5 years left: ~5.19% |
 | Dealer price for a target APY | `1 / (1 + apy)^years` | 5.2% with 0.5 years: ~0.975 |
@@ -62,7 +66,7 @@ Settled by the spec (no choice needed): the vault is USYC owned by the Operator;
 | Phase | What | Status | Date | Commit |
 |---|---|---|---|---|
 | 1 | PT/YT tokens and Split | Done | 2026-09-25 | (fill in after commit) |
-| 2 | Life cycle: claim, mature, redeem, merge | To do | | |
+| 2 | Life cycle: claim, mature, redeem, merge | Done | 2026-09-25 | (fill in after commit) |
 | 3 | Private RFQ and atomic DvP | To do | | |
 | 4 | Full demo test (`DemoTest.daml`) | To do | | |
 | 5 | Ledger client and bootstrap | To do | | |
@@ -93,14 +97,13 @@ Files: `main/daml/Exodus/Tokens.daml`, `main/daml/Exodus/Market.daml`, `test/dam
 
 Files: `Tokens.daml`, `Market.daml`, `test/daml/Exodus/LifecycleTest.daml`.
 
-- [ ] `IndexSource` (`CurrentRate` / `AtMaturity`) and `MaturitySnapshot`
-- [ ] `ClaimRequest` / `YT_RequestClaim`: `Claim_Settle` (operator, pays `notional * (1/lastIndex - 1/newIndex)` from the vault, re-creates the YT with the new `lastIndex`), `Claim_Cancel` (owner)
-- [ ] `Mature` is **consuming**: archives the `Market`, re-creates it with `matured = True` (gap 1); requires `simTime == maturity` (gap 2); creates `MaturitySnapshot`
-- [ ] `RedeemRequest` / `PT_RequestRedeem` (rejected before maturity, gap 4): `Redeem_Settle` pays `ptAmount / maturityIndex`, `Redeem_Cancel`
-- [ ] `MergeRequest` / `Market.RequestMerge` (PT and YT of the same size): `Merge_Settle` pays `amount / yt.lastIndex`, `Merge_Cancel`
-- [ ] After maturity, claims use `AtMaturity` (the snapshot), never a newer price
-- [ ] Tests: every formula with the section 9 numbers, a second `Mature` fails, early redeem fails, cancel returns the tokens, only owner + Operator see requests
-- [ ] Update spec gaps 1, 2, 4 as fixed
+- [x] `IndexSource` (`CurrentRate` / `AtMaturity`), `MaturitySnapshot` (no observers, disclosed), helpers `fetchMarketRate` (also used by `Split` now), `fetchMaturitySnapshot`, `yieldIndex`
+- [x] `ClaimRequest` / `YT_RequestClaim` (pass): `Claim_Settle` (operator, pays `roundDown6 (amount/lastIndex - amount/newIndex)`; YT back with the new `lastIndex`, unchanged if nothing was paid, used up after the `AtMaturity` final claim; refuses an index below `lastIndex` and a live price after maturity), `Claim_Cancel` (owner, no pass)
+- [x] `Mature` is **consuming**: re-creates the `Market` with `matured = True` (gap 1); takes the first price on or after maturity (Q1, Pendle-style; gap 2 fixed differently); creates `MaturitySnapshot`
+- [x] `RedeemRequest` / `PT_RequestRedeem` (pass + disclosed snapshot, so never before `Mature`, gap 4; copies `maturityIndex`): `Redeem_Settle` pays `ptAmount / index at settle` (price must be ≥ `maturityIndex`), `Redeem_Cancel`
+- [x] `MergeRequest` / `PT_RequestMerge` on the token (Q2; `mergeAmount` with PT/YT change; before maturity only): `Merge_Settle` pays `amount / lastIndex`, `Merge_Cancel` gives both back
+- [x] Tests in `LifecycleTest.daml`: `claimBeforeMaturity`, `claimFailures`, `matureMarket`, `redeemAndFinalClaim` (section 9 steps 5–7, vault dust 0.000001), `matureLateLikePendle` (clock jumps to Apr 10), `mergeTokens`, `requestsNeedAccessPass`, `lifecyclePrivacy`. 15 failure cases checked once with a plain `submit` to confirm the intended reason
+- [x] Spec: tables, sections 8.3–8.6, formula, section 11 (guiding rule + Pendle differences), gaps 1, 2, 4 fixed, gap 5 updated
 
 **Done when:** all formulas are checked to 6 decimals, and gaps 1, 2 and 4 are marked fixed in the spec.
 
@@ -145,7 +148,7 @@ File: `test/daml/Exodus/DemoTest.daml`.
 - [ ] `markets` module: `GET /markets`, `GET /markets/:id` (terms, underlying APY, indicative price + fixed APY (D5), days left, matured)
 - [ ] `GET /portfolio` (PT, YT, claimable yield, open requests, USD value)
 - [ ] Endpoints: split, merge, claim, redeem PT, cancel request; RFQ create / list quotes / accept / reject
-- [ ] `OperatorSettlementService`: settles claim/redeem/merge requests oldest first (like `RedeemSettlementService`), merges vault pieces, calls `Mature` when `simTime` reaches maturity (gap 3)
+- [ ] `OperatorSettlementService`: settles claim/redeem/merge requests oldest first (like `RedeemSettlementService`): claims with `CurrentRate` before maturity and `AtMaturity` after, redeems with the newest price; merges vault pieces; calls `Mature` with the first price on or after maturity (gap 3)
 - [ ] `DealerBotService` (D2): answers RFQs to Bank with `price = 1 / (1 + targetApy ± spread)^years`; settings (target APY, spread, max size, on/off) in PostgreSQL via Prisma
 - [ ] Dealer endpoints for `/dealer` (dealer role only): open RFQs, manual quote, settings
 - [ ] Ledger errors mapped in `toHttpError` (expired quote, market matured, not enough PT)
@@ -169,7 +172,7 @@ File: `test/daml/Exodus/DemoTest.daml`.
 ### Phase 8: Hardening and token standard (stretch)
 
 - [ ] CIP-56 `Holding` interface instance for PT and YT, locked PT uses `lock` (gap 7)
-- [ ] Treasury sweep of post-maturity vault dust (gap 5)
+- [ ] Treasury sweep of what stays in the vault after maturity: YT yield past the snapshot, yield on principal redeemed at a later price, and rounding dust (gap 5; Pendle: `redeemInterestAndRewardsPostExpiryForTreasury`)
 - [ ] Read disclosures with the backend's ledger user, submit with the client's (gap 15)
 - [ ] Registry API `/registry/...` in the backend (gap 10)
 - [ ] YT trading through RFQ (D3 stretch)
@@ -186,3 +189,4 @@ File: `test/daml/Exodus/DemoTest.daml`.
 
 - 2026-09-25: plan agreed with all recommended decisions (D1–D5 = A). Next: Phase 1 detailed plan.
 - 2026-09-25: Phase 1 done (P1 = A, P2 = A). `Tokens.daml`, `Market.daml`, `MarketTest.daml`; 39 Daml scripts pass. No app changes yet (screens are Phase 7). Next: Phase 2 detailed plan.
+- 2026-09-25: Phase 2 done after reading Pendle V2's `PendleYieldToken.sol`: Q1 = Pendle-style maturity, Q2 = merge on the token. Added the guiding rule "our version of Pendle on Canton". 47 Daml scripts pass. Next: Phase 3 detailed plan (RFQ + PT lock).

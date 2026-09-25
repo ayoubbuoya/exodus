@@ -378,7 +378,8 @@ marketSplitTimeRules = script do
   Some usyc900 <- pure result1.usycChangeCid
 
   -- A market that is already matured refuses splits, even with a valid price.
-  -- (Phase 2's 'Mature' will create it; here the Operator creates it directly.)
+  -- ('Mature' creates it in real use, see LifecycleTest; here the Operator
+  -- creates it directly.)
   maturedCid <- submit s.operator do
     createCmd Market with
       operator = s.operator

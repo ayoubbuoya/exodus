@@ -76,7 +76,7 @@ Exodus answers this question with four points:
 |---|---|---|
 | Sub-transaction privacy | Operator sees PT move but not the price. Cash issuer sees cash move but not the PT. | Price and position leakage (Pendle on Ethereum) |
 | Atomic multi-party transactions | Cash leg and PT leg settle in one transaction | Settlement risk, manual reconciliation |
-| Permissioned parties | Only KYC'd `members` can use a market | Compliance problems |
+| Permissioned parties | Only approved clients (one `ClientAccess` pass each) can use a market | Compliance problems |
 | Real institutional yield assets on the network | PT/YT built on a model of USYC, a real tokenized money market fund that is live on Canton | Fake demo yield with no market fit |
 | Canton Token Standard (CIP-56) | Our USYC and USDC implement the standard `Holding` and `TransferFactory` interfaces, so any Canton wallet can show and send them | A closed token that only our own UI understands |
 
@@ -192,8 +192,8 @@ exodus-contract/
       Oracle.daml                 # RateFeed + RateIndex snapshots (index + demo clock)     [done]
       Fund.daml                   # UsycFund: Subscribe; RequestRedeem + UsycRedeemRequest  [done]
       Access.daml                 # ClientAccess pass (on-ledger client whitelist)          [done]
-      Tokens.daml                 # MarketTerms, PT, YT [done]; MaturitySnapshot, Redeem/Claim [to do]
-      Market.daml                 # Market + Split [done]; Mature, RequestMerge, MergeRequest [to do]
+      Tokens.daml                 # MarketTerms, PT, YT, MaturitySnapshot, Claim/Redeem/MergeRequest [done]
+      Market.daml                 # Market (Split, Mature)                                  [done]
       Rfq.daml                    # RfqRequest, Quote (private DvP, pays with payFrom)       [to do]
   test/                           # package exodus-contract-test
     daml.yaml
@@ -205,6 +205,7 @@ exodus-contract/
       RedeemTest.daml             # redeem request/settle/cancel, failures, passes, privacy  [done]
       AccessTest.daml             # pass create/revoke rights, who sees which pass          [done]
       MarketTest.daml             # split, PT/YT transfers + merges, passes, time rules, privacy [done]
+      LifecycleTest.daml          # claim, mature (Pendle-style), redeem, merge, passes, privacy [done]
       DemoTest.daml               # the worked example in section 9                         [to do]
 ```
 
@@ -219,13 +220,13 @@ exodus-contract/
 | `RateFeed` | oracle | (none) | The oracle's private working state: latest index + demo clock + `validFor`. Choice: `Publish` (index and time can only go up; same values allowed as a heartbeat). Each `Publish` creates a new `RateIndex` snapshot. |
 | `ClientAccess` | operator | client, issuers | One pass per approved client: the on-ledger whitelist entry. `Subscribe` and `Split` check the client's pass; transfers (USYC/USDC through the factory, PT and YT) check both the sender's and the receiver's (later also the RFQ). The issuers observe every pass because their factories fetch the receiver's pass. Choice: `Revoke` (operator). Replaces the old `users`/`readers` lists (see 8.A and section 11). |
 | `RateIndex` | oracle | operator, readers (= UsycIssuer in the demo) | Read-only price snapshot with `publishedAt` and `validUntil` (ledger time, `validFor` = 30 s in the demo). Not archived when a newer one is published. Choice: `Expire` (oracle, after `validUntil`). Readers use `fetchValidRate`, which rejects expired snapshots. |
-| `Market` | operator | (none) | Fields: `terms`, `matured`. Nonconsuming `Split`: the splitter passes its `ClientAccess` pass and a valid `RateIndex` (read with `fetchValidRate`, from the market's oracle), pays USYC into the Operator's vault (via `payFrom`) and gets `roundDown6 (usycAmount * index)` PT and YT. Refused once `matured` or when `simTime >= maturity`. Clients get the market through explicit disclosure (decision D1 in [`markets-plan.md`](markets-plan.md)). To do: `Mature` (consuming, gaps 1 and 2), `RequestMerge`. |
-| `MaturitySnapshot` | operator | members | Frozen index at maturity. |
-| `PrincipalToken` | operator | owner (later also `lockedFor`) | Done: `PT_Transfer` (needs the sender's and the receiver's `ClientAccess` pass), `PT_SplitOff`, `PT_MergeWith` (same market only). To do: `PT_Lock`, `PT_Unlock`, `PT_DeliverLocked` (Phase 3, with the RFQ), `PT_RequestRedeem` (Phase 2). |
-| `YieldToken` | operator | owner | Keeps `lastIndex` (yield is paid up to it). Done: `YT_Transfer` (both passes, like PT), `YT_SplitOff`, `YT_MergeWith` (same market AND same `lastIndex`, otherwise unclaimed yield would be lost or doubled). To do: `YT_RequestClaim` (Phase 2). |
-| `RedeemRequest` | operator, owner | | `Redeem_Settle` (operator), `Redeem_Cancel` (owner). |
-| `ClaimRequest` | operator, owner | | `Claim_Settle` (operator), `Claim_Cancel` (owner). |
-| `MergeRequest` | operator, owner | | `Merge_Settle` (operator), `Merge_Cancel` (owner). |
+| `Market` | operator | (none) | Fields: `terms`, `matured`. Nonconsuming `Split`: the splitter passes its `ClientAccess` pass and a valid `RateIndex` (read with `fetchValidRate`, from the market's oracle), pays USYC into the Operator's vault (via `payFrom`) and gets `roundDown6 (usycAmount * index)` PT and YT. Refused once `matured` or when `simTime >= maturity`. **Consuming** `Mature` (operator): with the first price on or after maturity, creates the `MaturitySnapshot` and re-creates the Market with `matured = True` (fixes gap 1; Pendle-style, see 8.4). Clients get the market through explicit disclosure (decision D1 in [`markets-plan.md`](markets-plan.md)). |
+| `MaturitySnapshot` | operator | (none) | The frozen index of one market (like Pendle's `firstPYIndex`): `terms`, `index`, `simTime`, `maturedAt`. YT final claims are paid up to it; `PT_RequestRedeem` needs it as proof of maturity. Disclosed to clients. |
+| `PrincipalToken` | operator | owner (later also `lockedFor`) | Done: `PT_Transfer` (needs the sender's and the receiver's `ClientAccess` pass), `PT_SplitOff`, `PT_MergeWith` (same market only), `PT_RequestRedeem` (pass + disclosed `MaturitySnapshot`, so never before maturity), `PT_RequestMerge` (pass, YT of the same market, `mergeAmount`, live price; before maturity only; change comes back). To do: `PT_Lock`, `PT_Unlock`, `PT_DeliverLocked` (Phase 3, with the RFQ). |
+| `YieldToken` | operator | owner | Keeps `lastIndex` (yield is paid up to it). Done: `YT_Transfer` (both passes, like PT), `YT_SplitOff`, `YT_MergeWith` (same market AND same `lastIndex`, otherwise unclaimed yield would be lost or doubled). `YT_RequestClaim` (pass; the whole YT goes into the request). |
+| `RedeemRequest` | operator, owner | (none) | Holds the PT and the copied `maturityIndex`. `Redeem_Settle` (operator, current price ≥ `maturityIndex`): pays `roundDown6 (ptAmount / index at settle)` USYC from the vault. `Redeem_Cancel` (owner): PT back. |
+| `ClaimRequest` | operator, owner | (none) | Holds the YT. `Claim_Settle` (operator, `IndexSource`): pays `roundDown6 (amount/lastIndex − amount/newIndex)`; gives the YT back with the new `lastIndex` (unchanged if nothing was paid); after maturity (`AtMaturity`) the YT is used up. `Claim_Cancel` (owner): YT back. |
+| `MergeRequest` | operator, owner | (none) | Holds PT + YT of the same amount and the YT's `lastIndex`. `Merge_Settle` (operator): pays `roundDown6 (amount / lastIndex)`. `Merge_Cancel` (owner): PT and YT back. |
 | `RfqRequest` | buyer | dealer | `Rfq_Quote` (dealer), `Rfq_Cancel` (buyer). |
 | `Quote` | buyer, dealer | | `Quote_Accept` (buyer, atomic DvP), `Quote_Reject`, `Quote_Withdraw`. |
 
@@ -258,7 +259,7 @@ sequenceDiagram
 ### Shared data types
 
 - `MarketTerms` (done, in `Tokens.daml`): marketId, assetIssuer, instrument, oracle, maturity. Copied into every PT and YT.
-- `IndexSource` (Phase 2, with `MaturitySnapshot`): `CurrentRate` (live oracle, before maturity) or `AtMaturity` (frozen snapshot, after maturity).
+- `IndexSource` (done, in `Tokens.daml`): `CurrentRate` (live oracle, only before maturity) or `AtMaturity` (the `MaturitySnapshot`, after maturity). Used by `Claim_Settle`.
 
 ## 8. User flows
 
@@ -338,29 +339,39 @@ sequenceDiagram
 
 The PT is **locked for Alice** during the quote for two reasons: Alice must be able to see it to settle, and Bank must not sell it twice.
 
+All payouts below follow one pattern: the owner asks (the tokens go into a request at once, so they cannot be spent twice), the Operator settles from its vault, and until then the owner can cancel. Requests need the owner's `ClientAccess` pass; settling and cancelling do not, so a client who is revoked while waiting is still paid, and can always take back their own tokens. Tests: `LifecycleTest.daml`.
+
+These flows follow **Pendle V2** (`PendleYieldToken.sol`) and differ only where Canton needs it. See section 11, "How Exodus follows Pendle".
+
 ### 8.3 Claim yield (YT)
 
-1. YT holder calls `YT_RequestClaim`. This creates a `ClaimRequest`.
-2. The operator bot calls `Claim_Settle` with a vault piece and an index source.
-3. The holder receives USYC, and the YT is recreated with the new `lastIndex`.
+1. Bank calls `YT_RequestClaim` on its 1000 YT (lastIndex 1.00) with its pass. The YT goes into a `ClaimRequest`.
+2. The operator bot calls `Claim_Settle` with the vault holdings and an `IndexSource`:
+   - before maturity, a live price (`CurrentRate`): on Jan 1 at 1.025 it pays 1000/1.00 − 1000/1.025 = **24.390243 USYC**, and the YT comes back with `lastIndex = 1.025`;
+   - after maturity, the market's snapshot (`AtMaturity`): the final claim, after which the YT is used up (like Pendle, where YT interest stops at `firstPYIndex`). A live price is refused after maturity.
+3. If the index has not moved, nothing is paid and the YT comes back unchanged. An older price below `lastIndex` is refused.
 
 ### 8.4 Maturity
 
-1. The oracle clock reaches the maturity date.
-2. The operator calls `Mature`, which creates a `MaturitySnapshot` with the frozen index.
-3. After this point, `Split` fails, and yield claims must use the snapshot.
+1. The oracle clock reaches the maturity date (Apr 1 2027).
+2. The operator bot calls `Mature` with the **first price on or after the maturity date**. It creates the `MaturitySnapshot` (index 1.05) and re-creates the Market with `matured = True`. `Mature` is consuming, so it can only happen once (gap 1).
+3. From then on `Split` and merge fail, PT holders can redeem, and YT final claims use the snapshot.
+
+Why "on or after" and not "exactly on Apr 1": this is what Pendle does. Pendle freezes the index at the first transaction after expiry (`firstPYIndex`), whenever that is. A strict date rule could leave a market stuck forever if the clock ever jumps past the date. What a late `Mature` changes: YT holders get a little extra yield (up to the later index), and PT holders lose nothing, because a PT redeem pays at the settle-day price (8.5). Example: the clock jumps to Apr 10 at 1.052; the snapshot is 1.052, and Bank's final claim from 1.025 is 1000/1.025 − 1000/1.052 = 25.039413 USYC instead of 23.228803 (`LifecycleTest.matureLateLikePendle`).
 
 ### 8.5 Redeem PT
 
-1. PT holder calls `PT_RequestRedeem`.
-2. The operator calls `Redeem_Settle` with the snapshot.
-3. The holder receives `ptAmount / maturityIndex` USYC.
+1. After maturity, Alice calls `PT_RequestRedeem` on her 500 PT with her pass and the market's `MaturitySnapshot` (disclosed to her). Without a real snapshot of this market, the request is refused, so nobody can redeem early (gap 4).
+2. The operator bot calls `Redeem_Settle` with the current price (not older than the snapshot).
+3. Alice receives `ptAmount / index at settle time` USYC: at 1.05, 500 / 1.05 = **476.190476 USYC**, worth 500 USD. If she only redeems at 1.06, she gets 500 / 1.06 = 471.698113 USYC: fewer tokens, still worth 500 USD. This is Pendle's rule: 1 PT always pays 1 USD of value. The yield earned after maturity stays in the vault for the treasury (gap 5).
 
 ### 8.6 Merge (PT + YT back to USYC)
 
-1. User calls `RequestMerge` with a PT and a YT of the same size.
-2. The operator calls `Merge_Settle`.
-3. The user receives `amount / yt.lastIndex` USYC. This works at any time.
+1. Before maturity, Bank calls `PT_RequestMerge` on a PT with a YT of the same market, a `mergeAmount` and a live price (it only checks the date). Example: 100 out of 1000 PT and 1000 YT; 900 PT and 900 YT come back as change at once.
+2. The operator bot calls `Merge_Settle`.
+3. Bank receives `amount / yt.lastIndex` USYC: 100 / 1.00 = 100 USYC, or 100 / 1.025 = 97.560975 USYC for a YT already claimed up to 1.025. No price is needed: the PT's value `amount / nowIndex` plus the YT's unclaimed yield `amount * (1/lastIndex − 1/nowIndex)` add up to `amount / lastIndex`.
+
+Merge lives on the token and is closed after maturity, like Pendle's `redeemPY` (after expiry it only burns the PT, which is a plain PT redeem). After maturity: redeem the PT and make the YT's final claim.
 
 ## 9. The math, with a full example
 
@@ -370,7 +381,7 @@ The PT is **locked for Alice** during the quote for two reasons: Alice must be a
 |---|---|---|
 | Split | PT = YT = `usycAmount * index` | USD notional |
 | YT yield | `notional * (1/lastIndex - 1/newIndex)` | USYC |
-| PT redeem | `ptAmount / maturityIndex` | USYC |
+| PT redeem | `ptAmount / index at settle time` (never below the maturity index) | USYC |
 | Merge | `amount / yt.lastIndex` | USYC |
 | Fixed APY for a PT buyer | `(1/price)^(1/years) - 1` | percent |
 
@@ -430,7 +441,7 @@ In one `Quote_Accept` transaction, each party sees only its own part:
 | Bank (dealer) | Yes | Yes | Yes |
 | Operator | **No** | **No** | Yes (it signs PTs) |
 | UsdcIssuer | **No** | Yes | **No** |
-| Other members | No | No | No |
+| Other clients | No | No | No |
 
 The test script checks that `Operator` and `UsdcIssuer` see **zero** `Quote` contracts.
 
@@ -447,10 +458,17 @@ Redeem requests are seen only by their owner and UsycIssuer; the fund's USDC hol
 
 ## 11. Design decisions
 
+**Guiding rule: Exodus is our version of Pendle, built for Canton.** For every design question we first check what Pendle V2 actually does (its contracts, for example `PendleYieldToken.sol`), follow it, and differ only where Canton needs it: privacy, the UTXO model (contention), or no contract keys. Each difference is written down with its reason (table below).
+
 | Decision | Why |
 |---|---|
 | RFQ instead of AMM | Avoids contention on one pool contract, keeps prices private, and matches how institutions trade. |
-| Market choices are nonconsuming | The Market contract is never archived, so many users can split at the same time. |
+| Market choices are nonconsuming (except `Mature`) | The Market contract is not archived by a split, so many users can split at the same time. `Mature` is consuming on purpose: it runs once (gap 1). |
+| Maturity like Pendle: freeze the first price on or after maturity | Pendle freezes `firstPYIndex` at the first transaction after expiry. A strict "exactly on the date" rule could leave a market stuck forever if the clock jumps past it. A late `Mature` only gives YT holders a little extra yield; PT holders lose nothing (next row). Decision Q1 in [`markets-plan.md`](markets-plan.md). |
+| PT redeem pays at the settle-day price, like Pendle | Pendle pays `amount / current index` (`_calcSyRedeemableFromPY`), so 1 PT is always worth 1 USD whenever it is redeemed. The post-maturity yield of the vault goes to the treasury (gap 5). |
+| Merge on the token, before maturity only, like Pendle's `redeemPY` | Pendle's merge lives on the yield token contract, not on its market (the AMM). After expiry it only burns the PT, which is a plain PT redeem. On the token, merge also needs no Market disclosure. Decision Q2. |
+| Merge pays `amount / lastIndex` in one step | Pendle pays the principal at today's index plus the YT interest it tracked separately; the total is the same. One payout keeps the request simple. |
+| YT yield by claim requests with a `lastIndex` per token (not Pendle's per-user interest ledger) | Pendle updates a per-user interest record on every transfer. On Canton that would be one shared contract touched by every trade (UTXO contention) and would show every holder to everyone. |
 | `MarketTerms` copied into PT/YT | Daml 3.x does not support contract keys, so tokens cannot look up the market by key. |
 | Request, then operator settles | Users cannot see vault holdings, so only the operator can pick which vault piece pays. The bot settles one by one, so there is no contention. |
 | Every request has a Cancel choice | If the operator does nothing, the user gets the tokens back. |
@@ -482,11 +500,11 @@ Say these openly in the pitch. Judges respect honesty more than hidden problems.
 
 | # | Gap | Risk | Planned fix |
 |---|---|---|---|
-| 1 | `Mature` can be called twice | Two snapshots with different indexes | Make `Mature` consuming: archive the Market and recreate it with `matured = True` |
-| 2 | Late oracle at maturity | Snapshot includes extra yield, so PT holders get less | Require `simTime == maturity` in `Mature` |
+| 1 | ~~`Mature` can be called twice~~ **Fixed.** | Two snapshots with different indexes | Done: `Mature` is consuming; it re-creates the Market with `matured = True`, so a second call fails (`LifecycleTest.matureMarket`) |
+| 2 | ~~Late oracle at maturity~~ **Fixed, Pendle-style.** | Snapshot includes extra yield, so PT holders got less | Done: a PT redeem pays at the settle-day price, so PT holders always get 1 USD per PT. A late `Mature` only gives YT holders a little extra yield, the same trade-off Pendle makes (`firstPYIndex` = first transaction after expiry). The operator bot calls `Mature` at the first price on or after maturity (`LifecycleTest.matureLateLikePendle`) |
 | 3 | No automatic maturity | Someone must call `Mature` | Operator bot calls it |
-| 4 | `PT_RequestRedeem` allowed before maturity | Request waits forever (bad UX, no loss) | Add a date check |
-| 5 | Post-maturity yield stays in vault | Funds are stuck | Add a treasury sweep choice |
+| 4 | ~~`PT_RequestRedeem` allowed before maturity~~ **Fixed.** | Request waits forever (bad UX, no loss) | Done: `PT_RequestRedeem` needs the market's `MaturitySnapshot`, which only exists after `Mature` |
+| 5 | Post-maturity yield stays in vault | Funds are stuck: the YT yield after the snapshot and, because PT redeems pay at the settle-day price, the yield on unredeemed principal | Add a treasury sweep choice (Pendle: `redeemInterestAndRewardsPostExpiryForTreasury`) |
 | 6 | Maturity uses `simTime`, not ledger time | Only OK for a demo | Check ledger time in production |
 | 7 | Only USYC/USDC implement the token standard (`Holding` + `TransferFactory` v1). PT and YT don't yet. | Canton wallets cannot show PT/YT | Add a `Holding` interface instance to `PrincipalToken` and `YieldToken` (use `lock` for locked PT) |
 | 8 | No quote expiry | Old quotes stay open | Add `validUntil` |
@@ -507,12 +525,12 @@ HackCanton Season 3 is a 5-week online hackathon. Two official posts give differ
 | Week | Goal | Status |
 |---|---|---|
 | 1 | Daml core: Holding (USYC/USDC) with CIP-56 `Holding` + `TransferFactory` | Done (tests pass) |
-| 1-2 | Daml core: Oracle (done), Split + PT/YT (done, 2026-09-25), Claim, Redeem, Merge, RFQ, demo test. Tracked in [`markets-plan.md`](markets-plan.md) | In progress |
+| 1-2 | Daml core: Oracle (done), Split + PT/YT (done, 2026-09-25), Claim, Mature, Redeem, Merge (done, 2026-09-25), RFQ, demo test. Tracked in [`markets-plan.md`](markets-plan.md) | In progress |
 | 2 | Walking skeleton in `exodus-app/`: sandbox, bootstrap, oracle bot, web UI (CIP-56 wallet, send, privacy table) | Done |
 | 2 | Fix known gap 12 (stale `rateCid`): `RateFeed` + short-lived `RateIndex` snapshots | Done |
 | 3 | `ClientAccess` passes + explicit disclosure (fixes gap 9, most of gap 11, and the client-list leak) | Done |
 | 3 | USYC redeem: request + settle loop in the API + cancel (fixes gap 13) | Done |
-| 2 | Fix known gaps 1, 2, 4. Operator bot (NestJS). | To do |
+| 2 | Fix known gaps 1, 2, 4 (done, 2026-09-25). Operator bot (NestJS). | In progress |
 | 3 | Client app: Tailwind/shadcn UI, landing, sign-up, access form, admin approval, custodial wallets, faucet, Hashnote-style dashboard; skeleton kept as `/lab` (see `client-app.md`) | Done |
 | 3 | Web UI: markets, RFQ screen, yield chart, maturity countdown | To do |
 | 4 | Deploy on LocalNet / DevNet. Record demo video. | To do |
