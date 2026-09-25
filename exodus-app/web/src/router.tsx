@@ -3,28 +3,50 @@
 // - The landing page (/) uses MarketingLayout: editorial, full-width diagrams.
 // - Every other page uses SiteLayout: a compact app frame.
 //
-// The lab is loaded lazily (only when someone opens /lab). It pulls in the
-// ledger client and the generated Daml types, which the landing page does not
-// need, so the landing page stays small and fast.
+// Every page except the landing page is loaded lazily: its code is downloaded
+// only when someone opens it. The app pages pull in the ledger client, the
+// generated Daml types and the chart library, which a visitor reading the
+// landing page does not need, so the landing page stays small and fast.
+// Example: a visitor on / downloads the landing code only; clicking
+// "Request access" then downloads the sign-up page (a few kB).
 //
 // RequireStage decides who may open a page and redirects everyone else
 // (see src/auth/RequireStage.tsx). The pages follow docs/client-app.md.
-import { createBrowserRouter } from 'react-router'
-import { RequireStage } from '@/auth/RequireStage'
+import type { ComponentType } from 'react'
+import { createBrowserRouter, type RouteObject } from 'react-router'
+import { RequireStage, type Stage } from '@/auth/RequireStage'
 import { MarketingLayout } from '@/components/layout/MarketingLayout'
 import { SiteLayout } from '@/components/layout/SiteLayout'
-import { AdminPage } from '@/pages/AdminPage'
-import { AppPage } from '@/pages/AppPage'
-import { DealerPage } from '@/pages/DealerPage'
-import { LabLoading } from '@/pages/LabLoading'
+import { PageLoading } from '@/components/PageLoading'
 import { LandingPage } from '@/pages/LandingPage'
-import { LoginPage } from '@/pages/LoginPage'
-import { MarketPage } from '@/pages/MarketPage'
-import { MarketsPage } from '@/pages/MarketsPage'
 import { NotFoundPage } from '@/pages/NotFoundPage'
-import { OnboardingPage } from '@/pages/OnboardingPage'
-import { PortfolioPage } from '@/pages/PortfolioPage'
-import { SignupPage } from '@/pages/SignupPage'
+
+// A page whose code is downloaded when someone opens it.
+// - `loadPage` must call import() with a fixed path, so Vite can put that
+//   page in its own file (a dynamic path could not be split).
+// - `stage`: who may see the page (see RequireStage); leave it out for a page
+//   open to everyone.
+// While the code downloads on a first visit (for example after a reload on
+// /markets), the router shows PageLoading. When clicking a link inside the
+// app, the current page simply stays on screen until the next one is ready.
+function lazyPage(loadPage: () => Promise<ComponentType>, stage?: Stage): Pick<RouteObject, 'lazy' | 'HydrateFallback'> {
+  return {
+    lazy: async () => {
+      const Page = await loadPage()
+      if (stage === undefined) {
+        return { element: <Page /> }
+      }
+      return {
+        element: (
+          <RequireStage stage={stage}>
+            <Page />
+          </RequireStage>
+        ),
+      }
+    },
+    HydrateFallback: PageLoading,
+  }
+}
 
 export const router = createBrowserRouter([
   {
@@ -35,31 +57,32 @@ export const router = createBrowserRouter([
     element: <SiteLayout />,
     children: [
       // Only for visitors: a logged-in user is sent to their home page.
-      { path: '/signup', element: <RequireStage stage="signed-out"><SignupPage /></RequireStage> },
-      { path: '/login', element: <RequireStage stage="signed-out"><LoginPage /></RequireStage> },
+      { path: '/signup', ...lazyPage(() => import('@/pages/SignupPage').then((module) => module.SignupPage), 'signed-out') },
+      { path: '/login', ...lazyPage(() => import('@/pages/LoginPage').then((module) => module.LoginPage), 'signed-out') },
       // Access form and review status, for any logged-in user.
-      { path: '/onboarding', element: <RequireStage stage="signed-in"><OnboardingPage /></RequireStage> },
+      {
+        path: '/onboarding',
+        ...lazyPage(() => import('@/pages/OnboardingPage').then((module) => module.OnboardingPage), 'signed-in'),
+      },
       // Approved clients only (they have a wallet).
-      { path: '/app', element: <RequireStage stage="approved"><AppPage /></RequireStage> },
+      { path: '/app', ...lazyPage(() => import('@/pages/AppPage').then((module) => module.AppPage), 'approved') },
       // The markets (the Pendle part). Anyone logged in may look; only approved
       // clients can act (the page says so, and the API checks it again).
-      { path: '/markets', element: <RequireStage stage="signed-in"><MarketsPage /></RequireStage> },
-      { path: '/markets/:marketId', element: <RequireStage stage="signed-in"><MarketPage /></RequireStage> },
-      { path: '/portfolio', element: <RequireStage stage="approved"><PortfolioPage /></RequireStage> },
-      // The house dealer's desk (admins run Bank, decision M1).
-      { path: '/dealer', element: <RequireStage stage="admin"><DealerPage /></RequireStage> },
-      // Admins only. The API checks the role again on every admin call.
-      { path: '/admin', element: <RequireStage stage="admin"><AdminPage /></RequireStage> },
-      // The original walking skeleton: act as any demo party and check privacy. Open to everyone.
+      { path: '/markets', ...lazyPage(() => import('@/pages/MarketsPage').then((module) => module.MarketsPage), 'signed-in') },
       {
-        path: '/lab',
-        lazy: async () => {
-          const { LabPage } = await import('@/pages/LabPage')
-          return { Component: LabPage }
-        },
-        // Shown for the moment the lab's code is downloading, when /lab is opened directly.
-        HydrateFallback: LabLoading,
+        path: '/markets/:marketId',
+        ...lazyPage(() => import('@/pages/MarketPage').then((module) => module.MarketPage), 'signed-in'),
       },
+      {
+        path: '/portfolio',
+        ...lazyPage(() => import('@/pages/PortfolioPage').then((module) => module.PortfolioPage), 'approved'),
+      },
+      // The house dealer's desk (admins run Bank, decision M1).
+      { path: '/dealer', ...lazyPage(() => import('@/pages/DealerPage').then((module) => module.DealerPage), 'admin') },
+      // Admins only. The API checks the role again on every admin call.
+      { path: '/admin', ...lazyPage(() => import('@/pages/AdminPage').then((module) => module.AdminPage), 'admin') },
+      // The original walking skeleton: act as any demo party and check privacy. Open to everyone.
+      { path: '/lab', ...lazyPage(() => import('@/pages/LabPage').then((module) => module.LabPage)) },
       { path: '*', element: <NotFoundPage /> },
     ],
   },

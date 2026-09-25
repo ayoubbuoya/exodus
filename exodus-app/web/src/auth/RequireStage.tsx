@@ -14,9 +14,9 @@ import { Navigate } from 'react-router'
 import { RefreshCwIcon } from 'lucide-react'
 import { useProfile } from '@/api/hooks'
 import type { Profile } from '@/api/types'
+import { PageLoading } from '@/components/PageLoading'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
-import { Skeleton } from '@/components/ui/skeleton'
 import { homePathFor } from './home-path.ts'
 
 export type Stage = 'signed-out' | 'signed-in' | 'approved' | 'admin'
@@ -59,16 +59,6 @@ function findRedirect(stage: Stage, profile: Profile | null): string | null {
     return homePathFor(profile)
   }
   return null
-}
-
-function PageLoading() {
-  return (
-    <div className="mx-auto flex max-w-md flex-col gap-3 px-4 py-16" aria-busy="true" aria-label="Loading">
-      <Skeleton className="h-8 w-2/3" />
-      <Skeleton className="h-4 w-full" />
-      <Skeleton className="h-40 w-full" />
-    </div>
-  )
 }
 
 function ServerUnreachable({ onRetry }: { onRetry: () => void }) {
