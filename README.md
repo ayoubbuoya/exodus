@@ -11,7 +11,7 @@ PTs trade through **private RFQ** with **atomic delivery versus payment**: only 
 
 > **Simulation notice.** "USYC" and "USDC" in Exodus are **simulated** tokens issued by our own demo parties (`UsycIssuer`, `UsdcIssuer`). They behave like the real ones but are **not** issued by, connected to, or endorsed by Circle or Hashnote.
 
-![The /app dashboard: USYC price, 30-day APY, demo date, price chart, subscribe panel, faucet, holdings, send form and activity](docs/images/dashboard.png)
+![The Wallet (/app): wallet value, USYC, USDC and the fund's 30-day APY, the USYC price chart, Subscribe / Redeem, holdings with Send, the test USDC faucet and the activity read from the ledger, next to the glass sidebar with the demo clock](docs/images/dashboard.png)
 
 ## What works today
 
@@ -24,7 +24,9 @@ PTs trade through **private RFQ** with **atomic delivery versus payment**: only 
 
 | Landing page | Admin review queue |
 |---|---|
-| ![Landing page with "Request access"](docs/images/landing.png) | ![Admin page listing pending access applications with Approve and Reject buttons](docs/images/admin.png) |
+| ![Landing page with "Request access"](docs/images/landing.png) | ![Applications page listing access requests with their status and Approve / Reject buttons](docs/images/admin.png) |
+| **Private firm quote** | **Portfolio** |
+| ![Market page: buying PT with the indicative price, then a firm quote from the house dealer with a countdown and Accept / Reject](docs/images/market.png) | ![Portfolio: value, claimable yield, principal at maturity, one row per PT and YT with Sell / Claim, and the market activity](docs/images/portfolio.png) |
 
 ## Why Canton
 
