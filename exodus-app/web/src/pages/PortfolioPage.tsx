@@ -94,7 +94,7 @@ function PositionsTable({ positions }: { positions: PortfolioPosition[] }) {
                 )}
               </TableCell>
               <TableCell className="num text-right">{formatAmount(position.ytTotal)}</TableCell>
-              <TableCell className="num text-right text-gold">{formatAmount(position.claimableUsyc)} USYC</TableCell>
+              <TableCell className="num text-right text-yt">{formatAmount(position.claimableUsyc)} USYC</TableCell>
               <TableCell className="num text-right">
                 ${formatUsd(position.value.totalUsd)}
                 <div className="text-xs text-muted-foreground">

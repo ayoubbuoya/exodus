@@ -14,7 +14,7 @@ export function PendingCard({ application }: { application: Application }) {
   return (
     <Card>
       <CardHeader>
-        <StatusTitle icon={<HourglassIcon className="text-warning" />}>Your application is under review</StatusTitle>
+        <StatusTitle icon={<HourglassIcon className="text-info" />}>Your application is under review</StatusTitle>
         <CardDescription>
           An Exodus admin checks every request. This page updates by itself as soon as you are approved.
         </CardDescription>
@@ -42,9 +42,9 @@ export function RejectedNotice({ application }: { application: Application }) {
 
 export function ApprovedCard({ partyId }: { partyId: string }) {
   return (
-    <Card className="border-primary/40">
+    <Card>
       <CardHeader>
-        <StatusTitle icon={<CircleCheckIcon className="text-primary" />}>You are approved</StatusTitle>
+        <StatusTitle icon={<CircleCheckIcon className="text-success" />}>You are approved</StatusTitle>
         <CardDescription>
           Your Canton wallet and access pass are ready. You can now claim test USDC and subscribe to simulated USYC.
         </CardDescription>

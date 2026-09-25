@@ -78,8 +78,8 @@ function RowAction({ application, onApprove, onReject }: { application: Applicat
 }
 
 const STATUS_STYLE: Record<ApplicationStatus, { label: string; className: string }> = {
-  PENDING: { label: 'Pending', className: 'border-warning/40 text-warning' },
-  APPROVED: { label: 'Approved', className: 'border-primary/40 text-primary' },
+  PENDING: { label: 'Pending', className: 'border-info/40 text-info' },
+  APPROVED: { label: 'Approved', className: 'border-success/40 text-success' },
   REJECTED: { label: 'Rejected', className: 'border-destructive/40 text-destructive' },
 }
 

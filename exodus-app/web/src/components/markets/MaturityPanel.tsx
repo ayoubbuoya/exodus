@@ -55,7 +55,7 @@ export function MaturityPanel({ market }: { market: MarketView }) {
         </div>
         <div>
           <dt className="text-xs text-muted-foreground">You get</dt>
-          <dd className="num text-xl font-semibold text-gold">{formatAmount(preview ?? '0')} USYC</dd>
+          <dd className="num text-xl font-semibold">{formatAmount(preview ?? '0')} USYC</dd>
           <dd className="text-xs text-muted-foreground">
             PT ÷ index {formatAmount(market.currentIndex, 4)} = ${formatUsd(Number(ptFree))}
           </dd>

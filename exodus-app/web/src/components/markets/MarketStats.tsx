@@ -19,7 +19,7 @@ export function MarketStats({ market }: { market: MarketView }) {
         {formatDemoDate(market.maturity)}
       </Stat>
       <Stat label="Underlying APY" hint="USYC, last 30 demo days">
-        <span className="num text-gold">{formatPercent(market.underlyingApyPercent)}</span>
+        <span className="num text-yt">{formatPercent(market.underlyingApyPercent)}</span>
       </Stat>
       <Stat label="Fixed APY" hint={prices === null ? 'Trading closed at maturity' : 'If you buy PT now'}>
         <span className="num text-primary">{formatPercent(prices?.askFixedApyPercent ?? null)}</span>

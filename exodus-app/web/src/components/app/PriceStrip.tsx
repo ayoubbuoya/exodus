@@ -27,7 +27,7 @@ export function PriceStrip() {
         <span className="num">${formatAmount(latest.index, 4)}</span>
       </Stat>
       <Stat label="APY (30 demo days)">
-        <span className="num text-gold">{latest.apy30dPercent === null ? '—' : `${latest.apy30dPercent.toFixed(2)}%`}</span>
+        <span className="num text-yt">{latest.apy30dPercent === null ? '—' : `${latest.apy30dPercent.toFixed(2)}%`}</span>
       </Stat>
       <Stat label="Demo date" hint={`${latest.daysToMaturity} days to maturity`}>
         {formatDemoDate(latest.simTime)}
@@ -58,8 +58,8 @@ function LiveStatus({ isLive }: { isLive: boolean }) {
       <TooltipTrigger asChild>
         <span className="inline-flex items-center gap-2" tabIndex={0}>
           <span className="relative flex size-2.5">
-            {isLive && <span className="absolute inline-flex size-full animate-ping rounded-full bg-primary opacity-60" />}
-            <span className={cn('relative inline-flex size-2.5 rounded-full', isLive ? 'bg-primary' : 'bg-warning')} />
+            {isLive && <span className="absolute inline-flex size-full animate-ping rounded-full bg-success opacity-60" />}
+            <span className={cn('relative inline-flex size-2.5 rounded-full', isLive ? 'bg-success' : 'bg-warning')} />
           </span>
           {isLive ? 'Live' : 'Paused'}
         </span>

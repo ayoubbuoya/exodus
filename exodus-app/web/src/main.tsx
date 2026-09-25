@@ -20,7 +20,7 @@ createRoot(document.getElementById('root')!).render(
         <TooltipProvider>
           <RouterProvider router={router} />
           {/* Toast messages ("Subscribed 500 USDC") appear here, bottom-right. */}
-          <Toaster position="bottom-right" richColors />
+          <Toaster position="bottom-right" />
         </TooltipProvider>
       </ThemeProvider>
     </QueryClientProvider>

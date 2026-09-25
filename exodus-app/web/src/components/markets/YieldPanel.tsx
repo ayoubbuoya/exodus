@@ -41,7 +41,7 @@ export function YieldPanel({ market }: { market: MarketView }) {
         </div>
         <div>
           <dt className="text-xs text-muted-foreground">Claimable yield</dt>
-          <dd className="num text-xl font-semibold text-gold">{formatAmount(claimable)} USYC</dd>
+          <dd className="num text-xl font-semibold text-yt">{formatAmount(claimable)} USYC</dd>
           <dd className="text-xs text-muted-foreground">≈ ${formatUsd(position?.value.claimableUsd ?? 0)}</dd>
         </div>
       </dl>
