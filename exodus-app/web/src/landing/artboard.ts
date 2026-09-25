@@ -26,6 +26,8 @@ export const artRight = (frame: Frame, x: number) => `${((frame.x0 + frame.width
 export const artY = (frame: Frame, y: number) => `${((y - frame.y0) / frame.height) * 100}%`
 /** A vertical distance in canvas pixels → CSS `height` inside the artboard. */
 export const artH = (frame: Frame, dy: number) => `${(dy / frame.height) * 100}%`
+/** A horizontal distance in canvas pixels → CSS `width` inside the artboard. */
+export const artW = (frame: Frame, dx: number) => `${(dx / frame.width) * 100}%`
 /**
  * A size in canvas pixels (for example a font size) that scales with the
  * artboard's width, never below `minPx` so text stays readable.

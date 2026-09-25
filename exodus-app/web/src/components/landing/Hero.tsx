@@ -5,7 +5,7 @@ import { cn } from 'cn'
 import { Amount } from '@/components/finance/Amount'
 import { Button } from '@/components/ui/button'
 import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion'
-import { artH, artRight, artSize, artX, artY } from '@/landing/artboard'
+import { artH, artSize, artW, artX, artY } from '@/landing/artboard'
 import { FIXED_APY_LABEL, MATURITY_DATE, QUOTE, SPLIT } from '@/landing/demo-numbers'
 import { ANCHORS, GLASS_FRAME as F } from '@/landing/glass-geometry'
 import { GlassArtboard } from './GlassStage.tsx'
@@ -22,8 +22,10 @@ import { DEMO_ENTRY } from './links.ts'
 // glass wedge (the cut), then the wedge slides out of the block and lights up.
 // That is the product in one gesture:
 //   1,000 USYC  →  1,000 PT (silver, principal) + 1,000 YT (blue glass, yield).
-// Then three glass chips name the pieces in one word each: Principal, Yield,
-// and a private quote (0.9750 per PT, 5.19% fixed).
+// Then three technical annotations name the pieces, like an engineering
+// drawing (a dot on the object, a leader line, a small label): Principal,
+// Yield, and a private quote (0.9750 per PT, 5.19% fixed) that points at the
+// silver block, because it is the price of PT.
 // Everything on the right lives in one artboard (canvas units, see
 // glass-geometry.ts), so it scales as a whole and never overlaps.
 
@@ -32,9 +34,24 @@ const AFTER_SPLIT: CSSProperties = { opacity: 'clamp(0, calc((var(--slide, 0) - 
 // The starting amount fades out as the cut begins.
 const BEFORE_SPLIT: CSSProperties = { opacity: 'clamp(0, calc(1 - var(--seam, 0) * 1.5), 1)' }
 
-// Font sizes in canvas units (they scale with the artboard), with a floor in px.
-const AMOUNT = artSize(F, 54, 18)
-const LABEL = artSize(F, 21, 11)
+// Annotation font sizes in canvas units (they scale with the artboard), with
+// a floor in px. Quieter than the split story's big amounts just below, so
+// the two sections do not look the same.
+const NOTE_LABEL = artSize(F, 17, 10)
+const NOTE_VALUE = artSize(F, 44, 17)
+
+// The annotation layout, in canvas pixels (see glass-geometry.ts).
+// The two labels on the right (Yield and the quote) share one left edge,
+// NOTE_X, and their lines end at the same x, NOTE_END, so they read as one
+// column. The Principal label hangs under the block, on a shoulder of the
+// same length (219 px: 962 → 1181 and 437 → 656).
+const NOTE_X = 962
+const NOTE_END = ANCHORS.wedgeTopSlid.x // 1181
+// The Yield label sits on this line, above the wedge (the wedge's top is at y ≈ 352).
+const YT_SHOULDER_Y = 300
+// The Principal label hangs under this line, just below the block (its lowest point is y 917).
+const PT_SHOULDER_Y = 945
+const PT_SHOULDER_END = ANCHORS.shellBottom.x + (NOTE_END - NOTE_X) // 656
 
 // The page's blocks rise in one after the other.
 const riseIn = (delayMs: number): CSSProperties => ({ animation: `rise-in 900ms var(--ease-standard) ${delayMs}ms both` })
@@ -113,9 +130,8 @@ export function Hero() {
           style={director}
           className="relative mx-auto w-full lg:mx-0 lg:w-[min(580px,calc((100svh-80px)*0.6*1.267))] lg:min-w-0"
         >
-          {/* A dim blue and silver light behind the instrument, so the glass
-              chips around it have something to pick up. It comes in with the
-              intro (--rise). */}
+          {/* A dim blue and silver light behind the instrument, so it does
+              not sit on flat black. It comes in with the intro (--rise). */}
           <SoftLight className="inset-[-12%]" color="rgb(110 145 230 / 0.16)" style={{ opacity: 'var(--rise)' }} />
           <GlassArtboard
             frame={F}
@@ -124,75 +140,55 @@ export function Hero() {
             label={`${SPLIT.usyc} USYC split into ${SPLIT.pt} PT, the silver principal block, and ${SPLIT.yt} YT, the blue glass yield wedge. Both mature on ${MATURITY_DATE}.`}
           >
             {/* Where it starts: 1,000 USYC. It fades as the cut begins. */}
-            <div
-              aria-hidden="true"
-              className="glass absolute rounded-full px-[1em] py-[0.45em] leading-tight"
-              style={{ left: artX(F, 250), top: artY(F, 180), fontSize: artSize(F, 22, 11), ...BEFORE_SPLIT }}
-            >
-              <span className="num font-medium">{SPLIT.usyc} USYC</span>
-            </div>
+            <Note style={{ left: artX(F, 250), top: artY(F, 180), ...BEFORE_SPLIT }} label="Deposit">
+              <span className="num">{SPLIT.usyc} USYC</span>
+            </Note>
 
-            {/* PT: a hairline from the block's lowest point down to its chip. */}
-            <div
-              aria-hidden="true"
-              className="absolute w-px bg-linear-to-b from-foreground/60 to-foreground/0"
-              style={{ left: artX(F, ANCHORS.shellBottom.x), top: artY(F, ANCHORS.shellBottom.y + 8), height: artH(F, 22), ...AFTER_SPLIT }}
-            />
-            <FloatingChip delay="0s" style={{ left: artX(F, ANCHORS.shellBottom.x - 26), top: artY(F, 948), ...AFTER_SPLIT }}>
-              <span className="block text-muted-foreground" style={{ fontSize: LABEL }}>
-                Principal
-              </span>
-              <span className="mt-[0.1em] block font-display" style={{ fontSize: AMOUNT }}>
-                <Amount value={SPLIT.pt} unit="PT" />
-              </span>
-            </FloatingChip>
+            {/* PT: a dot on the block's lowest point, a line down, a short
+                shoulder to the right, and the label hanging under it. */}
+            <AnchorDot at={ANCHORS.shellBottom} tone="pt" />
+            <VLine x={ANCHORS.shellBottom.x} y1={ANCHORS.shellBottom.y} y2={PT_SHOULDER_Y} tone="pt" />
+            <HLine y={PT_SHOULDER_Y} x1={ANCHORS.shellBottom.x} x2={PT_SHOULDER_END} tone="pt" />
+            <Note style={{ left: artX(F, ANCHORS.shellBottom.x), top: artY(F, PT_SHOULDER_Y + 10), ...AFTER_SPLIT }} label="Principal">
+              <Amount value={SPLIT.pt} unit="PT" />
+            </Note>
 
-            {/* YT: a hairline from the top of the wedge up to its chip. Blue = yield. */}
-            <div
-              aria-hidden="true"
-              className="absolute w-px bg-linear-to-t from-yt/80 to-yt/0"
-              style={{
-                left: artX(F, ANCHORS.wedgeTopSlid.x),
-                top: artY(F, 305),
-                height: artH(F, ANCHORS.wedgeTopSlid.y - 315),
-                ...AFTER_SPLIT,
-              }}
-            />
-            <FloatingChip
-              delay="-2.4s"
-              className="text-right"
-              style={{ right: artRight(F, 1320), top: artY(F, 185), ...AFTER_SPLIT }}
+            {/* YT: a dot on the top of the wedge, a line up, a shoulder to the
+                left (to NOTE_X), and the label sitting on it. Blue = yield. */}
+            <AnchorDot at={ANCHORS.wedgeTopSlid} tone="yt" />
+            <VLine x={NOTE_END} y1={YT_SHOULDER_Y} y2={ANCHORS.wedgeTopSlid.y} tone="yt" />
+            <HLine y={YT_SHOULDER_Y} x1={NOTE_X} x2={NOTE_END} tone="yt" />
+            <Note
+              style={{ left: artX(F, NOTE_X), top: artY(F, YT_SHOULDER_Y - 10), transform: 'translateY(-100%)', ...AFTER_SPLIT }}
+              label="Yield"
+              valueClassName="text-yt"
             >
-              <span className="block text-muted-foreground" style={{ fontSize: LABEL }}>
-                Yield
-              </span>
-              <span className="mt-[0.1em] block font-display text-yt" style={{ fontSize: AMOUNT }}>
-                <Amount value={SPLIT.yt} unit="YT" />
-              </span>
-            </FloatingChip>
+              <Amount value={SPLIT.yt} unit="YT" />
+            </Note>
 
-            {/* One private quote on this market, under the glass wedge.
-                Readable text, so it is not hidden from screen readers. */}
-            <div
-              className="absolute hidden sm:block"
-              style={{ right: artRight(F, 1330), top: artY(F, 665), ...AFTER_SPLIT }}
-            >
-              <div
-                className="glass-strong glass-sheen rounded-[22px]"
-                style={{ padding: `${artSize(F, 20, 10)} ${artSize(F, 24, 12)}`, animation: 'chip-float 7s ease-in-out -4s infinite' }}
+            {/* The private quote on this market. It is the price of PT, so its
+                line starts on the silver block (not the blue wedge, which
+                means yield) and runs right to the same end as the Yield
+                shoulder. The label hangs under it, clear of the wedge (whose
+                lowest point there is y ≈ 624). Readable text, so it is not
+                hidden from screen readers. */}
+            <div className="hidden sm:block">
+              <AnchorDot at={ANCHORS.shellRightFace} tone="pt" />
+              <HLine y={ANCHORS.shellRightFace.y} x1={ANCHORS.shellRightFace.x} x2={NOTE_END} tone="pt" />
+              <Note
+                readable
+                style={{ left: artX(F, NOTE_X), top: artY(F, ANCHORS.shellRightFace.y + 12), ...AFTER_SPLIT }}
+                label={
+                  <>
+                    {/* The crossed-out eye says "private" without a sentence. */}
+                    <EyeOffIcon className="mr-[0.4em] inline size-[1.2em] align-[-0.2em]" aria-hidden />
+                    Private quote · PT
+                  </>
+                }
+                footer={`${FIXED_APY_LABEL} fixed`}
               >
-                {/* The crossed-out eye says "private" without a sentence. */}
-                <p className="flex items-center gap-1.5 text-muted-foreground" style={{ fontSize: LABEL }}>
-                  <EyeOffIcon className="size-[1.1em]" aria-hidden />
-                  Private quote
-                </p>
-                <p className="mt-[0.15em] font-display" style={{ fontSize: artSize(F, 44, 16) }}>
-                  <Amount value={QUOTE.price} />
-                </p>
-                <p className="num mt-[0.2em] text-muted-foreground" style={{ fontSize: LABEL }}>
-                  {FIXED_APY_LABEL} fixed
-                </p>
-              </div>
+                <Amount value={QUOTE.price} />
+              </Note>
             </div>
           </GlassArtboard>
         </div>
@@ -201,25 +197,85 @@ export function Hero() {
   )
 }
 
-type FloatingChipProps = {
-  className?: string
-  style: CSSProperties
-  /** A negative delay starts the float part-way through, so chips never bob in step. */
-  delay: string
-  children: ReactNode
+// ----------------------------------------------------------------------------
+// Technical annotations: the hero labels its pieces like an engineering
+// drawing, with a dot ON the object, a 1 px leader line and a small label.
+// They stay still (no floating cards), so they read as part of the
+// instrument, not as app widgets. All positions are canvas pixels.
+
+type Point = { x: number; y: number }
+// 'yt' = the yield wedge (blue); 'pt' = the principal block (silver).
+type Tone = 'pt' | 'yt'
+
+const LINE_TONE: Record<Tone, string> = { pt: 'bg-foreground/35', yt: 'bg-yt/55' }
+
+// A dot where an annotation is attached to the object, with a faint halo.
+// The centre is always silver: a blue dot vanishes on the blue glass wedge,
+// so the yield dot shows its colour in the halo instead.
+function AnchorDot({ at, tone }: { at: Point; tone: Tone }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={cn(
+        'absolute size-[7px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-foreground ring-4',
+        tone === 'yt' ? 'ring-yt/45' : 'ring-foreground/15',
+      )}
+      style={{ left: artX(F, at.x), top: artY(F, at.y), ...AFTER_SPLIT }}
+    />
+  )
 }
 
-// A label on glass that floats gently next to the object. Decorative (the
-// stage's label already says the same thing to screen readers).
-function FloatingChip({ className, style, delay, children }: FloatingChipProps) {
+// A horizontal leader line from x1 to x2 (x1 < x2), at height y.
+function HLine({ y, x1, x2, tone }: { y: number; x1: number; x2: number; tone: Tone }) {
   return (
-    <div aria-hidden="true" className={cn('absolute', className)} style={style}>
-      <div
-        className="glass rounded-xl leading-tight"
-        style={{ padding: '0.7em 1.05em 0.75em', animation: `chip-float 6s ease-in-out ${delay} infinite` }}
-      >
+    <span
+      aria-hidden="true"
+      className={cn('absolute h-px', LINE_TONE[tone])}
+      style={{ left: artX(F, x1), top: artY(F, y), width: artW(F, x2 - x1), ...AFTER_SPLIT }}
+    />
+  )
+}
+
+// A vertical leader line from y1 down to y2 (y1 < y2), at x.
+function VLine({ x, y1, y2, tone }: { x: number; y1: number; y2: number; tone: Tone }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={cn('absolute w-px', LINE_TONE[tone])}
+      style={{ left: artX(F, x), top: artY(F, y1), height: artH(F, y2 - y1), ...AFTER_SPLIT }}
+    />
+  )
+}
+
+type NoteProps = {
+  /** Position (left / top, and a transform to sit above a line). */
+  style: CSSProperties
+  /** The small caps line, for example "Yield". */
+  label: ReactNode
+  /** The number. */
+  children: ReactNode
+  /** An optional small line under the number, for example "5.19% fixed". */
+  footer?: string
+  valueClassName?: string
+  /** Screen readers read it (the quote). The others repeat the stage's own label, so they are hidden. */
+  readable?: boolean
+}
+
+// The text of an annotation: a small caps label and the number under it.
+function Note({ style, label, children, footer, valueClassName, readable = false }: NoteProps) {
+  return (
+    <div aria-hidden={readable ? undefined : true} className="absolute leading-tight whitespace-nowrap" style={style}>
+      <p className="label-caps" style={{ fontSize: NOTE_LABEL }}>
+        {label}
+      </p>
+      <p className={cn('mt-[0.2em] font-display', valueClassName)} style={{ fontSize: NOTE_VALUE }}>
         {children}
-      </div>
+      </p>
+      {footer !== undefined && (
+        <p className="num mt-[0.3em] text-muted-foreground" style={{ fontSize: NOTE_LABEL }}>
+          {footer}
+        </p>
+      )}
     </div>
   )
 }

@@ -313,16 +313,6 @@
     --glow: 1;
   }
 }
-/* A chip that floats a little, out of step with the object. */
-@keyframes chip-float {
-  0%,
-  100% {
-    transform: translate3d(0, 0, 0);
-  }
-  50% {
-    transform: translate3d(0, -6px, 0);
-  }
-}
 /* Ambient light: soft pools that drift like light under water. */
 @keyframes drift-a {
   0%,

@@ -26,6 +26,10 @@ export const ANCHORS = {
   shellBottom: { x: 437, y: 917 },
   // The top of the wedge near its wide face, once it has slid out.
   wedgeTopSlid: { x: 1181, y: 383 },
+  // A point on the block's flat right face, below the slot (the face is at
+  // x 889 from y 700 to 740, measured on shell.webp's alpha). The hero's
+  // private quote points here: the quote is the price of PT, the block.
+  shellRightFace: { x: 889, y: 720 },
 } as const
 
 /**
