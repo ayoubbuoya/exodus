@@ -14,6 +14,8 @@ import {
   getQuotes,
   getRfqRequests,
   quoteRfq,
+  requestClaim,
+  requestPtRedeem,
   setAsideUsdcIds,
   unitsToDecimal,
   yearsBetween,
@@ -131,6 +133,33 @@ export class DealerDeskService {
       return { requestId };
     } catch (error) {
       throw toHttpError(error, "Declining a request", this.logger);
+    }
+  }
+
+  // Bank claims the yield of all its YT in one market (spec section 9, step 3:
+  // on Jan 1, 1000 YT from 1.00 to 1.025 -> 24.390243 USYC). The Operator's
+  // bot pays it within a few seconds, like any client's claim.
+  async claimYield(marketId: string): Promise<{ marketId: string }> {
+    const parties = await this.ledger.getDemoParties();
+    try {
+      await requestClaim(this.ledger.backendLedger, { owner: parties[HOUSE_DEALER], operator: parties.Operator, marketId });
+      this.logger.log(`Dealer desk requested Bank's YT claim in ${marketId}`);
+      return { marketId };
+    } catch (error) {
+      throw toHttpError(error, "Dealer claim", this.logger);
+    }
+  }
+
+  // After maturity, Bank redeems all its free PT (spec section 9, step 6:
+  // 500 PT at 1.05 -> 476.190476 USYC).
+  async redeemPt(marketId: string): Promise<{ marketId: string }> {
+    const parties = await this.ledger.getDemoParties();
+    try {
+      await requestPtRedeem(this.ledger.backendLedger, { owner: parties[HOUSE_DEALER], operator: parties.Operator, marketId });
+      this.logger.log(`Dealer desk requested Bank's PT redeem in ${marketId}`);
+      return { marketId };
+    } catch (error) {
+      throw toHttpError(error, "Dealer PT redeem", this.logger);
     }
   }
 

@@ -28,6 +28,11 @@ function formatField(value: unknown): string {
   if (Array.isArray(value)) {
     return `[${value.map(formatField).join(', ')}]`
   }
+  // A PT, YT, Market or Quote carries its market's terms: show the market id
+  // ("PT-USYC-APR2027") instead of the whole record.
+  if (typeof value === 'object' && value !== null && 'marketId' in value) {
+    return String(value.marketId)
+  }
   if (typeof value === 'object' && value !== null) {
     return JSON.stringify(value)
   }
@@ -42,6 +47,19 @@ function summarizeFields(createArgument: unknown): string {
   return Object.entries(createArgument)
     .map(([key, value]) => `${key}: ${formatField(value)}`)
     .join(', ')
+}
+
+// The market contracts whose visibility is the privacy story of spec section 10.
+const MARKET_TEMPLATES = ['Market', 'PrincipalToken', 'YieldToken', 'RfqRequest', 'Quote'] as const
+
+// "1 Market, 2 PrincipalToken, 1 YieldToken, 0 RfqRequest, 0 Quote".
+// Example: the Operator sees the Market and every PT/YT (it signs them) but
+// 0 RfqRequest and 0 Quote: it never learns a trade's price.
+function summarizeMarketContracts(events: CreatedEvent[]): string {
+  return MARKET_TEMPLATES.map((name) => {
+    const count = events.filter((event) => moduleAndEntity(event.templateId).endsWith(`:${name}`)).length
+    return `${count} ${name}`
+  }).join(', ')
 }
 
 function byTemplateName(a: CreatedEvent, b: CreatedEvent): number {
@@ -67,6 +85,9 @@ export function VisibleContracts({ party, partyName: name }: VisibleContractsPro
             <p className="mb-3 text-sm text-muted-foreground">
               {name} can see <span className="num text-foreground">{contracts.data.length}</span> active contract
               {contracts.data.length === 1 ? '' : 's'}.
+            </p>
+            <p className="mb-3 text-sm text-muted-foreground">
+              Markets: <span className="num text-foreground">{summarizeMarketContracts(contracts.data)}</span>.
             </p>
             <Table>
               <TableHeader>

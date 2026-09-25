@@ -546,7 +546,7 @@ HackCanton Season 3 is a 5-week online hackathon. Two official posts give differ
 | 3 | USYC redeem: request + settle loop in the API + cancel (fixes gap 13) | Done |
 | 2 | Fix known gaps 1, 2, 4 (done, 2026-09-25). Operator bot (NestJS). | In progress |
 | 3 | Client app: Tailwind/shadcn UI, landing, sign-up, access form, admin approval, custodial wallets, faucet, Hashnote-style dashboard; skeleton kept as `/lab` (see `client-app.md`) | Done |
-| 3 | Web UI: markets, RFQ screen, yield chart, maturity countdown | To do |
+| 3 | Web UI: markets list, market page (Fixed Yield RFQ with quote countdown, Mint / Redeem, Yield, At maturity), portfolio, dealer desk (see `markets-plan.md` Phase 7) | Done |
 | 4 | Deploy on LocalNet / DevNet. Record demo video. | To do |
 | 5 | Pitch deck. Stretch: token standard interfaces for PT/YT, registry API. | To do |
 

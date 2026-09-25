@@ -158,7 +158,8 @@ export function useRejectApplication() {
 // Dashboard (/app): price, wallet, activity and the wallet commands
 // ---------------------------------------------------------------------------
 
-const WALLET_KEY = ['wallet']
+// Exported: the market hooks reload the wallet after a trade or a payout.
+export const WALLET_KEY = ['wallet']
 const ACTIVITY_KEY = ['wallet', 'activity']
 const REDEMPTIONS_KEY = ['wallet', 'redemptions']
 
@@ -199,10 +200,12 @@ export function useWallet() {
 }
 
 // Also polls, so tokens that another client sends show up by themselves.
-export function useActivity() {
+// `limit`: the Wallet shows the last 10 rows; the Portfolio asks for more,
+// because it keeps only the market rows.
+export function useActivity(limit = ACTIVITY_ROWS) {
   return useQuery({
-    queryKey: ACTIVITY_KEY,
-    queryFn: () => apiRequest<{ items: ActivityRow[] }>('GET', `/wallet/activity?limit=${ACTIVITY_ROWS}`),
+    queryKey: [...ACTIVITY_KEY, limit],
+    queryFn: () => apiRequest<{ items: ActivityRow[] }>('GET', `/wallet/activity?limit=${limit}`),
     refetchInterval: WALLET_POLL_MS,
   })
 }

@@ -42,6 +42,10 @@ export type PortfolioPosition = {
   ptLocked: string; // reserved for a live quote (a dealer's PT); cannot be used
   ptFree: string;
   ytTotal: string;
+  // Each YT piece with the index its yield is paid up to. A merge pays
+  // amount / lastIndex, so the web app needs it for an exact preview.
+  // Example: [{ amount: "1000.0000000000", lastIndex: "1.0250000000" }]
+  ytPieces: { amount: string; lastIndex: string }[];
   claimableUsyc: string; // what a claim would pay now
   index: string; // the USYC price used for claimableUsyc (the maturity index once matured)
   ptPrice: string; // the dealer's mid price, "1" after maturity
@@ -123,6 +127,7 @@ export class PortfolioService {
       ptLocked: position.ptLocked,
       ptFree: position.ptFree,
       ytTotal: position.ytTotal,
+      ytPieces: position.ytPieces.map((piece) => ({ amount: piece.payload.amount, lastIndex: piece.payload.lastIndex })),
       claimableUsyc,
       index,
       ptPrice,

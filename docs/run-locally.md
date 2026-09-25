@@ -136,17 +136,19 @@ Use two browser windows. A private/incognito window gives a second login.
 
 ---
 
-### 3.1 The markets through the API (Swagger)
+### 3.1 The markets (spec section 13 demo)
 
-The market screens come in Phase 7. Until then, try the markets in Swagger (**http://localhost:3000/api/docs**, log in first with `POST /auth/login`, the cookie is kept):
+Tip: use `npm run oracle:hold` for this demo and move the clock by hand with **Next step** on `/lab` (as the Oracle), so the dates wait for you.
 
-1. `GET /markets`: `PT-USYC-APR2027` with the house dealer's prices, for example `askPrice 0.975503` (5.1 % fixed) on Oct 1.
-2. `POST /quote-requests` `{ "marketId": "PT-USYC-APR2027", "side": "BuyPt", "ptAmount": "20" }`, then `GET /quotes` after about 2 seconds: the dealer bot has answered.
-3. `POST /quotes/{quoteId}/acceptance`: your USDC and Bank's PT change hands in one transaction. `GET /portfolio` shows the PT.
-4. `POST /markets/PT-USYC-APR2027/splits` `{ "usycAmount": "30" }`, then `.../merges` `{ "amount": "10" }`: the merge shows in `openRequests` for about 2 seconds, then the USYC is back.
-5. After the demo clock passes Apr 1 2027, the Operator bot matures the market by itself; then `.../pt-redemptions` and `.../claims`.
+1. **Client (window B)**, after subscribing some USDC to USYC on the Wallet: open **Markets** → `PT-USYC-APR2027`. On Oct 1 it shows a fixed APY of 5.10 % (buy PT at 0.975503).
+2. **Fixed Yield (PT)**: enter `20`, **Get firm quote**. Within about 2 seconds the house dealer's quote appears with a countdown. **Accept**: your USDC and the PT change hands in one transaction.
+3. **Privacy (window A, admin)**: open `/lab`, act as **Operator**: its "Markets" line shows `0 Quote` (it never sees the price); as **Bank** it shows the quote.
+4. **Mint / Redeem**: mint PT + YT from USYC; redeem PT + YT together (the USYC arrives in about 2 seconds).
+5. Move the clock to Jan 1 2027. **Dealer** page (admin): **Claim Bank's yield** → 24.390243 USYC for Bank's 1000 YT. The client's **Yield (YT)** tab shows its own claimable yield.
+6. Move the clock to Apr 1 2027: the Operator bot matures the market by itself (the market shows **Matured**).
+7. **At maturity**: **Redeem PT** (1 USD of USYC per PT), then the final claim in **Yield (YT)**. **Portfolio** and the Wallet's activity show every step.
 
-As an admin, `GET /dealer/position` shows Bank's inventory and `PUT /dealer/settings` turns auto-quoting off, so requests wait for `POST /dealer/quote-requests/{id}/quotes`.
+Everything is also in Swagger (**http://localhost:3000/api/docs**): `/markets`, `/quote-requests`, `/quotes`, `/portfolio`, `/dealer/*`.
 
 **After updating the code to Phase 6**, run `npm run db:migrate` once: it adds the `dealer_settings` table.
 

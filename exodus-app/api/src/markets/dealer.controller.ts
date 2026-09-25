@@ -17,6 +17,7 @@ import { ResponseMessage } from "../common/response-envelope.ts";
 import { DealerDeskService, type DealerPosition, type DealerRequestView } from "./dealer-desk.service.ts";
 import { DealerSettingsService, type DealerSettingsView } from "./dealer-settings.service.ts";
 import { ManualQuoteDto, UpdateDealerSettingsDto } from "./dto/dealer.dto.ts";
+import { MarketParamsDto } from "./dto/markets.dto.ts";
 import { QuoteRequestParamsDto } from "./dto/trading.dto.ts";
 
 @ApiTags("dealer")
@@ -62,6 +63,24 @@ export class DealerController {
   @ApiOkResponse({ description: "DealerPosition" })
   async position(): Promise<DealerPosition> {
     return this.desk.getPosition();
+  }
+
+  @Post("markets/:marketId/claims")
+  @ResponseMessage("Bank's yield claim requested")
+  @ApiOperation({ summary: "Claim the yield of all the house dealer's YT in a market (the Operator bot pays it)" })
+  @ApiCreatedResponse({ description: "Requested" })
+  @ApiUnprocessableEntityResponse({ description: "Rejected, for example Bank holds no YT" })
+  async claimYield(@Param() params: MarketParamsDto): Promise<{ marketId: string }> {
+    return this.desk.claimYield(params.marketId);
+  }
+
+  @Post("markets/:marketId/pt-redemptions")
+  @ResponseMessage("Bank's PT redeem requested")
+  @ApiOperation({ summary: "After maturity: redeem all the house dealer's free PT (the Operator bot pays it)" })
+  @ApiCreatedResponse({ description: "Requested" })
+  @ApiUnprocessableEntityResponse({ description: "Rejected, for example the market has not matured yet" })
+  async redeemPt(@Param() params: MarketParamsDto): Promise<{ marketId: string }> {
+    return this.desk.redeemPt(params.marketId);
   }
 
   @Get("settings")

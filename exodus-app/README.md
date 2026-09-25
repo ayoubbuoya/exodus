@@ -61,6 +61,8 @@ The API checks every `.env` value at startup (see `api/.env.example`). It also p
 - every `DEALER_POLL_SECONDS` (1) the house dealer bot (Bank) withdraws expired quotes and answers new RFQs (price from the dealer settings in PostgreSQL, editable by admins at `/api/dealer/settings`);
 - every `WALLET_CHECK_SECONDS` (30) it re-creates client wallets whose party no longer exists. The sandbox forgets everything when it restarts, so after `npm run ledger` + `npm run bootstrap`, approved clients get a new, empty wallet on their own.
 
+The web dev server forwards `/api` to `API_URL` (default `http://localhost:3000`) and `/v2` to `LEDGER_URL` (default `http://localhost:7575`), so a second copy of Exodus can run next to your usual one.
+
 To change the database schema: edit `api/prisma/schema.prisma`, then `npm run db:migrate:dev -w @exodus/api -- --name what_changed`.
 
 After a change in `exodus-contract/main`, run `npm run codegen:daml` again and restart the sandbox.

@@ -95,10 +95,29 @@ export type Instrument = 'USYC' | 'USDC'
 // GET /api/wallet/activity: one token movement, rebuilt from the ledger history.
 export type ActivityRow = {
   updateId: string
-  kind: 'RECEIVED' | 'SENT' | 'SUBSCRIBED' | 'REDEEM_REQUESTED' | 'REDEEMED' | 'REDEEM_CANCELLED' | 'OTHER'
+  kind: ActivityKind
   at: string
-  changes: Record<string, string> // { USDC: "-40.0000000000", USYC: "39.9201590000" }
+  // { USDC: "-40.0000000000", USYC: "39.9201590000" }, or with market tokens:
+  // { USYC: "-30", "PT-USYC-APR2027": "30", "YT-USYC-APR2027": "30" }
+  changes: Record<string, string>
 }
+
+export type ActivityKind =
+  // The USYC fund (the simulated on-ramp).
+  | 'RECEIVED'
+  | 'SENT'
+  | 'SUBSCRIBED'
+  | 'REDEEM_REQUESTED'
+  | 'REDEEMED'
+  | 'REDEEM_CANCELLED'
+  // The markets (PT and YT). Payouts show once the Operator has paid them.
+  | 'SPLIT'
+  | 'BOUGHT_PT'
+  | 'SOLD_PT'
+  | 'CLAIMED'
+  | 'REDEEMED_PT'
+  | 'MERGED'
+  | 'OTHER'
 
 export type FaucetClaimResult = {
   amount: string
@@ -118,4 +137,127 @@ export type OpenRedemption = {
   requestId: string // a ledger contract id, for example "00d1..."
   usycAmount: string // for example "100.0000000000"
   requestedAt: string
+}
+
+// ---------------------------------------------------------------------------
+// Markets (the Pendle part): /markets, /portfolio, /quote-requests, /quotes, /dealer
+// ---------------------------------------------------------------------------
+
+// From the client's side, the same words as the Daml contract:
+// BuyPt = I buy PT and pay USDC; SellPt = I sell PT and get USDC.
+export type RfqSide = 'BuyPt' | 'SellPt'
+
+// The house dealer's prices for one market. Prices are USDC per PT with 6
+// decimals; APYs are percent (5.1 means 5.1 %), null at maturity.
+export type DealerPrices = {
+  targetApyPercent: number
+  midPrice: string
+  askPrice: string // you BUY PT at this price
+  bidPrice: string // you SELL PT at this price
+  askFixedApyPercent: number | null
+  bidFixedApyPercent: number | null
+}
+
+// GET /api/markets: one market card.
+export type MarketView = {
+  marketId: string // for example "PT-USYC-APR2027"
+  symbols: { pt: string; yt: string }
+  instrument: string // "USYC" (simulated)
+  maturity: string // on the demo clock
+  daysToMaturity: number
+  matured: boolean
+  maturityIndex: string | null // the frozen index once matured
+  currentIndex: string
+  priceIsLive: boolean
+  underlyingApyPercent: number | null
+  indicative: DealerPrices | null // null once PT trading has closed (maturity)
+  dealerAutoQuote: boolean
+}
+
+export type MarketRequestKind = 'CLAIM' | 'PT_REDEEM' | 'MERGE'
+
+// GET /api/portfolio
+export type PortfolioPosition = {
+  marketId: string
+  symbols: { pt: string; yt: string }
+  matured: boolean
+  ptTotal: string
+  ptLocked: string // a dealer's PT reserved for a live quote
+  ptFree: string
+  ytTotal: string
+  ytPieces: { amount: string; lastIndex: string }[]
+  claimableUsyc: string
+  index: string
+  ptPrice: string
+  value: { ptUsd: number; ytUsd: number; claimableUsd: number; totalUsd: number }
+}
+
+export type OpenMarketRequest = {
+  requestId: string
+  kind: MarketRequestKind
+  marketId: string
+  amount: string
+  estimatedUsyc: string
+  requestedAt: string
+}
+
+export type Portfolio = {
+  positions: PortfolioPosition[]
+  openRequests: OpenMarketRequest[]
+  totalUsd: number
+}
+
+// GET /api/quote-requests: a request the dealer has not answered yet.
+export type QuoteRequestView = {
+  requestId: string
+  marketId: string
+  side: RfqSide
+  ptAmount: string
+  requestedAt: string
+}
+
+// GET /api/quotes: a firm, private quote.
+export type QuoteView = {
+  quoteId: string
+  marketId: string
+  side: RfqSide
+  ptAmount: string
+  price: string // USDC per PT, for example "0.9755030000"
+  usdcAmount: string // what changes hands, for example "19.5100600000"
+  validUntil: string
+  isLive: boolean
+  fixedApyPercent: number | null
+}
+
+// GET /api/dealer/quote-requests (admins)
+export type DealerRequestView = QuoteRequestView & {
+  requester: string
+  suggestedPrice: string | null
+  suggestedFixedApyPercent: number | null
+}
+
+// GET /api/dealer/position (admins): the house dealer Bank's inventory.
+export type DealerPosition = {
+  markets: {
+    marketId: string
+    ptTotal: string
+    ptLocked: string
+    ptFree: string
+    ytTotal: string
+    claimableUsyc: string | null
+  }[]
+  usdc: string
+  usdcSetAside: string
+  usyc: string
+  liveQuotes: (QuoteView & { requester: string })[]
+}
+
+// GET / PUT /api/dealer/settings (admins). Percentages: 5.2 means 5.2 %.
+export type DealerSettings = {
+  autoQuote: boolean
+  apyOffsetPercent: number
+  fallbackApyPercent: number
+  spreadPercent: number
+  maxPtPerQuote: string
+  quoteValidSeconds: number
 }

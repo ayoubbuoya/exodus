@@ -1,7 +1,7 @@
 // Unit tests for the dashboard's display helpers.
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { formatCountdown, formatDemoDate, formatSignedAmount } from './format.ts'
+import { formatCountdown, formatDemoDate, formatPercent, formatSignedAmount } from './format.ts'
 
 describe('formatDemoDate', () => {
   it('formats in UTC, so midnight demo dates never show the day before', () => {
@@ -24,5 +24,13 @@ describe('formatSignedAmount', () => {
     const plain = (value: string) => value
     assert.equal(formatSignedAmount('100', 'USDC', plain), '+100 USDC')
     assert.equal(formatSignedAmount('-40', 'USDC', plain), '−40 USDC')
+  })
+})
+
+describe('formatPercent', () => {
+  it('shows 2 decimals, or a dash when there is no value', () => {
+    assert.equal(formatPercent(5.1), '5.10%')
+    assert.equal(formatPercent(10.29), '10.29%')
+    assert.equal(formatPercent(null), '—')
   })
 })

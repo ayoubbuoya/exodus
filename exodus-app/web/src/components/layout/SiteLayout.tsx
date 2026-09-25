@@ -8,13 +8,24 @@ import { ThemeToggle } from './ThemeToggle.tsx'
 import { UserMenu } from './UserMenu.tsx'
 
 // Links in the top bar, depending on who is logged in:
-//   everyone: Lab · approved clients: App · admins: Admin
+//   approved clients: Wallet · Markets · Portfolio
+//   admins:           Markets · Dealer · Admin
+//   everyone:         Lab
+// "Wallet" is the simulated USYC fund (the on-ramp); Markets and Portfolio are
+// the Pendle part built on top of it, on their own pages.
 function navLinksFor(profile: Profile | null | undefined): { to: string; label: string }[] {
   const links: { to: string; label: string }[] = []
   if (profile?.wallet != null) {
-    links.push({ to: '/app', label: 'App' })
+    links.push({ to: '/app', label: 'Wallet' })
+  }
+  if (profile?.wallet != null || profile?.role === 'ADMIN') {
+    links.push({ to: '/markets', label: 'Markets' })
+  }
+  if (profile?.wallet != null) {
+    links.push({ to: '/portfolio', label: 'Portfolio' })
   }
   if (profile?.role === 'ADMIN') {
+    links.push({ to: '/dealer', label: 'Dealer' })
     links.push({ to: '/admin', label: 'Admin' })
   }
   links.push({ to: '/lab', label: 'Lab' })
@@ -29,7 +40,8 @@ export function SiteLayout() {
       <header className="sticky top-0 z-40 border-b bg-background/80 backdrop-blur">
         <div className="mx-auto flex h-14 max-w-6xl items-center gap-2 px-4 sm:gap-4">
           <Logo />
-          <nav aria-label="Main" className="flex items-center gap-1">
+          {/* Up to 5 links: on a phone the row scrolls sideways instead of wrapping. */}
+          <nav aria-label="Main" className="-mx-1 flex min-w-0 items-center gap-1 overflow-x-auto px-1">
             {navLinksFor(profile).map((link) => (
               <NavLink
                 key={link.to}

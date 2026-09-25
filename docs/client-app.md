@@ -30,6 +30,10 @@ Example with Alice:
 | `/login`, `/signup` | Everyone | Email + password |
 | `/onboarding` | Signed-in, not approved | Access form, then "pending review" / "rejected" status |
 | `/app` | Approved clients | Dashboard: price strip (USYC price, APY from index growth, demo date, live dot), price chart, Subscribe/Redeem panel (Redeem shows pending requests with a Cancel button), faucet card, holdings, activity |
+| `/markets` | Signed in | Market cards: maturity, underlying APY, fixed APY, the house dealer's PT price (markets-plan Phase 7) |
+| `/markets/:id` | Signed in (actions: approved clients) | Tabs Fixed Yield (PT) (private RFQ: quote, countdown, Accept/Reject), Mint / Redeem (split / merge), Yield (YT) (claim), At maturity (redeem PT); "Your position" card |
+| `/portfolio` | Approved clients | PT/YT per market with USD value, open payout requests with Cancel, market activity |
+| `/dealer` | Admins | House dealer desk: open RFQs (manual quote / decline), Bank's position and its claim / PT redeem, live quotes, bot settings |
 | `/admin` | Operator admins | Applications list, Approve / Reject |
 | `/lab` | Developers | The original walking skeleton: party switcher, oracle card and controls, CIP-56 wallet, subscribe, send, "what can this party see?" privacy table. Kept on purpose as the privacy demo for judges |
 
@@ -151,7 +155,7 @@ Base path `/api` (Swagger UI at `http://localhost:3000/api/docs`). Every respons
 | `POST /markets/:marketId/merges` | Approved client | `{ amount }`: PT + YT back into USYC before maturity; the Operator bot pays `amount / lastIndex` |
 | `POST /markets/:marketId/claims` | Approved client | Claim the yield of all my YT (after maturity: the final claim, YT used up) |
 | `POST /markets/:marketId/pt-redemptions` | Approved client | After maturity: redeem all my PT for 1 USD of USYC each |
-| `GET /portfolio` | Approved client | `{ positions: [{ marketId, ptTotal, ptLocked, ptFree, ytTotal, claimableUsyc, ptPrice, value: { ptUsd, ytUsd, claimableUsd, totalUsd } }], openRequests: [{ requestId, kind, amount, estimatedUsyc }], totalUsd }` (YT valued at 1 − PT price, like Pendle) |
+| `GET /portfolio` | Approved client | `{ positions: [{ marketId, ptTotal, ptLocked, ptFree, ytTotal, ytPieces: [{ amount, lastIndex }], claimableUsyc, ptPrice, value: { ptUsd, ytUsd, claimableUsd, totalUsd } }], openRequests: [{ requestId, kind, amount, estimatedUsyc }], totalUsd }` (YT valued at 1 − PT price, like Pendle) |
 | `DELETE /portfolio/requests/:requestId` | Approved client | Cancel my open claim, PT redeem or merge; the PT/YT come back |
 | `POST /quote-requests` | Approved client | `{ marketId, side: "BuyPt" \| "SellPt", ptAmount }`: private RFQ to the house dealer (Bank) |
 | `GET`, `DELETE /quote-requests[/:requestId]` | Approved client | My unanswered RFQs / cancel one |
@@ -160,6 +164,7 @@ Base path `/api` (Swagger UI at `http://localhost:3000/api/docs`). Every respons
 | `GET /dealer/quote-requests` | Admin | Bank's open RFQs with the requester and the bot's suggested price |
 | `POST /dealer/quote-requests/:requestId/quotes`, `/declines` | Admin | Quote by hand `{ price }` / decline |
 | `GET /dealer/position` | Admin | Bank's PT, YT, USDC (and USDC set aside for sell quotes), USYC, live quotes |
+| `POST /dealer/markets/:marketId/claims`, `/pt-redemptions` | Admin | Bank's own YT claim / PT redeem (paid by the Operator bot) |
 | `GET`, `PUT /dealer/settings` | Admin | Dealer bot settings: `autoQuote`, `apyOffsetPercent`, `fallbackApyPercent`, `spreadPercent`, `maxPtPerQuote`, `quoteValidSeconds` |
 
 The markets bots run inside the API: `OperatorSettlementService` (every `MARKET_SETTLE_SECONDS`, 2) matures due markets and pays claims, PT redeems and merges oldest first; `DealerBotService` (every `DEALER_POLL_SECONDS`, 1) withdraws expired quotes and answers RFQs to Bank with `price = (1 + target ∓ spread)^−years` (target = underlying 30-day APY + offset, 5.2 % until 7 days of history), declining what is over the size limit or cannot be filled. Details and decisions M1–M2 in `markets-plan.md`.

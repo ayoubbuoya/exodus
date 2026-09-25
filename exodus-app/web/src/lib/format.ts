@@ -27,3 +27,9 @@ export function formatSignedAmount(amount: string, instrument: string, formatAmo
   const magnitude = isNegative ? amount.slice(1) : amount
   return `${isNegative ? '−' : '+'}${formatAmount(magnitude)} ${instrument}`
 }
+
+// An APY in percent for display: 5.1 -> "5.10%", null -> "—" (not known yet,
+// or the market has matured). Example: formatPercent(10.29) -> "10.29%".
+export function formatPercent(percent: number | null): string {
+  return percent === null ? '—' : `${percent.toFixed(2)}%`
+}

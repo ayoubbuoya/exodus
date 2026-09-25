@@ -40,3 +40,10 @@ export function previewUsdc(usycAmount: string, index: string): string | null {
 export function trimZeros(amount: string): string {
   return amount.includes('.') ? amount.replace(/\.?0+$/, '') : amount
 }
+
+// True for a PT, YT or USYC amount the contracts accept: positive and at
+// most 6 decimals (every token has 6). "20" and "12.5" yes; "1.1234567" no.
+// The same rule as isUsycAmount, named for the market screens.
+export function isTokenAmount(text: string): boolean {
+  return isUsycAmount(text)
+}

@@ -55,6 +55,9 @@ What a user can do when we are finished (the spec section 9 example):
 | L2 | Activity rows for payouts (Phase 5) | **PT/YT inside the owner's open request still count as the owner's**: only the settled result shows (CLAIMED +24.390243 USYC); asking and cancelling add no row; open requests are listed apart | The feed shows what really changed. The fund's USYC redeem keeps its two rows, because there the USYC is really burned | A: two rows per payout, like the USYC redeem ("YT −1000", then "+24.39 USYC, +1000 YT") |
 | M1 | Who runs the dealer desk (Phase 6, 2026-09-25) | **Admins** (`AdminGuard` on `/api/dealer/*`), acting as Bank | No new role or seed; "the platform runs the house dealer" (D2) | B: a new `DEALER` role linked to Bank |
 | M2 | Where the dealer's target APY comes from (Phase 6) | **Follow the underlying, like Pendle's implied rate**: target = underlying 30-day APY + offset (default 0), fallback 5.2 % until 7 demo days of history; spread in APY points like Pendle's fee (`lnFeeRateRoot`); rounding in the dealer's favour | A consistent Markets page ("underlying 10.29 % · fixed 10.19 %") instead of a fixed rate far below the floating one. Note: the demo's index path (1.00 → 1.025 in 92 days) is ~10.3 % a year; the old "underlying 5.1 %" was the 6-month return | A: a fixed 5.2 % target (reproduces 0.975 but shows "underlying 10.3 % · fixed 5.2 %") |
+| W1 | Bank's own claim / PT redeem in the browser demo (Phase 7, 2026-09-25) | **Dealer desk buttons** ("Claim Bank's yield", "Redeem Bank's PT") backed by `POST /dealer/markets/:id/claims` and `/pt-redemptions` (admins) | The whole spec section 13 demo stays inside the product | B: buttons in `/lab` acting as Bank. C: no Bank buttons |
+| W2 | Wording (Phase 7) | **Pendle's words first, the ledger's words in the help text**: tabs "Fixed Yield (PT)", "Mint / Redeem", "Yield (YT)", "At maturity"; "Mint PT + YT (split on the ledger)" | Anyone who knows Pendle recognises the screens | B: only contract words (Split / Merge) |
+| W3 | Wallet activity (Phase 7) | **The Wallet shows every row** that touched USDC/USYC, market rows tagged "Markets"; the Portfolio shows only market rows | The USYC balance is always explained, and the two products stay on their own pages | B: market rows only on the Portfolio |
 | L3 | Demo script and the clock (Phase 5) | **`npm run demo:markets` publishes the Jan 1 and Apr 1 prices itself** on a fresh sandbox and stops with a clear message otherwise | The whole section 9 story in ~15 s, checked to 6 decimals | B: only the steps before maturity, never moving the clock |
 
 Settled by the spec (no choice needed): the vault is USYC owned by the Operator; `MarketTerms` is copied into every PT and YT (no contract keys in Daml 3.x); `Market` choices are nonconsuming except `Mature`; every payout uses `roundDown6`; maturity uses the oracle's `simTime`; settlement follows the request → operator settle → owner cancel pattern (same as `UsycRedeemRequest`).
@@ -79,8 +82,8 @@ Settled by the spec (no choice needed): the vault is USYC owned by the Operator;
 | 3 | Private RFQ and atomic DvP | Done | 2026-09-25 | (fill in after commit) |
 | 4 | Full demo test (`DemoTest.daml`) | Done | 2026-09-25 | (fill in after commit) |
 | 5 | Ledger client and bootstrap | Done | 2026-09-25 | `1bd0dff` |
-| 6 | Backend: markets API, operator bot, dealer bot | Done | 2026-09-25 | (fill in after commit) |
-| 7 | Web app screens | To do | | |
+| 6 | Backend: markets API, operator bot, dealer bot | Done | 2026-09-25 | `d9b00f0` |
+| 7 | Web app screens | Done | 2026-09-25 | (fill in after commit) |
 | 8 | Hardening and token standard (stretch) | To do | | |
 | 9 | Ship: docs, deploy, video, pitch | To do | | |
 
@@ -172,14 +175,16 @@ File: `test/daml/Exodus/DemoTest.daml`.
 
 ### Phase 7: Web app screens (`exodus-app/web`)
 
-- [ ] `/markets`: market cards (maturity countdown, underlying APY, fixed APY, "Simulated" badge)
-- [ ] `/markets/:id` tabs: **Trade** (buy or sell PT: get quote, expiry countdown, fixed APY of this quote, Accept), **Mint / Unmint** (split and merge with a live preview, "1000 USYC → 1025 PT + 1025 YT"), **Yield** (claimable yield, Claim), **Redeem** (after maturity)
-- [ ] `/portfolio`: PT, YT, pending requests with Cancel, USD value
-- [ ] `/dealer`: open RFQs, auto-quote settings, manual quote
-- [ ] Navigation between Wallet (`/app`), Markets, Portfolio (and Dealer for dealers)
-- [ ] `/lab`: add Market, PT, YT, Quote rows to the "what can this party see?" table
-- [ ] Activity labels for the new rows
-- [ ] Checked in headless Chromium (dark, light, 390 px): the 7-step demo script from spec section 13
+- [x] `/markets`: market cards (maturity + demo days left, underlying APY, fixed APY, PT buy/sell price, Open/Matured, "Simulated" badge)
+- [x] `/markets/:id` tabs (W2): **Fixed Yield (PT)** (buy or sell: indicative price → Get firm quote → waiting / quote with countdown, cash and fixed APY → Accept / Reject; expired and declined states), **Mint / Redeem** (split with "30 USYC → 30 PT + 30 YT" preview; merge with the exact `amount / lastIndex` preview), **Yield (YT)** (claimable, Claim; final claim after maturity), **At maturity** (redeem PT); "Your position" card; non-clients see a note instead of the actions
+- [x] `/portfolio`: total USD (Pendle: YT = 1 − PT), one row per market, open requests with Cancel, market activity
+- [x] `/dealer` (admins, M1): open RFQs with the bot's price and manual Quote / Decline, Bank's position (USDC set aside, PT locked) with Bank's Claim / Redeem (W1), live quotes, bot settings form
+- [x] Navigation: Wallet · Markets · Portfolio for clients; Markets · Dealer · Admin for admins; Lab for everyone
+- [x] `/lab`: a "Markets: n Market, n PrincipalToken, n YieldToken, n RfqRequest, n Quote" line per party, and `terms` shown as the market id
+- [x] Activity labels (Minted PT + YT, Bought PT, Sold PT, Claimed yield, Redeemed PT, Redeemed PT + YT) with short PT/YT symbols; Wallet tags market rows (W3)
+- [x] API: `ytPieces` (with `lastIndex`) on each portfolio position; dealer claim / PT redeem endpoints (W1)
+- [x] Pure helpers with tests (`lib/markets.ts`: quote flow status, answering quote, countdown, merge lastIndex, market rows; `formatPercent`); Vite proxy targets overridable with `LEDGER_URL` / `API_URL`
+- [x] Checked in headless Chromium on a throwaway stack (dark, light, 390 px, no console errors, no sideways scroll at 390 px): quote in 2.3 s at 0.975503 (5.10 %) → Accept; lab: Operator 0 Quote while Bank 1; mint 30, merge 10; 5000 PT declined; Jan 1: Bank's claim from the desk **24.390243 USYC**, Carol 0.487804; Apr 1: matured by the bot, Carol's 40 PT → 38.095238 USYC, final claims 0.464576 and Bank **23.228803**, Bank's 980 PT → 933.333333. Found and fixed: the "At maturity" tab showed "Your PT 0" while loading
 
 **Done when:** the spec section 13 demo runs end to end in the browser.
 
@@ -208,3 +213,4 @@ File: `test/daml/Exodus/DemoTest.daml`.
 - 2026-09-25: Phase 4 done: `DemoTest.demoWorkedExample` proves spec section 9 end to end (profit table, vault dust 0.000002); 55 Daml scripts pass. The Daml contracts are complete. Next: Phase 5 detailed plan (ledger client and bootstrap).
 - 2026-09-25: Phase 5 done (L1–L3 = recommended). `markets.ts`, `tokens.ts`, `rfq.ts`, `lifecycle.ts`, `market-math.ts`, `oracle.ts`, bootstrap market + Bank split, PT/YT activity rows, `npm run demo:markets` (47/47 checks on a throwaway sandbox). Agreed with the user: the USYC fund (subscribe/redeem) is only the simulated on-ramp; the markets are the product, on their own pages and flows (Phase 7). Next: Phase 6 detailed plan (markets API, operator bot, dealer bot).
 - 2026-09-25: Phase 6 done (M1 = admins run the dealer desk, M2 = target follows the underlying APY). New `api/src/markets/` module: markets, portfolio, trading and dealer endpoints, `OperatorSettlementService`, `DealerBotService`, `DealerSettings` table; fixed `quoteRfq` spending set-aside USDC. 27 api + 48 ledger tests; full live run over HTTP on a throwaway sandbox and database. Found: the demo's underlying APY is ~10.3 %, not 5.1 % (goal text corrected). Next: Phase 7 detailed plan (web screens, on their own pages apart from the fund wallet).
+- 2026-09-25: Phase 7 done (W1 = Bank's claim/redeem on the dealer desk, W2 = Pendle's words first, W3 = Wallet shows all rows with a "Markets" tag). `/markets`, `/markets/:id` (4 tabs), `/portfolio`, `/dealer`, nav, activity labels, `/lab` markets line; small API additions (`ytPieces`, dealer payouts). The spec section 13 story ran in headless Chromium on a throwaway stack with the spec numbers (24.390243, 23.228803). Phases 1–7 (the must-have product) are complete. Next: Phase 9 (ship), Phase 8 if time allows.
