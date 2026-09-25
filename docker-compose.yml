@@ -1,0 +1,113 @@
+# The whole Exodus demo in one command:
+#
+#   docker compose up --build        then open http://localhost:8080
+#
+# What runs (all in containers, nothing else to install but Docker):
+#   db      PostgreSQL: accounts, applications, wallets, price history, dealer settings
+#   ledger  the Canton sandbox with the Exodus contracts (in memory)
+#   setup   one-shot: database migrations, the demo admin, then `npm run bootstrap`
+#           (parties, price feed, fund, market PT-USYC-APR2027, Bank's 1000 PT + 1000 YT)
+#   oracle  the oracle bot in hold mode: keeps the price live; move the demo clock
+#           with "Next step" on /lab (act as the Oracle)
+#   api     the NestJS backend and its bots (fund settlement, Operator, house dealer)
+#   web     the web app, which also forwards /api and /v2
+#
+# Demo admin login: admin@exodus.local / exodus-demo-admin (demo only; change
+# DEMO_ADMIN_PASSWORD below before exposing this anywhere).
+# The first build takes a while: it downloads the Daml SDK and builds the contracts.
+#
+# The ledger is in memory: `docker compose down` + `up` gives a fresh demo
+# (the database is also fresh, it has no volume on purpose).
+#
+# "USYC" and "USDC" are SIMULATED tokens issued by demo parties, not by Circle.
+name: exodus-demo
+
+x-app: &app
+  build:
+    context: .
+    dockerfile: docker/Dockerfile
+    target: app
+  image: exodus-demo-app
+  environment: &app-env
+    DATABASE_URL: postgresql://exodus:exodus@db:5432/exodus
+    LEDGER_URL: http://ledger:7575
+    ADMIN_EMAIL: admin@exodus.local
+    ADMIN_PASSWORD: exodus-demo-admin
+    # 1000 test USDC per claim, so a client can buy the spec's 500 PT (about 488 USDC).
+    FAUCET_AMOUNT: "1000.0"
+    COOKIE_SECURE: "false"
+
+services:
+  db:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: exodus
+      POSTGRES_PASSWORD: exodus
+      POSTGRES_DB: exodus
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U exodus -d exodus"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  ledger:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: ledger
+    image: exodus-demo-ledger
+    healthcheck:
+      # Ready when the JSON Ledger API answers (the sandbox needs 20-40 s).
+      test: ["CMD-SHELL", "curl -sf http://localhost:7575/v2/state/ledger-end >/dev/null"]
+      interval: 3s
+      timeout: 3s
+      retries: 60
+
+  setup:
+    <<: *app
+    working_dir: /exodus/exodus-app
+    command:
+      - sh
+      - -c
+      - >-
+        cd api && npx prisma migrate deploy && node dist/scripts/seed-admin.js &&
+        cd .. && npm run bootstrap
+    depends_on:
+      db:
+        condition: service_healthy
+      ledger:
+        condition: service_healthy
+
+  oracle:
+    <<: *app
+    working_dir: /exodus/exodus-app
+    command: ["node", "oracle-bot/src/main.ts", "--hold"]
+    restart: unless-stopped
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+
+  api:
+    <<: *app
+    working_dir: /exodus/exodus-app/api
+    environment:
+      <<: *app-env
+      PORT: "3000"
+    command: ["node", "--enable-source-maps", "dist/main.js"]
+    restart: unless-stopped
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+
+  web:
+    <<: *app
+    working_dir: /exodus/exodus-app/web
+    environment:
+      API_URL: http://api:3000
+      LEDGER_URL: http://ledger:7575
+    # `vite preview` serves the built app and uses the same /api and /v2 proxy as `npm run web`.
+    command: ["npx", "vite", "preview", "--host", "0.0.0.0", "--port", "8080", "--strictPort"]
+    ports:
+      - "${EXODUS_WEB_PORT:-8080}:8080"
+    depends_on:
+      - api

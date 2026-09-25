@@ -4,6 +4,8 @@ This guide takes you from a fresh clone to the full demo: sign up, get approved,
 
 > "USYC" and "USDC" in Exodus are **simulated** tokens issued by our own demo parties. They are not issued by, connected to, or endorsed by Circle or Hashnote.
 
+> **Just want to see the demo?** From the repository root: `docker compose up --build`, then open http://localhost:8080 (admin `admin@exodus.local` / `exodus-demo-admin`). Only Docker is needed. This guide is for running the parts by hand while developing.
+
 ## What runs where
 
 Five programs work together. You start each one in its own terminal (Postgres runs in Docker in the background).
