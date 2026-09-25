@@ -1,0 +1,212 @@
+-- | The full worked example of spec section 9, from start to end, in one
+-- script: the "math proof" for the demo.
+--
+-- Bank (a dealer) splits 1000 USYC, sells 500 PT to Alice privately at 0.975,
+-- claims its YT yield, and after maturity everybody is paid out. At the end:
+--   - Alice made a FIXED +12.5 USD (she locked in about 5.19% a year);
+--   - Bank made a FLOATING +37.5 USD (all the yield, plus the PT sale);
+--   - together that is 50 USD = 1000 * (1.05 - 1.00), the fund's total yield.
+-- Nothing is created or lost: the split only moves risk between Alice and Bank.
+--
+-- It uses only the real contracts and the same disclosures as the app (the
+-- helpers come from MarketTest, LifecycleTest and RfqTest).
+--
+-- Run it with:
+--   cd exodus-contract && dpm build --all
+--   cd test && dpm test --files daml/Exodus/DemoTest.daml
+module Exodus.DemoTest where
+
+import DA.Assert ((===))  -- 'a === b' fails the test if a and b are not equal
+import DA.Foldable (forA_)  -- run the same checks for each party
+import DA.List (sort)
+import Daml.Script
+import Exodus.FundTest (issue, ownedAmounts)
+import Exodus.Holding
+import Exodus.LifecycleTest (mature, requestClaim, requestRedeem, settleClaim, settleRedeem)
+import Exodus.MarketTest (ptAmounts, publish, setupMarket, split, ytAmounts)
+import Exodus.OracleTest (apr1, jan1)
+import Exodus.Rfq
+import Exodus.RfqTest (accept, askQuote, quote, secondsFromNow)
+import Exodus.Tokens
+
+
+-- | Fail unless 'actual' is within 0.00001 of 'expected'.
+--
+-- Used ONLY for USD values. A USD value is a USYC amount times the index, and
+-- USYC amounts are rounded DOWN to 6 decimals, so a tiny bit of dust shows up:
+--   476.190476 USYC * 1.05 = 499.9999998 USD, not 500.
+-- The dust is always in the vault's favour. Token amounts themselves are
+-- always compared exactly (with ===).
+assertCloseTo : Text -> Decimal -> Decimal -> Script ()
+assertCloseTo label expected actual =
+  assertMsg
+    (label <> ": expected about " <> show expected <> ", got " <> show actual)
+    (abs (actual - expected) <= 0.00001)
+
+
+-- | The amount of one holding (USYC or USDC), as its owner sees it.
+holdingAmount : Party -> ContractId Holding -> Script Decimal
+holdingAmount owner holdingCid = do
+  Some holding <- queryContractId owner holdingCid
+  pure holding.amount
+
+
+-- | Add up a list of amounts. Example: total [24.390243, 23.228803] == 47.619046
+total : [Decimal] -> Decimal
+total = foldl (+) 0.0
+
+
+-- | Spec section 9, steps 0 to 7, and the profit table.
+demoWorkedExample : Script ()
+demoWorkedExample = script do
+  -- ---------------------------------------------------------------------
+  -- Step 0 (Oct 1 2026, index 1.00): the market PT-USYC-APR2027, passes for
+  -- Alice and Bank. Bank holds 1000 USYC, Alice holds 487.5 USDC.
+  -- ---------------------------------------------------------------------
+  s <- setupMarket
+  bankUsyc <- issue s.usycIssuer s.bank "USYC" 1000.0
+  aliceUsdc <- issue s.usdcIssuer s.alice "USDC" 487.5
+
+  -- ---------------------------------------------------------------------
+  -- Step 1: Bank splits 1000 USYC at 1.00 -> 1000 PT + 1000 YT.
+  -- The vault holds the 1000 USYC.
+  -- ---------------------------------------------------------------------
+  splitResult <- split s s.bank s.bankAccess s.rateCid [bankUsyc] 1000.0
+  Some pt <- queryContractId s.bank splitResult.ptCid
+  pt.amount === 1000.0
+  Some yt <- queryContractId s.bank splitResult.ytCid
+  yt.amount    === 1000.0
+  yt.lastIndex === 1.0
+  vaultAfterSplit <- ownedAmounts s.operator "USYC"
+  vaultAfterSplit === [1000.0]
+
+  -- ---------------------------------------------------------------------
+  -- Step 2: Alice buys 500 PT at 0.975 through a private RFQ.
+  -- She pays 500 * 0.975 = 487.5 USDC, and gets 500 USD at maturity:
+  -- 500 / 487.5 = 1.025641 over 6 months, so a fixed APY of
+  -- (1 / 0.975)^2 - 1 = about 5.19%.
+  -- ---------------------------------------------------------------------
+  rfqCid <- askQuote s s.alice s.aliceAccess BuyPt 500.0
+  validUntil <- secondsFromNow 60
+  quoted <- quote s rfqCid 0.975 validUntil [splitResult.ptCid] []
+  Some q <- queryContractId s.alice quoted.quoteCid
+  q.usdcAmount === 487.5
+  let oneOverPrice = 1.0 / q.price
+  let fixedApy = oneOverPrice * oneOverPrice - 1.0  -- 6 months = 0.5 years, so ^(1 / 0.5) = ^2
+  assertCloseTo "Alice's fixed APY" 0.05194 fixedApy
+
+  -- Demo script step 3: the Operator and the cash issuer cannot see the
+  -- quote, so they cannot see the price.
+  forA_ [s.operator, s.usdcIssuer] \party -> do
+    quotes <- query @Quote party
+    quotes === []
+
+  bought <- accept s s.alice s.aliceAccess quoted.quoteCid s.rateCid [aliceUsdc] []
+  Some alicePt <- queryContractId s.alice bought.ptCid
+  alicePt.amount === 500.0
+  bankCash <- holdingAmount s.bank bought.usdcCid
+  bankCash === 487.5
+  bought.usdcChangeCid === None  -- Alice paid exactly all her 487.5 USDC
+  Some bankPtCid <- pure quoted.ptChangeCid  -- Bank keeps the other 500 PT
+
+  -- ---------------------------------------------------------------------
+  -- Step 3 (Jan 1 2027, index 1.025): Bank claims the yield on 1000 YT.
+  --   1000 * (1/1.00 - 1/1.025) = 24.390243 USYC, worth 25.0 USD (2.5% of 1000)
+  -- ---------------------------------------------------------------------
+  (feedJan, rateJan) <- publish s s.feedCid 1.025 jan1
+  claimCid <- requestClaim s.bank s.bankAccess splitResult.ytCid
+  janClaim <- settleClaim s claimCid (CurrentRate rateJan)
+  Some janYieldCid <- pure janClaim.usycCid
+  janYield <- holdingAmount s.bank janYieldCid
+  janYield === 24.390243
+  assertCloseTo "value of the Jan 1 yield" 25.0 (janYield * 1.025)
+  Some ytJanCid <- pure janClaim.ytCid
+
+  -- ---------------------------------------------------------------------
+  -- Step 4 (Apr 1 2027, index 1.05): the Operator matures the market.
+  -- The snapshot index is 1.05. New splits now fail (tested in
+  -- LifecycleTest.matureMarket; not repeated here, so the balances stay clean).
+  -- ---------------------------------------------------------------------
+  (_, rateApr) <- publish s feedJan 1.05 apr1
+  matured <- mature s s.marketCid rateApr
+  Some snapshot <- queryContractId s.operator matured.snapshotCid
+  snapshot.index === 1.05
+  Some market <- queryContractId s.operator matured.marketCid
+  market.matured === True
+
+  -- ---------------------------------------------------------------------
+  -- Step 5: Alice redeems 500 PT: 500 / 1.05 = 476.190476 USYC.
+  -- ---------------------------------------------------------------------
+  aliceRedeemCid <- requestRedeem s s.alice s.aliceAccess bought.ptCid matured.snapshotCid
+  alicePay <- settleRedeem s aliceRedeemCid rateApr
+  aliceUsyc <- holdingAmount s.alice alicePay.usycCid
+  aliceUsyc === 476.190476
+
+  -- ---------------------------------------------------------------------
+  -- Step 6: Bank claims the last yield and redeems its own 500 PT.
+  --   yield:  1000 * (1/1.025 - 1/1.05) = 23.228803 USYC (the YT is used up)
+  --   redeem: 500 / 1.05                 = 476.190476 USYC
+  -- ---------------------------------------------------------------------
+  finalClaimCid <- requestClaim s.bank s.bankAccess ytJanCid
+  finalClaim <- settleClaim s finalClaimCid (AtMaturity matured.snapshotCid)
+  Some finalYieldCid <- pure finalClaim.usycCid
+  finalYield <- holdingAmount s.bank finalYieldCid
+  finalYield === 23.228803
+  finalClaim.ytCid === None
+
+  bankRedeemCid <- requestRedeem s s.bank s.bankAccess bankPtCid matured.snapshotCid
+  bankPay <- settleRedeem s bankRedeemCid rateApr
+  bankRedeemed <- holdingAmount s.bank bankPay.usycCid
+  bankRedeemed === 476.190476
+
+  -- ---------------------------------------------------------------------
+  -- Step 7: the vault check.
+  --   paid out: 24.390243 + 476.190476 + 23.228803 + 476.190476 = 999.999998
+  --   left:     1000 - 999.999998 = 0.000002 USYC of rounding dust, never negative
+  -- ---------------------------------------------------------------------
+  vault <- ownedAmounts s.operator "USYC"
+  vault === [0.000002]
+
+  -- Every PT and YT has been paid out: nobody holds any.
+  forA_ [s.alice, s.bank, s.operator] \party -> do
+    pts <- ptAmounts party
+    pts === []
+    yts <- ytAmounts party
+    yts === []
+
+  -- ---------------------------------------------------------------------
+  -- Who earned what, with every value at the final index 1.05.
+  --
+  --   Party  Start                   End                                          Profit
+  --   Alice  487.5 USDC              476.190476 USYC = 500.0 USD                  +12.5 USD (fixed)
+  --   Bank   1000 USYC = 1000 USD    523.809522 USYC (550.0 USD) + 487.5 USDC     +37.5 USD (floating)
+  --   Total                                                                       50 USD = 1000 * (1.05 - 1.00)
+  -- ---------------------------------------------------------------------
+  let finalIndex = 1.05
+
+  aliceUsycEnd <- ownedAmounts s.alice "USYC"
+  aliceUsycEnd === [476.190476]
+  aliceUsdcEnd <- ownedAmounts s.alice "USDC"
+  aliceUsdcEnd === []
+  let aliceStartUsd = 487.5
+  let aliceEndUsd = total aliceUsycEnd * finalIndex
+  let aliceProfit = aliceEndUsd - aliceStartUsd
+  assertCloseTo "Alice's end value" 500.0 aliceEndUsd
+  assertCloseTo "Alice's profit" 12.5 aliceProfit
+
+  bankUsycEnd <- ownedAmounts s.bank "USYC"
+  sort bankUsycEnd === [23.228803, 24.390243, 476.190476]
+  total bankUsycEnd === 523.809522
+  bankUsdcEnd <- ownedAmounts s.bank "USDC"
+  bankUsdcEnd === [487.5]
+  let bankStartUsd = 1000.0 * 1.0  -- 1000 USYC at the start index 1.00
+  let bankEndUsd = total bankUsycEnd * finalIndex + total bankUsdcEnd
+  let bankProfit = bankEndUsd - bankStartUsd
+  assertCloseTo "Bank's USYC value" 550.0 (total bankUsycEnd * finalIndex)
+  assertCloseTo "Bank's profit" 37.5 bankProfit
+
+  -- The split only moved risk: together they earned exactly the fund's yield.
+  let fundYield = 1000.0 * (1.05 - 1.0)
+  fundYield === 50.0
+  assertCloseTo "total profit" fundYield (aliceProfit + bankProfit)
+  pure ()

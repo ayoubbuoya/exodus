@@ -207,7 +207,7 @@ exodus-contract/
       MarketTest.daml             # split, PT/YT transfers + merges, passes, time rules, privacy [done]
       LifecycleTest.daml          # claim, mature (Pendle-style), redeem, merge, passes, privacy [done]
       RfqTest.daml                # buy + sell DvP, quote expiry, PT lock, failures, privacy  [done]
-      DemoTest.daml               # the worked example in section 9                         [to do]
+      DemoTest.daml               # the worked example in section 9 + profit table          [done]
 ```
 
 ### Templates
@@ -398,7 +398,7 @@ principal part `amount / nowIndex` + unclaimed yield `amount * (1/lastIndex - 1/
 
 All payouts **round down to 6 decimals**, so the vault never pays out more than it holds.
 
-### Full example (this is exactly what `DemoTest.daml` will check)
+### Full example (checked exactly by `DemoTest.demoWorkedExample`)
 
 Start: Oct 1 2026. Maturity: Apr 1 2027 (0.5 years).
 
@@ -438,6 +438,8 @@ Start: Oct 1 2026. Maturity: Apr 1 2027 (0.5 years).
 | Total | | | **50 USD = 1000 * (1.05 - 1.00)** |
 
 The total profit equals the total yield of the fund. Nothing is created or lost. The split only moves risk between Alice and Bank.
+
+`DemoTest.demoWorkedExample` runs steps 0 to 7 with the real contracts (RFQ, claim, `Mature`, redeem) and checks every token amount exactly. USD values are checked to within 0.00001 USD, because a USD value is a rounded-down USYC amount times the index: 476.190476 × 1.05 = 499.9999998 USD. That dust is always in the vault's favour.
 
 ## 10. Privacy model
 
@@ -537,7 +539,7 @@ HackCanton Season 3 is a 5-week online hackathon. Two official posts give differ
 | Week | Goal | Status |
 |---|---|---|
 | 1 | Daml core: Holding (USYC/USDC) with CIP-56 `Holding` + `TransferFactory` | Done (tests pass) |
-| 1-2 | Daml core: Oracle (done), Split + PT/YT (done, 2026-09-25), Claim, Mature, Redeem, Merge (done, 2026-09-25), RFQ (done, 2026-09-25), demo test. Tracked in [`markets-plan.md`](markets-plan.md) | In progress |
+| 1-2 | Daml core: Oracle (done), Split + PT/YT (done, 2026-09-25), Claim, Mature, Redeem, Merge (done, 2026-09-25), RFQ (done, 2026-09-25), demo test (done, 2026-09-25). Tracked in [`markets-plan.md`](markets-plan.md) | Done |
 | 2 | Walking skeleton in `exodus-app/`: sandbox, bootstrap, oracle bot, web UI (CIP-56 wallet, send, privacy table) | Done |
 | 2 | Fix known gap 12 (stale `rateCid`): `RateFeed` + short-lived `RateIndex` snapshots | Done |
 | 3 | `ClientAccess` passes + explicit disclosure (fixes gap 9, most of gap 11, and the client-list leak) | Done |

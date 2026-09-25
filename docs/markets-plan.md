@@ -72,7 +72,7 @@ Settled by the spec (no choice needed): the vault is USYC owned by the Operator;
 | 1 | PT/YT tokens and Split | Done | 2026-09-25 | (fill in after commit) |
 | 2 | Life cycle: claim, mature, redeem, merge | Done | 2026-09-25 | (fill in after commit) |
 | 3 | Private RFQ and atomic DvP | Done | 2026-09-25 | (fill in after commit) |
-| 4 | Full demo test (`DemoTest.daml`) | To do | | |
+| 4 | Full demo test (`DemoTest.daml`) | Done | 2026-09-25 | (fill in after commit) |
 | 5 | Ledger client and bootstrap | To do | | |
 | 6 | Backend: markets API, operator bot, dealer bot | To do | | |
 | 7 | Web app screens | To do | | |
@@ -130,8 +130,8 @@ Files: `main/daml/Exodus/Rfq.daml`, `test/daml/Exodus/RfqTest.daml`.
 
 File: `test/daml/Exodus/DemoTest.daml`.
 
-- [ ] Spec section 9 steps 1–7 in one script with exact values: 1000 PT/YT, 487.5 USDC, 24.390243, 476.190476, 23.228803, 476.190476, vault dust **0.000002 USYC**
-- [ ] Assert the profit table: Alice +12.5 USD, Bank +37.5 USD, total 50 USD
+- [x] Spec section 9 steps 0–7 in one script (`demoWorkedExample`) with exact values: 1000 PT/YT, 487.5 USDC, fixed APY ~5.19%, 24.390243, 476.190476, 23.228803, 476.190476, vault dust **0.000002 USYC**, no PT/YT left; Operator and UsdcIssuer see no quote
+- [x] Assert the profit table: Alice +12.5 USD, Bank +37.5 USD (523.809522 USYC + 487.5 USDC), total 50 USD = the fund's yield (USD values within 0.00001: rounding dust)
 
 **Done when:** `dpm test -p demo` passes. This is the "math proof" for the judges.
 
@@ -196,3 +196,4 @@ File: `test/daml/Exodus/DemoTest.daml`.
 - 2026-09-25: Phase 1 done (P1 = A, P2 = A). `Tokens.daml`, `Market.daml`, `MarketTest.daml`; 39 Daml scripts pass. No app changes yet (screens are Phase 7). Next: Phase 2 detailed plan.
 - 2026-09-25: Phase 2 done after reading Pendle V2's `PendleYieldToken.sol`: Q1 = Pendle-style maturity, Q2 = merge on the token. Added the guiding rule "our version of Pendle on Canton". 47 Daml scripts pass. Next: Phase 3 detailed plan (RFQ + PT lock).
 - 2026-09-25: Phase 3 done after reading Pendle V2's limit-order contracts (`IPLimitRouter`, `LimitRouterBase`, `LimitMathCore`, `MarketMathCore`): R1–R4 = A. `Rfq.daml`, PT lock, `splitExact`/`splitExactPt`, `RfqTest.daml`; 54 Daml scripts pass. Next: Phase 4 (`DemoTest.daml`).
+- 2026-09-25: Phase 4 done: `DemoTest.demoWorkedExample` proves spec section 9 end to end (profit table, vault dust 0.000002); 55 Daml scripts pass. The Daml contracts are complete. Next: Phase 5 detailed plan (ledger client and bootstrap).
