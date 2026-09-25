@@ -117,6 +117,7 @@ template Market
           owner = splitter
           terms
           amount = notional
+          lock = None
         ytCid <- create YieldToken with
           operator
           owner = splitter

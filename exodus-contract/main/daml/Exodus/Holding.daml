@@ -209,27 +209,61 @@ data PayResult = PayResult
 -- | Pay 'amount' from the payer's holdings to 'receiver', in one go.
 --
 -- Used inside choices where the PAYER is the controller, for example
--- 'Subscribe' in Exodus.Fund (and later 'Quote_Accept' in the RFQ).
+-- 'Subscribe' in Exodus.Fund and 'Quote_Accept' in Exodus.Rfq.
 --
 --   payFrom alice usdcIssuer "USDC" 500.0 usycIssuer [cid600, cid400]
 --
 -- Steps:
---   1. Check every input: owned by the payer, right issuer, right instrument.
---      Without the issuer check, anyone could create their own "USDC" and pay with it.
---   2. Merge all inputs into one holding (600 + 400 -> 1000).
---   3. Split off the amount (1000 -> 500 + 500) and transfer that piece to the receiver.
+--   1. 'splitExact' checks the inputs, merges them (600 + 400 -> 1000) and
+--      splits off exactly the amount (1000 -> 500 + 500 change).
+--   2. The 500 piece is transferred to the receiver.
 --
 -- It only uses the owner's own choices (MergeWith, SplitOff, Transfer), so it
 -- needs the payer's authority and nothing else. The issuer's authority comes
 -- from those choices, because the issuer signed the holdings.
 payFrom : Party -> Party -> Text -> Decimal -> Party -> [ContractId Holding] -> Update PayResult
 payFrom payer expectedIssuer expectedInstrument amount receiver inputCids = do
+  exact <- splitExact payer expectedIssuer expectedInstrument amount inputCids
+  paidCid <- exercise exact.exactCid Transfer with newOwner = receiver
+  pure PayResult with paidCid; changeCid = exact.changeCid
+
+
+-- | What 'splitExact' gives back.
+--
+-- Example: Bank sets aside 197 USDC from holdings of 1000 and 500.
+--   exactCid  -> Holding(owner = Bank, amount = 197)
+--   changeCid -> Some Holding(owner = Bank, amount = 1303)
+-- If the inputs add up to exactly the amount, there is no change: changeCid = None.
+data SplitExactResult = SplitExactResult
+  with
+    exactCid  : ContractId Holding
+    changeCid : Optional (ContractId Holding)
+  deriving (Eq, Show)
+
+
+-- | Turn the owner's holdings into ONE holding of exactly 'amount' (plus change),
+-- still owned by the owner. Nothing is sent to anyone.
+--
+-- Used by 'payFrom', and by 'Rfq_Quote' in Exodus.Rfq: a dealer who promises
+-- to pay 197 USDC for Alice's PT sets aside a holding of exactly 197 USDC, so
+-- Alice (who must be shown that holding to settle) never sees the dealer's
+-- whole balance.
+--
+--   splitExact bank usdcIssuer "USDC" 197.0 [cid1000, cid500]
+--
+-- Steps:
+--   1. Check every input: owned by the owner, right issuer, right instrument.
+--      Without the issuer check, anyone could create their own "USDC" and pay with it.
+--   2. Merge all inputs into one holding (1000 + 500 -> 1500).
+--   3. Split off the amount (1500 -> 197 + 1303), unless it is already exact.
+splitExact : Party -> Party -> Text -> Decimal -> [ContractId Holding] -> Update SplitExactResult
+splitExact owner expectedIssuer expectedInstrument amount inputCids = do
   assertMsg "amount must be greater than 0" (amount > 0.0)
 
   -- 1. Check every input.
   forA_ inputCids \inputCid -> do
     input <- fetch inputCid
-    assertMsg "input holding must be owned by the payer" (input.owner == payer)
+    assertMsg "input holding must be owned by the payer" (input.owner == owner)
     assertMsg "input holding has the wrong issuer" (input.issuer == expectedIssuer)
     assertMsg "input holding has the wrong instrument" (input.instrument == expectedInstrument)
 
@@ -240,15 +274,12 @@ payFrom payer expectedIssuer expectedInstrument amount receiver inputCids = do
   merged <- fetch mergedCid
   assertMsg "input holdings do not cover the amount" (merged.amount >= amount)
 
-  -- 3. Pay the exact amount and keep the rest as change.
+  -- 3. Keep the exact amount apart, and the rest as change.
   if merged.amount == amount
-    then do
-      paidCid <- exercise mergedCid Transfer with newOwner = receiver
-      pure PayResult with paidCid; changeCid = None
+    then pure SplitExactResult with exactCid = mergedCid; changeCid = None
     else do
       SplitResult with splitCid; restCid <- exercise mergedCid SplitOff with splitAmount = amount
-      paidCid <- exercise splitCid Transfer with newOwner = receiver
-      pure PayResult with paidCid; changeCid = Some restCid
+      pure SplitExactResult with exactCid = splitCid; changeCid = Some restCid
 
 
 -- | Merge a list of holdings into the first one, one by one.

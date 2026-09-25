@@ -44,9 +44,13 @@ What a user can do when we are finished (the spec section 9 example):
 | D4 | Creating markets | **One demo market `APR2027` from bootstrap now**; an admin "Create market" form later (Phase 8) | The oracle's demo schedule ends at Apr 1 2027, so more markets need a longer clock anyway | B: admin form from the start |
 | D5 | Public price on the Markets page | **Indicative price from the house dealer's settings**, served off-ledger by the API ("Indicative 0.975 · 5.19% fixed"). Real quotes stay private on the ledger | A useful product page without leaking any real trade | B: no price until you ask for a quote (most private, weak page) |
 | P1 | Pass check on PT/YT transfers (Phase 1, 2026-09-25) | **Both passes**: `PT_Transfer` / `YT_Transfer` take the sender's and the receiver's `ClientAccess` pass, like the USYC/USDC factory. The app discloses the receiver's pass (read as the Operator) | PT/YT only move between approved clients; we do not repeat spec gap 11 | B: no check, like `Holding.Transfer` |
+| P2 | When to build the PT lock (Phase 1, 2026-09-25) | **In Phase 3, with the RFQ** | The lock only exists for quotes, so its rules (who unlocks, what happens on quote expiry) are designed together with `Quote` | B: build it in Phase 1 and guess its rules |
 | Q1 | Maturity rule (Phase 2, 2026-09-25) | **Like Pendle.** `Mature` takes the first price on or after maturity (Pendle's `firstPYIndex` = first transaction after expiry); YT final claims stop at that snapshot; a PT redeem pays `ptAmount / index at settle time`, so 1 PT always pays 1 USD of value; post-maturity yield stays in the vault for the treasury (gap 5) | A market can never get stuck if the clock jumps past the date; PT holders never lose; same trade-off as Pendle (a late snapshot gives YT holders a little extra) | A: strict `simTime == maturity` and PT pays `ptAmount / maturityIndex` (the old spec): exact, but stuck forever if the clock overshoots |
 | Q2 | Where merge lives (Phase 2, 2026-09-25) | **On the token**: `PT_RequestMerge` (YT of the same market, `mergeAmount`, pass, live price), before maturity only, like Pendle's `redeemPY` on the yield token | No Market disclosure; not affected by `Mature` re-creating the Market; after maturity merge = PT redeem + YT final claim, as in Pendle | B: `Market.RequestMerge` (the old spec) |
-| P2 | When to build the PT lock (Phase 1, 2026-09-25) | **In Phase 3, with the RFQ** | The lock only exists for quotes, so its rules (who unlocks, what happens on quote expiry) are designed together with `Quote` | B: build it in Phase 1 and guess its rules |
+| R1 | RFQ price form (Phase 3, 2026-09-25) | **A number (0.975) with a short expiry (~60 s)**. Pendle's formula `price = (1 + APY)^(−years)` is used off-ledger (dealer bot, UI) | Pendle's limit orders carry `lnImpliedRate` because they live for weeks; ours live seconds, and a price keeps cash amounts exact (487.5 USDC) | B: implied APY on-ledger like Pendle (approximate `exp`/`log` on Decimal) |
+| R2 | Firm quotes (Phase 3) | **Dealer's PT locked for the buyer** until `validUntil`; the dealer cannot withdraw or unlock before. Sell side: exact USDC set aside but not lockable, so an accept fails if the dealer spent it (Pendle's rule) | Institutional RFQ quotes are firm; the spec forbids selling the same PT twice | B: no lock, like Pendle (a fill fails if the maker's tokens are gone) |
+| R3 | Fills (Phase 3) | **Full size only** | A quote is for exactly what was asked; simpler | B: partial fills like Pendle |
+| R4 | Cash leg (Phase 3) | **USDC** (cash-for-bond DvP) | Institutional story; keeps the privacy split (UsdcIssuer sees cash, Operator sees PT) | B: USYC, like Pendle's SY |
 
 Settled by the spec (no choice needed): the vault is USYC owned by the Operator; `MarketTerms` is copied into every PT and YT (no contract keys in Daml 3.x); `Market` choices are nonconsuming except `Mature`; every payout uses `roundDown6`; maturity uses the oracle's `simTime`; settlement follows the request → operator settle → owner cancel pattern (same as `UsycRedeemRequest`).
 
@@ -67,7 +71,7 @@ Settled by the spec (no choice needed): the vault is USYC owned by the Operator;
 |---|---|---|---|---|
 | 1 | PT/YT tokens and Split | Done | 2026-09-25 | (fill in after commit) |
 | 2 | Life cycle: claim, mature, redeem, merge | Done | 2026-09-25 | (fill in after commit) |
-| 3 | Private RFQ and atomic DvP | To do | | |
+| 3 | Private RFQ and atomic DvP | Done | 2026-09-25 | (fill in after commit) |
 | 4 | Full demo test (`DemoTest.daml`) | To do | | |
 | 5 | Ledger client and bootstrap | To do | | |
 | 6 | Backend: markets API, operator bot, dealer bot | To do | | |
@@ -111,13 +115,14 @@ Files: `Tokens.daml`, `Market.daml`, `test/daml/Exodus/LifecycleTest.daml`.
 
 Files: `main/daml/Exodus/Rfq.daml`, `test/daml/Exodus/RfqTest.daml`.
 
-- [ ] `RfqRequest` (requester signs, dealer observes; `side = BuyPt | SellPt`, amount, market, requester's pass): `Rfq_Quote` (dealer), `Rfq_Cancel` (requester)
-- [ ] `PT_Lock` / `PT_Unlock` on `PrincipalToken` (`lockedFor` observes; a locked PT cannot be transferred, split or merged). Moved here from Phase 1 (P2)
-- [ ] `Quote` (requester + dealer sign): price in (0, 1], `validUntil` (gap 8); for a buy the dealer's PT is locked for the buyer
-- [ ] `Quote_Accept`: cash via `payFrom` + PT delivered in **one** transaction; both passes checked; fails after `validUntil`
-- [ ] `Quote_Reject` / `Quote_Withdraw` unlock the PT
-- [ ] Tests: Alice buys 500 PT at 0.975 (pays 487.5 USDC); Alice sells 200 PT at 0.985; expired quote fails; locked PT cannot be sold twice; **Operator and UsdcIssuer see zero `Quote`s**
-- [ ] Update spec sections 8.2 and 10 (sell side, expiry)
+- [x] `RfqRequest` (requester signs, dealer observes; `side = BuyPt | SellPt`, `ptAmount`, `terms`, requester's pass): `Rfq_Quote` (dealer; checks both passes, price in (0, 1], future `validUntil`; BuyPt locks exactly `ptAmount` PT, SellPt sets aside exactly the cash), `Rfq_Cancel` (requester), `Rfq_Decline` (dealer)
+- [x] PT lock on `PrincipalToken`: field `lock : Optional PtLock (holder, lockedUntil)` (holder observes; like CIP-56's `lock`). `PT_Lock`, `PT_Unlock` (owner, only after `lockedUntil`), `PT_ReleaseLock` (holder), `PT_DeliverLocked` (owner AND holder, both passes), `PT_AssertBeforeMaturity` (nonconsuming price check on the Operator's authority). Every other PT choice refuses a locked PT. Moved here from Phase 1 (P2)
+- [x] Helpers: `splitExact` in `Holding.daml` (`payFrom` now uses it) and `splitExactPt` in `Tokens.daml`
+- [x] `Quote` (requester + dealer sign, no observers): price, `usdcAmount = roundDown6 (price * ptAmount)`, `validUntil` (gap 8)
+- [x] `Quote_Accept`: cash + PT in **one** transaction; both passes checked again; fails after `validUntil` and at or after maturity (like Pendle)
+- [x] `Quote_Reject` (releases the lock before expiry) / `Quote_Withdraw` (dealer, only after expiry; then `PT_Unlock`)
+- [x] Tests in `RfqTest.daml`: `rfqBuyPt` (487.5 USDC for 500 PT), `rfqSellPt` (197 USDC for 200 PT), `quoteExpiry`, `lockedPtRules`, `rfqFailures`, `rfqPrivacy` (**Operator, UsdcIssuer, UsycIssuer, Oracle, Carol see zero `Quote`/`RfqRequest`**). 17 failure cases checked once with a plain `submit`
+- [x] Spec: tables, 8.2 (both sides, expiry, lock), section 10, section 11 (RFQ vs Pendle limit orders), gap 8 fixed
 
 **Done when:** the privacy assertions pass, and a double sale of locked PT is impossible.
 
@@ -149,7 +154,7 @@ File: `test/daml/Exodus/DemoTest.daml`.
 - [ ] `GET /portfolio` (PT, YT, claimable yield, open requests, USD value)
 - [ ] Endpoints: split, merge, claim, redeem PT, cancel request; RFQ create / list quotes / accept / reject
 - [ ] `OperatorSettlementService`: settles claim/redeem/merge requests oldest first (like `RedeemSettlementService`): claims with `CurrentRate` before maturity and `AtMaturity` after, redeems with the newest price; merges vault pieces; calls `Mature` with the first price on or after maturity (gap 3)
-- [ ] `DealerBotService` (D2): answers RFQs to Bank with `price = 1 / (1 + targetApy ± spread)^years`; settings (target APY, spread, max size, on/off) in PostgreSQL via Prisma
+- [ ] `DealerBotService` (D2): answers RFQs to Bank with `price = 1 / (1 + targetApy ± spread)^years` (Pendle's formula), declines what it cannot fill, never touches cash it set aside for a sell quote, and after expiry sends `Quote_Withdraw` + `PT_Unlock` in one submission; settings (target APY, spread, max size, on/off) in PostgreSQL via Prisma
 - [ ] Dealer endpoints for `/dealer` (dealer role only): open RFQs, manual quote, settings
 - [ ] Ledger errors mapped in `toHttpError` (expired quote, market matured, not enough PT)
 - [ ] Unit tests (pricing, preview maths, error mapping); Swagger docs; endpoint table in `client-app.md`
@@ -190,3 +195,4 @@ File: `test/daml/Exodus/DemoTest.daml`.
 - 2026-09-25: plan agreed with all recommended decisions (D1–D5 = A). Next: Phase 1 detailed plan.
 - 2026-09-25: Phase 1 done (P1 = A, P2 = A). `Tokens.daml`, `Market.daml`, `MarketTest.daml`; 39 Daml scripts pass. No app changes yet (screens are Phase 7). Next: Phase 2 detailed plan.
 - 2026-09-25: Phase 2 done after reading Pendle V2's `PendleYieldToken.sol`: Q1 = Pendle-style maturity, Q2 = merge on the token. Added the guiding rule "our version of Pendle on Canton". 47 Daml scripts pass. Next: Phase 3 detailed plan (RFQ + PT lock).
+- 2026-09-25: Phase 3 done after reading Pendle V2's limit-order contracts (`IPLimitRouter`, `LimitRouterBase`, `LimitMathCore`, `MarketMathCore`): R1–R4 = A. `Rfq.daml`, PT lock, `splitExact`/`splitExactPt`, `RfqTest.daml`; 54 Daml scripts pass. Next: Phase 4 (`DemoTest.daml`).

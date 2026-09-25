@@ -45,12 +45,22 @@
 --   YT interest tracked per user automatically     claim requests with a 'lastIndex' per YT token
 --                                                  (one shared interest ledger = contention)
 --
+-- LOCKED PT (for the private RFQ in Exodus.Rfq): when Bank quotes Alice 500
+-- PT, it locks exactly those 500 PT for her until the quote expires. A locked
+-- PT cannot be transferred, split, merged, redeemed or merged into USYC, and
+-- Bank cannot unlock it early, so it cannot sell the same PT twice. Alice
+-- becomes an observer of that one PT (she must see it to settle), not of
+-- Bank's other PT. Pendle does not lock a maker's tokens (a fill simply fails
+-- if they are gone); we do, because an institutional RFQ quote is FIRM
+-- (decision R2 in docs/markets-plan.md).
+--
 -- Not here yet (see docs/markets-plan.md):
---   - locking a PT for a quote (PT_Lock / PT_Unlock): Phase 3, with the RFQ
 --   - the treasury sweep of what stays in the vault after maturity (spec gap 5): Phase 8
 --   - the CIP-56 'Holding' interface for PT and YT (spec gap 7): Phase 8
 module Exodus.Tokens where
 
+import DA.Foldable (forA_)  -- run an action for every item in a list, e.g. check each input PT
+import DA.Optional (isNone)
 import Exodus.Access
 import Exodus.Holding
 import Exodus.Oracle
@@ -85,6 +95,31 @@ data IndexSource
   deriving (Eq, Show)
 
 
+-- | A lock on a PT: it is reserved for 'holder' until 'lockedUntil'.
+--
+-- Example: Bank quotes Alice 500 PT at 0.975, valid until 10:01:00.
+--   PtLock(holder = Alice, lockedUntil = 10:01:00)
+-- The same idea as the 'lock' field of the CIP-56 token standard (spec gap 7).
+data PtLock = PtLock
+  with
+    holder      : Party  -- who the PT is reserved for, for example Alice (the buyer)
+    lockedUntil : Time   -- LEDGER time until which the owner cannot unlock it (the quote's validUntil)
+  deriving (Eq, Show)
+
+
+-- | The parties that must see a PT because of its lock: nobody, or the holder.
+-- Example: lockHolders (Some (PtLock Alice t)) == [Alice], lockHolders None == [].
+lockHolders : Optional PtLock -> [Party]
+lockHolders None = []
+lockHolders (Some ptLock) = [ptLock.holder]
+
+
+-- | The lock of a PT, or fail with a clear message if it is not locked.
+requireLock : Optional PtLock -> Update PtLock
+requireLock None = abort "PT is not locked"
+requireLock (Some ptLock) = pure ptLock
+
+
 -- | What 'PT_SplitOff' gives back.
 -- Example: splitting 300 off a 1000 PT gives splitCid = 300 PT, restCid = 700 PT.
 data PtSplitResult = PtSplitResult
@@ -100,6 +135,18 @@ data YtSplitResult = YtSplitResult
   with
     splitCid : ContractId YieldToken
     restCid  : ContractId YieldToken
+  deriving (Eq, Show)
+
+
+-- | What 'splitExactPt' gives back.
+--
+-- Example: Bank takes exactly 500 PT out of its 600 PT and 400 PT.
+--   exactCid  -> PrincipalToken(owner = Bank, amount = 500)
+--   changeCid -> Some PrincipalToken(owner = Bank, amount = 500)
+data PtExactResult = PtExactResult
+  with
+    exactCid  : ContractId PrincipalToken
+    changeCid : Optional (ContractId PrincipalToken)
   deriving (Eq, Show)
 
 
@@ -183,6 +230,52 @@ yieldIndex operator terms source = case source of
     pure snapshot.index
 
 
+-- | Turn the owner's PTs of one market into ONE PT of exactly 'amount' (plus
+-- change), still owned by the owner. The PT version of 'splitExact'.
+--
+-- Used by the RFQ: Bank quotes exactly 500 PT from its 600 PT and 400 PT;
+-- Alice sells exactly 200 PT from her 500 PT.
+--
+-- Steps:
+--   1. Check every input: owned by the owner, same operator and market, not locked.
+--   2. Merge them into one PT (600 + 400 -> 1000).
+--   3. Split off the amount (1000 -> 500 + 500), unless it is already exact.
+splitExactPt : Party -> Party -> MarketTerms -> Decimal -> [ContractId PrincipalToken] -> Update PtExactResult
+splitExactPt operator owner terms amount ptCids = do
+  assertMsg "PT amount must be greater than 0" (amount > 0.0)
+
+  -- 1. Check every input.
+  forA_ ptCids \ptCid -> do
+    pt <- fetch ptCid
+    assertMsg "input PT must be owned by the owner" (pt.owner == owner)
+    assertMsg "input PT has the wrong operator" (pt.operator == operator)
+    assertMsg "input PT is for another market" (pt.terms == terms)
+    assertMsg "input PT is locked" (isNone pt.lock)
+
+  -- 2. Merge all inputs into one PT.
+  mergedCid <- case ptCids of
+    [] -> abort "at least one input PT is required"
+    firstCid :: otherCids -> mergeAllPt firstCid otherCids
+  merged <- fetch mergedCid
+  assertMsg "input PTs do not cover the amount" (merged.amount >= amount)
+
+  -- 3. Keep the exact amount apart, and the rest as change.
+  if merged.amount == amount
+    then pure PtExactResult with exactCid = mergedCid; changeCid = None
+    else do
+      PtSplitResult with splitCid; restCid <- exercise mergedCid PT_SplitOff with splitAmount = amount
+      pure PtExactResult with exactCid = splitCid; changeCid = Some restCid
+
+
+-- | Merge a list of PTs into the first one, one by one.
+--   mergeAllPt a [b, c]  ==  (a PT_MergeWith b) PT_MergeWith c
+mergeAllPt : ContractId PrincipalToken -> [ContractId PrincipalToken] -> Update (ContractId PrincipalToken)
+mergeAllPt mergedCid [] = pure mergedCid
+mergeAllPt mergedCid (nextCid :: restCids) = do
+  newMergedCid <- exercise mergedCid PT_MergeWith with otherCid = nextCid
+  mergeAllPt newMergedCid restCids
+
+
 -- | Principal Token: after maturity, 1 PT pays 1 USD worth of the asset.
 --
 -- Before maturity it sells below 1.00, and the discount is the buyer's fixed
@@ -194,14 +287,16 @@ template PrincipalToken
     owner    : Party        -- who holds it, for example Bank
     terms    : MarketTerms  -- which market it belongs to
     amount   : Decimal      -- USD notional, for example 1000.0
+    lock     : Optional PtLock  -- None, or reserved for a buyer during an RFQ quote
   where
     ensure amount > 0.0
 
     -- The Operator vouches that the token is backed by USYC in its vault.
     signatory operator
 
-    -- Only the owner (and the Operator) sees it. Alice cannot see Bank's PT.
-    observer owner
+    -- Only the owner (and the Operator) sees it. Alice cannot see Bank's PT,
+    -- except the one PT Bank locked for her in a quote: she must see it to settle.
+    observer owner, lockHolders lock
 
     -- ---------------------------------------------------------------------
     -- PT_Transfer: give this whole PT to another approved client.
@@ -225,6 +320,7 @@ template PrincipalToken
         receiverAccessCid : ContractId ClientAccess  -- the receiver's pass (disclosed to the owner)
       controller owner
       do
+        assertMsg "PT is locked for a quote" (isNone lock)
         checkAccess operator owner senderAccessCid
         checkAccess operator newOwner receiverAccessCid
         create this with owner = newOwner
@@ -239,6 +335,7 @@ template PrincipalToken
         splitAmount : Decimal
       controller owner
       do
+        assertMsg "PT is locked for a quote" (isNone lock)
         assertMsg "splitAmount must be greater than 0" (splitAmount > 0.0)
         assertMsg "splitAmount must be less than the token amount" (splitAmount < amount)
         splitCid <- create this with amount = splitAmount
@@ -257,6 +354,8 @@ template PrincipalToken
         -- Merging with itself would double the amount.
         assertMsg "cannot merge a token with itself" (otherCid /= self)
         other <- fetch otherCid
+        -- Neither piece may be locked: a merge would move a reserved PT.
+        assertMsg "PT is locked for a quote" (isNone lock && isNone other.lock)
         assertMsg "operator must match" (other.operator == operator)
         assertMsg "owner must match" (other.owner == owner)
         -- A PT of another market has another maturity (or another asset), so
@@ -283,6 +382,7 @@ template PrincipalToken
         snapshotCid : ContractId MaturitySnapshot  -- proves the market has matured
       controller owner
       do
+        assertMsg "PT is locked for a quote" (isNone lock)
         checkAccess operator owner accessCid
         snapshot <- fetchMaturitySnapshot operator terms snapshotCid
         requestedAt <- getTime
@@ -319,6 +419,7 @@ template PrincipalToken
         rateCid     : ContractId RateIndex          -- a live price, to check the date
       controller owner
       do
+        assertMsg "PT is locked for a quote" (isNone lock)
         checkAccess operator owner accessCid
         assertMsg "mergeAmount must be greater than 0" (mergeAmount > 0.0)
         assertMsg "mergeAmount is more than the PT amount" (mergeAmount <= amount)
@@ -354,6 +455,94 @@ template PrincipalToken
           requestedAt
 
         pure MergeRequestResult with requestCid; ptChangeCid; ytChangeCid
+
+    -- ---------------------------------------------------------------------
+    -- PT_Lock: reserve this whole PT for 'holder' until 'lockedUntil'.
+    --
+    -- Example: Bank quotes Alice 500 PT, valid until 10:01:00. 'Rfq_Quote'
+    -- locks exactly 500 PT: PtLock(holder = Alice, lockedUntil = 10:01:00).
+    -- Alice now sees this PT; Bank can no longer move it or unlock it before
+    -- 10:01:00, so the quote is firm.
+    -- ---------------------------------------------------------------------
+    choice PT_Lock : ContractId PrincipalToken
+      with
+        holder      : Party  -- who it is reserved for, for example Alice
+        lockedUntil : Time   -- the quote's validUntil (ledger time)
+      controller owner
+      do
+        assertMsg "PT is already locked" (isNone lock)
+        assertMsg "cannot lock a PT for its own owner" (holder /= owner)
+        now <- getTime
+        assertMsg "lockedUntil must be in the future" (lockedUntil > now)
+        create this with lock = Some PtLock with holder; lockedUntil
+
+    -- ---------------------------------------------------------------------
+    -- PT_Unlock: the owner takes the PT back once the lock has run out.
+    -- Example: Bank's quote to Alice expired at 10:01:00; at 10:01:05 Bank
+    -- unlocks the 500 PT. Before 10:01:00 this fails: the quote is firm.
+    -- ---------------------------------------------------------------------
+    choice PT_Unlock : ContractId PrincipalToken
+      controller owner
+      do
+        ptLock <- requireLock lock
+        now <- getTime
+        assertMsg "PT is locked until the quote expires" (now >= ptLock.lockedUntil)
+        create this with lock = None
+
+    -- ---------------------------------------------------------------------
+    -- PT_ReleaseLock: the holder gives up the reservation early.
+    -- Example: Alice rejects Bank's quote ('Quote_Reject'), so Bank gets its
+    -- 500 PT back at once instead of waiting for 10:01:00.
+    -- ---------------------------------------------------------------------
+    choice PT_ReleaseLock : ContractId PrincipalToken
+      with
+        holder : Party  -- the lock holder, for example Alice
+      controller holder
+      do
+        ptLock <- requireLock lock
+        assertMsg "only the lock holder can release the lock" (ptLock.holder == holder)
+        create this with lock = None
+
+    -- ---------------------------------------------------------------------
+    -- PT_DeliverLocked: the locked PT goes to its holder, unlocked.
+    --
+    -- Used by 'Quote_Accept' in the SAME transaction as the cash payment
+    -- (atomic DvP). It needs BOTH the owner (Bank) and the holder (Alice) as
+    -- controllers, so Alice can never take the PT alone without paying: the
+    -- only place where both authorities meet is the Quote they both signed.
+    -- Both passes are checked, like 'PT_Transfer' (decision P1).
+    -- ---------------------------------------------------------------------
+    choice PT_DeliverLocked : ContractId PrincipalToken
+      with
+        holder          : Party                   -- the lock holder, for example Alice
+        ownerAccessCid  : ContractId ClientAccess  -- the owner's pass (Bank)
+        holderAccessCid : ContractId ClientAccess  -- the holder's pass (Alice)
+      controller owner, holder
+      do
+        ptLock <- requireLock lock
+        assertMsg "only the lock holder can take delivery" (ptLock.holder == holder)
+        checkAccess operator owner ownerAccessCid
+        checkAccess operator holder holderAccessCid
+        create this with owner = holder; lock = None
+
+    -- ---------------------------------------------------------------------
+    -- PT_AssertBeforeMaturity: fail if this PT's market has reached maturity.
+    --
+    -- NONCONSUMING and changes nothing: it only checks. 'Quote_Accept' calls
+    -- it because PT trading stops at maturity, like Pendle ("LOP: PY expired").
+    -- After maturity a PT is simply redeemed for 1 USD of USYC.
+    --
+    -- Why a choice on the PT and not a check inside the Quote? Reading the
+    -- price needs a party that can see the RateIndex. The Quote is signed by
+    -- Alice and Bank, who cannot; this PT is signed by the Operator, who can.
+    -- ---------------------------------------------------------------------
+    nonconsuming choice PT_AssertBeforeMaturity : ()
+      with
+        rateCid : ContractId RateIndex  -- a live price, for its demo date
+      controller owner
+      do
+        rate <- fetchMarketRate terms rateCid
+        assertMsg "market has reached its maturity date: PT trading is closed, redeem instead" (rate.simTime < terms.maturity)
 
 
 -- | Yield Token: gets all the yield of 'amount' USD of the asset until maturity.
@@ -622,7 +811,7 @@ template RedeemRequest
     choice Redeem_Cancel : ContractId PrincipalToken
       controller owner
       do
-        create PrincipalToken with operator; owner; terms; amount = ptAmount
+        create PrincipalToken with operator; owner; terms; amount = ptAmount; lock = None
 
 
 -- | An open merge: the PT and the YT are inside, the vault still owes the USYC.
@@ -672,6 +861,6 @@ template MergeRequest
     choice Merge_Cancel : (ContractId PrincipalToken, ContractId YieldToken)
       controller owner
       do
-        ptCid <- create PrincipalToken with operator; owner; terms; amount
+        ptCid <- create PrincipalToken with operator; owner; terms; amount; lock = None
         ytCid <- create YieldToken with operator; owner; terms; amount; lastIndex
         pure (ptCid, ytCid)

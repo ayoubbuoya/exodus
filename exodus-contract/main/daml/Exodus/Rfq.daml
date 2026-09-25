@@ -1,0 +1,317 @@
+-- | Private PT trading: request for quote (RFQ), then atomic delivery versus
+-- payment (DvP). Spec sections 8.2 and 10.
+--
+-- Example (spec section 9, step 2): Alice wants a fixed rate.
+--   1. Alice asks Bank:   RfqRequest(side = BuyPt, ptAmount = 500)
+--   2. Bank answers:      Quote(price = 0.975, cash = 487.5 USDC, valid 60 s)
+--                         and locks exactly 500 of its PT for Alice
+--   3. Alice accepts:     487.5 USDC -> Bank and 500 PT -> Alice,
+--                         in ONE transaction. If anything fails, nothing moves.
+--
+-- Selling works the same way (side = SellPt): Alice sells 200 PT at 0.985,
+-- Bank pays 197 USDC.
+--
+-- PRIVACY (the point of Exodus, spec section 10): only Alice and Bank sign
+-- and see the RfqRequest and the Quote. In the accept transaction:
+--   - the Operator sees the PT move (it signs PTs) but not the USDC or the price;
+--   - UsdcIssuer sees the USDC move (it signs USDC) but not the PT or the price.
+-- Nobody but Alice and Bank can put the two legs together and learn the price.
+--
+-- HOW THIS FOLLOWS PENDLE (decisions R1 to R4 in docs/markets-plan.md).
+-- Outside its AMM, Pendle V2 trades PT with limit orders (IPLimitRouter):
+--
+--   Pendle limit order                        Exodus RFQ
+--   ----------------------------------------  ------------------------------------------------
+--   public order book, anyone can fill        private: one requester, one dealer (Canton privacy)
+--   order.expiry                              Quote.validUntil (spec gap 8)
+--   no fills after maturity ("LOP: PY         Quote_Accept refuses at or after maturity
+--   expired")
+--   price as a fixed APY (lnImpliedRate)      price as a number (0.975) with a short expiry (R1);
+--                                             the dealer bot turns an APY into a price with
+--                                             Pendle's formula price = (1 + APY)^(-years)
+--   maker's tokens not locked: a fill fails   dealer's PT LOCKED for the buyer: the quote is
+--   if they are gone                          firm (R2). The sell side cannot lock USDC, so
+--                                             there Pendle's rule applies
+--   partial fills                             full size only (R3)
+--   PT traded against SY (the yield token)    PT traded against USDC cash (R4), a DvP
+--   protocol fee to the treasury              no fee: the dealer earns its spread
+module Exodus.Rfq where
+
+import Exodus.Access
+import Exodus.Holding
+import Exodus.Oracle (RateIndex)
+import Exodus.Tokens
+
+
+-- | Which way the requester trades.
+--   BuyPt:  Alice buys PT from the dealer and pays USDC (she locks in a fixed rate).
+--   SellPt: Alice sells PT to the dealer and gets USDC (she exits before maturity).
+data RfqSide = BuyPt | SellPt
+  deriving (Eq, Show)
+
+
+-- | What 'Rfq_Quote' gives back.
+--
+-- Example: Bank quotes 500 PT from its 1000 PT.
+--   quoteCid      -> the Quote
+--   ptChangeCid   -> Some PrincipalToken(owner = Bank, amount = 500)  (its other, unlocked PT)
+--   usdcChangeCid -> None                                             (only used when selling)
+data RfqQuoteResult = RfqQuoteResult
+  with
+    quoteCid      : ContractId Quote
+    ptChangeCid   : Optional (ContractId PrincipalToken)
+    usdcChangeCid : Optional (ContractId Holding)
+  deriving (Eq, Show)
+
+
+-- | What 'Quote_Accept' gives back.
+--
+-- Buy example (Alice buys 500 PT at 0.975 from 1000 USDC):
+--   ptCid -> PrincipalToken(owner = Alice, 500), usdcCid -> Holding(owner = Bank, 487.5 USDC),
+--   ptChangeCid = None, usdcChangeCid = Some Holding(owner = Alice, 512.5 USDC)
+-- Sell example (Alice sells 200 PT at 0.985 from her 500 PT):
+--   ptCid -> PrincipalToken(owner = Bank, 200), usdcCid -> Holding(owner = Alice, 197 USDC),
+--   ptChangeCid = Some PrincipalToken(owner = Alice, 300), usdcChangeCid = None
+data QuoteAcceptResult = QuoteAcceptResult
+  with
+    ptCid         : ContractId PrincipalToken       -- the PT, now with the buyer
+    usdcCid       : ContractId Holding              -- the USDC, now with the seller
+    ptChangeCid   : Optional (ContractId PrincipalToken)
+    usdcChangeCid : Optional (ContractId Holding)
+  deriving (Eq, Show)
+
+
+-- | Fail with 'message' when an optional value is missing.
+requireSome : Text -> Optional a -> Update a
+requireSome message None = abort message
+requireSome _ (Some value) = pure value
+
+
+-- | Alice asks one dealer for a price. Only Alice and the dealer see it.
+--
+-- Alice creates it herself (she is the only signatory). Her pass is checked
+-- when the dealer quotes and again when she accepts.
+template RfqRequest
+  with
+    operator           : Party                   -- the market's operator: signs PTs and passes
+    requester          : Party                   -- who asks, for example Alice
+    dealer             : Party                   -- who is asked, for example Bank (the house dealer)
+    usdcIssuer         : Party                   -- the only USDC accepted as cash
+    requesterAccessCid : ContractId ClientAccess  -- Alice's pass, so the dealer's quote can check it
+    terms              : MarketTerms             -- which market's PT, for example PT-USYC-APR2027
+    side               : RfqSide                 -- BuyPt or SellPt
+    ptAmount           : Decimal                 -- how much PT, for example 500.0
+    requestedAt        : Time                    -- ledger time, to show the oldest request first
+  where
+    ensure ptAmount > 0.0 && requester /= dealer
+
+    signatory requester
+    -- The dealer must see the request to answer it. Nobody else sees it:
+    -- not the Operator, not the issuers, not other dealers or clients.
+    observer dealer
+
+    -- ---------------------------------------------------------------------
+    -- Rfq_Quote: the dealer answers with a firm price, valid until 'validUntil'.
+    --
+    -- Buy example: 500 PT at 0.975 -> cash = 487.5 USDC. Bank takes exactly
+    -- 500 PT out of 'dealerPtCids' and LOCKS it for Alice until validUntil.
+    -- Sell example: 200 PT at 0.985 -> cash = 197 USDC. Bank sets aside a
+    -- holding of exactly 197 USDC from 'dealerUsdcCids'.
+    --
+    -- Taking the EXACT amount means Alice, who must be shown that PT or
+    -- that USDC holding to settle, never sees the dealer's whole balance.
+    --
+    -- Cash = roundDown6 (price * ptAmount), fixed here, so both sides know
+    -- the exact amount before anyone accepts.
+    -- ---------------------------------------------------------------------
+    choice Rfq_Quote : RfqQuoteResult
+      with
+        price           : Decimal                    -- USDC per PT, for example 0.975
+        validUntil      : Time                       -- ledger time; the quote is firm until then
+        dealerAccessCid : ContractId ClientAccess     -- the dealer's own pass
+        dealerPtCids    : [ContractId PrincipalToken] -- BuyPt: the dealer's PT to sell ([] when SellPt)
+        dealerUsdcCids  : [ContractId Holding]        -- SellPt: the dealer's USDC to pay with ([] when BuyPt)
+      controller dealer
+      do
+        -- Both must be approved clients of this operator.
+        checkAccess operator requester requesterAccessCid
+        checkAccess operator dealer dealerAccessCid
+
+        -- With positive rates, a PT is always worth at most 1 USD (spec section 11).
+        assertMsg "price must be greater than 0" (price > 0.0)
+        assertMsg "price must be at most 1.0" (price <= 1.0)
+        now <- getTime
+        assertMsg "validUntil must be in the future" (validUntil > now)
+
+        let usdcAmount = roundDown6 (price * ptAmount)
+        assertMsg "the quote is worth less than 0.000001 USDC" (usdcAmount > 0.0)
+
+        -- Reserve what the dealer delivers.
+        (lockedPtCid, dealerUsdcCid, ptChangeCid, usdcChangeCid) <- case side of
+          BuyPt -> do
+            exact <- splitExactPt operator dealer terms ptAmount dealerPtCids
+            lockedCid <- exercise exact.exactCid PT_Lock with holder = requester; lockedUntil = validUntil
+            pure (Some lockedCid, None, exact.changeCid, None)
+          SellPt -> do
+            exact <- splitExact dealer usdcIssuer "USDC" usdcAmount dealerUsdcCids
+            pure (None, Some exact.exactCid, None, exact.changeCid)
+
+        quoteCid <- create Quote with
+          operator
+          requester
+          dealer
+          usdcIssuer
+          dealerAccessCid
+          terms
+          side
+          ptAmount
+          price
+          usdcAmount
+          validUntil
+          lockedPtCid
+          dealerUsdcCid
+
+        pure RfqQuoteResult with quoteCid; ptChangeCid; usdcChangeCid
+
+    -- ---------------------------------------------------------------------
+    -- Rfq_Cancel: Alice no longer wants a price.
+    -- ---------------------------------------------------------------------
+    choice Rfq_Cancel : ()
+      controller requester
+      do
+        pure ()
+
+    -- ---------------------------------------------------------------------
+    -- Rfq_Decline: the dealer does not want to quote (for example, the size
+    -- is bigger than its limit). Alice can ask again or ask someone else.
+    -- ---------------------------------------------------------------------
+    choice Rfq_Decline : ()
+      controller dealer
+      do
+        pure ()
+
+
+-- | A firm, private price from the dealer. Signed by both, seen by both only.
+--
+-- Example: Quote(side = BuyPt, ptAmount = 500, price = 0.975,
+--                usdcAmount = 487.5, validUntil = 10:01:00)
+template Quote
+  with
+    operator        : Party                               -- the market's operator
+    requester       : Party                               -- Alice
+    dealer          : Party                               -- Bank
+    usdcIssuer      : Party                               -- the only USDC accepted
+    dealerAccessCid : ContractId ClientAccess              -- Bank's pass, checked again at accept
+    terms           : MarketTerms                         -- which market's PT
+    side            : RfqSide                             -- BuyPt or SellPt (from Alice's side)
+    ptAmount        : Decimal                             -- for example 500.0
+    price           : Decimal                             -- USDC per PT, for example 0.975
+    usdcAmount      : Decimal                             -- roundDown6 (price * ptAmount), for example 487.5
+    validUntil      : Time                                -- ledger time; accept fails after it (spec gap 8)
+    lockedPtCid     : Optional (ContractId PrincipalToken) -- BuyPt: the dealer's PT, locked for Alice
+    dealerUsdcCid   : Optional (ContractId Holding)        -- SellPt: the dealer's USDC, exactly usdcAmount
+  where
+    ensure ptAmount > 0.0 && price > 0.0 && price <= 1.0 && usdcAmount > 0.0 && requester /= dealer
+
+    -- Both sign: Bank promises the price, Alice agreed to ask. Because both
+    -- signed, the accept can move Alice's AND Bank's tokens in one transaction.
+    -- No observers: the Operator and the issuers never see a Quote.
+    signatory requester, dealer
+
+    -- ---------------------------------------------------------------------
+    -- Quote_Accept: atomic DvP. Both legs move, or nothing moves.
+    --
+    -- BuyPt  (Alice buys 500 PT at 0.975):  Alice pays 487.5 USDC to Bank from
+    --        'usdcCids', and Bank's locked 500 PT goes to Alice.
+    -- SellPt (Alice sells 200 PT at 0.985): Alice's 200 PT (taken exactly from
+    --        'ptCids') goes to Bank, and Bank's set-aside 197 USDC goes to Alice.
+    --
+    -- Fails when: the quote has expired, either pass is missing or revoked,
+    -- the market has reached maturity (like Pendle), Alice does not have
+    -- enough USDC or PT, or (SellPt only) Bank has spent its set-aside USDC.
+    -- ---------------------------------------------------------------------
+    choice Quote_Accept : QuoteAcceptResult
+      with
+        requesterAccessCid : ContractId ClientAccess      -- Alice's pass (checked again: she may have been revoked)
+        rateCid            : ContractId RateIndex         -- a live price, to check the maturity date
+        usdcCids           : [ContractId Holding]         -- BuyPt: Alice's USDC to pay with ([] when SellPt)
+        ptCids             : [ContractId PrincipalToken]  -- SellPt: Alice's PT to sell ([] when BuyPt)
+      controller requester
+      do
+        now <- getTime
+        assertMsg "quote has expired: ask for a new one" (now < validUntil)
+        checkAccess operator requester requesterAccessCid
+        checkAccess operator dealer dealerAccessCid
+
+        case side of
+          BuyPt -> do
+            lockedCid <- requireSome "buy quote has no locked PT" lockedPtCid
+            -- PT trading stops at maturity (see PT_AssertBeforeMaturity).
+            exercise lockedCid PT_AssertBeforeMaturity with rateCid
+
+            -- Cash leg: Alice pays Bank.
+            payment <- payFrom requester usdcIssuer "USDC" usdcAmount dealer usdcCids
+            -- PT leg: the locked PT goes to Alice. It needs Bank's AND
+            -- Alice's authority; both signed this Quote, so both are here.
+            ptCid <- exercise lockedCid PT_DeliverLocked with
+              holder = requester
+              ownerAccessCid = dealerAccessCid
+              holderAccessCid = requesterAccessCid
+
+            pure QuoteAcceptResult with
+              ptCid
+              usdcCid = payment.paidCid
+              ptChangeCid = None
+              usdcChangeCid = payment.changeCid
+
+          SellPt -> do
+            usdcHoldingCid <- requireSome "sell quote has no USDC set aside" dealerUsdcCid
+            exact <- splitExactPt operator requester terms ptAmount ptCids
+            exercise exact.exactCid PT_AssertBeforeMaturity with rateCid
+
+            -- PT leg: Alice's exact PT goes to Bank (both passes checked).
+            ptCid <- exercise exact.exactCid PT_Transfer with
+              newOwner = dealer
+              senderAccessCid = requesterAccessCid
+              receiverAccessCid = dealerAccessCid
+            -- Cash leg: Bank's set-aside USDC goes to Alice. Bank signed this
+            -- Quote, so its authority as the holding's owner is available.
+            -- If Bank has spent that holding, this fails and nothing moves
+            -- (the sell side cannot lock USDC: Pendle's "maker lacks balance" rule).
+            usdcCid <- exercise usdcHoldingCid Transfer with newOwner = requester
+
+            pure QuoteAcceptResult with
+              ptCid
+              usdcCid
+              ptChangeCid = exact.changeCid
+              usdcChangeCid = None
+
+    -- ---------------------------------------------------------------------
+    -- Quote_Reject: Alice says no.
+    -- Before expiry, a buy quote's locked PT is released at once, so Bank can
+    -- use it again. After expiry the lock has run out anyway: Bank unlocks it
+    -- itself with PT_Unlock, and this only removes the quote.
+    -- ---------------------------------------------------------------------
+    choice Quote_Reject : ()
+      controller requester
+      do
+        now <- getTime
+        if side == BuyPt && now < validUntil
+          then do
+            lockedCid <- requireSome "buy quote has no locked PT" lockedPtCid
+            _ <- exercise lockedCid PT_ReleaseLock with holder = requester
+            pure ()
+          else pure ()
+
+    -- ---------------------------------------------------------------------
+    -- Quote_Withdraw: the dealer removes a quote, but only AFTER it expired.
+    -- Before that, the quote is firm: Bank cannot take its price back.
+    -- (Bank unlocks the PT with PT_Unlock; the dealer bot sends both in one
+    -- submission.)
+    -- ---------------------------------------------------------------------
+    choice Quote_Withdraw : ()
+      controller dealer
+      do
+        now <- getTime
+        assertMsg "quote is firm until validUntil" (now >= validUntil)
+        pure ()

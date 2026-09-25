@@ -194,7 +194,7 @@ exodus-contract/
       Access.daml                 # ClientAccess pass (on-ledger client whitelist)          [done]
       Tokens.daml                 # MarketTerms, PT, YT, MaturitySnapshot, Claim/Redeem/MergeRequest [done]
       Market.daml                 # Market (Split, Mature)                                  [done]
-      Rfq.daml                    # RfqRequest, Quote (private DvP, pays with payFrom)       [to do]
+      Rfq.daml                    # RfqRequest, Quote (private RFQ + atomic DvP in USDC)    [done]
   test/                           # package exodus-contract-test
     daml.yaml
     daml/Exodus/
@@ -206,6 +206,7 @@ exodus-contract/
       AccessTest.daml             # pass create/revoke rights, who sees which pass          [done]
       MarketTest.daml             # split, PT/YT transfers + merges, passes, time rules, privacy [done]
       LifecycleTest.daml          # claim, mature (Pendle-style), redeem, merge, passes, privacy [done]
+      RfqTest.daml                # buy + sell DvP, quote expiry, PT lock, failures, privacy  [done]
       DemoTest.daml               # the worked example in section 9                         [to do]
 ```
 
@@ -222,13 +223,13 @@ exodus-contract/
 | `RateIndex` | oracle | operator, readers (= UsycIssuer in the demo) | Read-only price snapshot with `publishedAt` and `validUntil` (ledger time, `validFor` = 30 s in the demo). Not archived when a newer one is published. Choice: `Expire` (oracle, after `validUntil`). Readers use `fetchValidRate`, which rejects expired snapshots. |
 | `Market` | operator | (none) | Fields: `terms`, `matured`. Nonconsuming `Split`: the splitter passes its `ClientAccess` pass and a valid `RateIndex` (read with `fetchValidRate`, from the market's oracle), pays USYC into the Operator's vault (via `payFrom`) and gets `roundDown6 (usycAmount * index)` PT and YT. Refused once `matured` or when `simTime >= maturity`. **Consuming** `Mature` (operator): with the first price on or after maturity, creates the `MaturitySnapshot` and re-creates the Market with `matured = True` (fixes gap 1; Pendle-style, see 8.4). Clients get the market through explicit disclosure (decision D1 in [`markets-plan.md`](markets-plan.md)). |
 | `MaturitySnapshot` | operator | (none) | The frozen index of one market (like Pendle's `firstPYIndex`): `terms`, `index`, `simTime`, `maturedAt`. YT final claims are paid up to it; `PT_RequestRedeem` needs it as proof of maturity. Disclosed to clients. |
-| `PrincipalToken` | operator | owner (later also `lockedFor`) | Done: `PT_Transfer` (needs the sender's and the receiver's `ClientAccess` pass), `PT_SplitOff`, `PT_MergeWith` (same market only), `PT_RequestRedeem` (pass + disclosed `MaturitySnapshot`, so never before maturity), `PT_RequestMerge` (pass, YT of the same market, `mergeAmount`, live price; before maturity only; change comes back). To do: `PT_Lock`, `PT_Unlock`, `PT_DeliverLocked` (Phase 3, with the RFQ). |
+| `PrincipalToken` | operator | owner, lock holder | Field `lock : Optional PtLock (holder, lockedUntil)`. `PT_Transfer` (needs the sender's and the receiver's `ClientAccess` pass), `PT_SplitOff`, `PT_MergeWith` (same market only), `PT_RequestRedeem` (pass + disclosed `MaturitySnapshot`, so never before maturity), `PT_RequestMerge` (pass, YT of the same market, `mergeAmount`, live price; before maturity only; change comes back). All of these refuse a locked PT. RFQ lock: `PT_Lock` (owner), `PT_Unlock` (owner, only after `lockedUntil`: the quote is firm), `PT_ReleaseLock` (holder, any time), `PT_DeliverLocked` (owner AND holder, both passes: only inside `Quote_Accept`), nonconsuming `PT_AssertBeforeMaturity` (reads the price on the Operator's authority). |
 | `YieldToken` | operator | owner | Keeps `lastIndex` (yield is paid up to it). Done: `YT_Transfer` (both passes, like PT), `YT_SplitOff`, `YT_MergeWith` (same market AND same `lastIndex`, otherwise unclaimed yield would be lost or doubled). `YT_RequestClaim` (pass; the whole YT goes into the request). |
 | `RedeemRequest` | operator, owner | (none) | Holds the PT and the copied `maturityIndex`. `Redeem_Settle` (operator, current price ≥ `maturityIndex`): pays `roundDown6 (ptAmount / index at settle)` USYC from the vault. `Redeem_Cancel` (owner): PT back. |
 | `ClaimRequest` | operator, owner | (none) | Holds the YT. `Claim_Settle` (operator, `IndexSource`): pays `roundDown6 (amount/lastIndex − amount/newIndex)`; gives the YT back with the new `lastIndex` (unchanged if nothing was paid); after maturity (`AtMaturity`) the YT is used up. `Claim_Cancel` (owner): YT back. |
 | `MergeRequest` | operator, owner | (none) | Holds PT + YT of the same amount and the YT's `lastIndex`. `Merge_Settle` (operator): pays `roundDown6 (amount / lastIndex)`. `Merge_Cancel` (owner): PT and YT back. |
-| `RfqRequest` | buyer | dealer | `Rfq_Quote` (dealer), `Rfq_Cancel` (buyer). |
-| `Quote` | buyer, dealer | | `Quote_Accept` (buyer, atomic DvP), `Quote_Reject`, `Quote_Withdraw`. |
+| `RfqRequest` | requester | dealer | `side` (`BuyPt` / `SellPt`), `ptAmount`, the market's `terms`, the requester's pass. `Rfq_Quote` (dealer: checks both passes, price in (0, 1], `validUntil` in the future; BuyPt locks exactly `ptAmount` of its PT for the requester, SellPt sets aside exactly the cash in one USDC holding), `Rfq_Cancel` (requester), `Rfq_Decline` (dealer). |
+| `Quote` | requester, dealer | (none) | `price`, `usdcAmount = roundDown6 (price * ptAmount)`, `validUntil`. `Quote_Accept` (requester, atomic DvP: before `validUntil`, both passes, before maturity), `Quote_Reject` (requester; releases the lock before expiry), `Quote_Withdraw` (dealer, only after expiry: firm quote). |
 
 ### Canton Token Standard (CIP-56)
 
@@ -330,18 +331,25 @@ Rules (all checked in `Market.Split`, tested in `MarketTest`):
 sequenceDiagram
   participant Alice
   participant Bank
-  Alice->>Bank: RfqRequest(500 PT)
-  Bank->>Bank: PT_Lock(for Alice)
-  Bank->>Alice: Quote(price 0.975)
-  Alice->>Bank: Quote_Accept(cash)
+  Alice->>Bank: RfqRequest(BuyPt, 500 PT)
+  Bank->>Bank: take exactly 500 PT, PT_Lock(for Alice, until validUntil)
+  Bank->>Alice: Quote(price 0.975, cash 487.5 USDC, valid 60 s)
+  Alice->>Bank: Quote_Accept(her USDC, a live price)
   Note over Alice,Bank: One transaction: 487.5 USDC to Bank, 500 PT to Alice
 ```
 
-The PT is **locked for Alice** during the quote for two reasons: Alice must be able to see it to settle, and Bank must not sell it twice.
+Rules (all in `Rfq.daml`, tested in `RfqTest.daml`):
+
+- **Both sides.** `BuyPt`: Alice pays USDC, Bank's locked PT goes to her. `SellPt`: Alice sells 200 PT at 0.985; Bank sets aside exactly 197 USDC when it quotes; on accept, 200 PT go to Bank and the 197 USDC to Alice.
+- **Firm and expiring (gap 8).** A quote is valid until `validUntil` (ledger time, about 60 s). Before that, Bank can neither withdraw it nor unlock the PT. After it, Alice's accept fails and Bank withdraws the quote and unlocks the PT (`PT_Unlock`). Alice can reject at any time; before expiry that releases the lock at once.
+- **The lock.** The PT is **locked for Alice** during the quote for two reasons: Alice must be able to see it to settle, and Bank must not sell it twice. Bank locks *exactly* 500 PT, so Alice sees only that piece, not Bank's whole position. Delivery (`PT_DeliverLocked`) needs Bank's and Alice's authority together, which only exist inside the Quote they both signed: Alice can never take the PT without paying.
+- **Sell side limit.** USDC holdings cannot be locked, so if Bank spends its set-aside 197 USDC, Alice's accept fails and nothing moves (the same rule as Pendle's limit orders: a fill fails if the maker no longer has the tokens). The dealer bot never touches set-aside cash.
+- **Checks at accept:** both passes again, the quote has not expired, and the market has not reached maturity (like Pendle, PT trading stops at maturity; a PT is then redeemed). The price is read inside `PT_AssertBeforeMaturity`, a PT choice, because only the Operator (who signs PTs) can read the price; the Quote is signed by Alice and Bank only.
+- **Price and cash.** 0 < price ≤ 1 (a PT is worth at most 1 USD). Cash = `roundDown6 (price * ptAmount)`, fixed in the quote. Full size only, no partial fills. The dealer turns its target fixed APY into a price with Pendle's formula `price = (1 + APY)^(−years)`: 5.2% with 0.5 years left gives about 0.975.
 
 All payouts below follow one pattern: the owner asks (the tokens go into a request at once, so they cannot be spent twice), the Operator settles from its vault, and until then the owner can cancel. Requests need the owner's `ClientAccess` pass; settling and cancelling do not, so a client who is revoked while waiting is still paid, and can always take back their own tokens. Tests: `LifecycleTest.daml`.
 
-These flows follow **Pendle V2** (`PendleYieldToken.sol`) and differ only where Canton needs it. See section 11, "How Exodus follows Pendle".
+These flows follow **Pendle V2** (`PendleYieldToken.sol`) and differ only where Canton needs it. See the guiding rule and the Pendle rows in section 11.
 
 ### 8.3 Claim yield (YT)
 
@@ -443,7 +451,7 @@ In one `Quote_Accept` transaction, each party sees only its own part:
 | UsdcIssuer | **No** | Yes | **No** |
 | Other clients | No | No | No |
 
-The test script checks that `Operator` and `UsdcIssuer` see **zero** `Quote` contracts.
+`RfqTest.rfqPrivacy` checks that the Operator, UsdcIssuer, UsycIssuer, the Oracle and another client see **zero** `Quote` and `RfqRequest` contracts, that the Operator sees the traded PT but no USDC, and that UsdcIssuer sees the USDC payment but no PT.
 
 **Who knows who the clients are.** No client can list other clients:
 
@@ -480,6 +488,10 @@ Redeem requests are seen only by their owner and UsycIssuer; the fund's USDC hol
 | Demo clock `simTime` | Ledger time cannot be moved forward on a real network, and the demo must show months of yield in minutes. |
 | Round down payouts to 6 decimals | Makes it impossible for the vault to go negative. |
 | PT price must be > 0 and <= 1 | With positive rates, PT always sells below par. |
+| Private RFQ instead of Pendle's public limit-order book | Pendle's limit orders (`IPLimitRouter`) sit in a public book anyone can fill. We keep one requester and one dealer, so the price stays private (the point of Exodus). Like Pendle: an expiry on every quote, and no trading after maturity ("LOP: PY expired"). |
+| Quote price as a number with a short expiry, not an implied APY (decision R1) | Pendle orders carry `lnImpliedRate` because they stay open for weeks and the PT price must drift toward 1.00. Our quotes live about 60 s, so a price keeps the cash amounts exact (487.5 USDC). Pendle's formula `(1 + APY)^(−years)` is still used off-ledger by the dealer bot and the UI. |
+| Dealer's PT locked during a quote (firm quote, decision R2) | Pendle does not lock a maker's tokens (a fill fails if they are gone). Institutional RFQ quotes are firm, and the spec forbids selling the same PT twice. The sell side cannot lock USDC, so there Pendle's rule applies. |
+| Full-size fills only (R3); USDC as the cash leg (R4); no protocol fee | A quote is for exactly what was asked. Pendle trades PT against SY; a cash-for-bond DvP in USDC is the institutional story and keeps the privacy split (UsdcIssuer sees cash, the Operator sees PT). The dealer earns its spread instead of a fee. |
 | One `ClientAccess` pass per client (not `users` lists on each contract) | With lists, every client can see the full client list (Alice learns Bank is a customer), each approval recreates the fund, factories and feed (in-flight commands fail with "contract not found"), and revoking means recreating them all again. A pass is one contract per client: private, no contention, and revoke = archive. Shared contracts reach the client through explicit disclosure. |
 | Custodial client wallets (for now) | The backend allocates a party + ledger user per client and submits for them after checking the session. Easy for users, like Hashnote. Self-custody (Canton external party, key in the browser) is a later step. |
 | Passes observed by the issuers | On a transfer, the factory (signed by the issuer) must fetch the RECEIVER's pass, and Canton only lets a choice fetch a contract that one of its authorizers can see. The issuers already see every transfer of their tokens, so this reveals nothing new; the alternative (the Operator co-signing every factory) would show the Operator every transfer. |
@@ -507,7 +519,7 @@ Say these openly in the pitch. Judges respect honesty more than hidden problems.
 | 5 | Post-maturity yield stays in vault | Funds are stuck: the YT yield after the snapshot and, because PT redeems pay at the settle-day price, the yield on unredeemed principal | Add a treasury sweep choice (Pendle: `redeemInterestAndRewardsPostExpiryForTreasury`) |
 | 6 | Maturity uses `simTime`, not ledger time | Only OK for a demo | Check ledger time in production |
 | 7 | Only USYC/USDC implement the token standard (`Holding` + `TransferFactory` v1). PT and YT don't yet. | Canton wallets cannot show PT/YT | Add a `Holding` interface instance to `PrincipalToken` and `YieldToken` (use `lock` for locked PT) |
-| 8 | No quote expiry | Old quotes stay open | Add `validUntil` |
+| 8 | ~~No quote expiry~~ **Fixed.** | Old quotes stay open | Done: every `Quote` has `validUntil`; accept fails after it, and the dealer can only withdraw and unlock after it (`RfqTest.quoteExpiry`) |
 | 9 | ~~Transfer factory is shared with an observer list (`users`)~~ **Fixed.** | New users needed the factory recreated, and every client saw the client list | Done: the factory has no observers and is attached to transfers through explicit disclosure; access is checked with `ClientAccess` passes. The registry API (gap 10) will serve the same disclosure to outside wallets |
 | 10 | No off-ledger registry API (`/registry/transfer-instruction/v1/...`, `/registry/metadata/v1/...`) | Real wallets cannot discover the factory or instrument metadata by themselves | Serve these endpoints from the NestJS backend |
 | 11 | ~~No KYC allowlist~~ **Mostly fixed.** Real USYC is permissioned | Anyone could receive simulated USYC | Done: `Subscribe` and every factory transfer need valid passes (sender and receiver). Still open: the owner-only `Holding.Transfer` choice (used inside `payFrom`) does not check passes, so a client could call it directly to send to anyone. The custodial backend never exposes it. Fix later: make `payFrom` pay through the factory with the fund's own pass, then restrict `Holding.Transfer` |
@@ -525,7 +537,7 @@ HackCanton Season 3 is a 5-week online hackathon. Two official posts give differ
 | Week | Goal | Status |
 |---|---|---|
 | 1 | Daml core: Holding (USYC/USDC) with CIP-56 `Holding` + `TransferFactory` | Done (tests pass) |
-| 1-2 | Daml core: Oracle (done), Split + PT/YT (done, 2026-09-25), Claim, Mature, Redeem, Merge (done, 2026-09-25), RFQ, demo test. Tracked in [`markets-plan.md`](markets-plan.md) | In progress |
+| 1-2 | Daml core: Oracle (done), Split + PT/YT (done, 2026-09-25), Claim, Mature, Redeem, Merge (done, 2026-09-25), RFQ (done, 2026-09-25), demo test. Tracked in [`markets-plan.md`](markets-plan.md) | In progress |
 | 2 | Walking skeleton in `exodus-app/`: sandbox, bootstrap, oracle bot, web UI (CIP-56 wallet, send, privacy table) | Done |
 | 2 | Fix known gap 12 (stale `rateCid`): `RateFeed` + short-lived `RateIndex` snapshots | Done |
 | 3 | `ClientAccess` passes + explicit disclosure (fixes gap 9, most of gap 11, and the client-list leak) | Done |
