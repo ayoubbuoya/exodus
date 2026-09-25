@@ -209,8 +209,8 @@
     z-index: -1;
     border-radius: inherit;
     background:
-      radial-gradient(70% 55% at 0% 0%, rgb(255 255 255 / 0.09), transparent 70%),
-      linear-gradient(118deg, transparent 38%, rgb(255 255 255 / 0.035) 46%, transparent 56%);
+      radial-gradient(70% 55% at 0% 0%, var(--glass-sheen), transparent 70%),
+      linear-gradient(118deg, transparent 38%, var(--glass-streak) 46%, transparent 56%);
     pointer-events: none;
   }
   /* Glass that answers the pointer: a soft light follows the cursor.
@@ -219,7 +219,7 @@
   .glass-glow {
     background-image: radial-gradient(
       380px circle at var(--mx, 50%) var(--my, -40%),
-      rgb(255 255 255 / 0.06),
+      var(--glass-glow),
       transparent 60%
     );
   }

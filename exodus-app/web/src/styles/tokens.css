@@ -15,9 +15,14 @@
  *   the maturity line.
  *
  * `:root` holds the light theme ("Frost") and `.dark` the dark theme
- * ("Glacier"). The whole site is always dark: index.html puts the `dark`
- * class on <html> (the app's light mode was removed on 2026-09-25, so the app
- * looks like the landing page). The Frost values stay for a light island.
+ * ("Glacier", the default). index.html and the ThemeProvider put the `dark`
+ * class on <html> unless the user picked "Light" in the account menu. The
+ * landing page is always dark (MarketingLayout adds `.dark`).
+ *
+ * Frost is still glass, not white cards: a thin white fill that blurs the soft
+ * blue light pools behind it (--ambient-*), a bright white rim, a blue-grey
+ * shadow, and a faint blue light that follows the pointer. The blue here is
+ * ambience (like the navy of the dark glass), never the yield ink `--yt`.
  *
  * Two scoping classes let one part of a page use a fixed theme:
  * - `.dark` on any element: the landing page is always dark.
@@ -82,14 +87,35 @@
   --elev-1: 0 1px 2px rgb(11 18 32 / 0.05);
   --elev-2: 0 18px 40px -16px rgb(11 18 32 / 0.25);
 
-  /* Glass (see .glass in index.css). On light, glass is frosted white.
-     The rim is a gradient: bright where the light hits (top left), faint elsewhere. */
-  --glass-fill: rgb(255 255 255 / 0.6);
-  --glass-fill-strong: rgb(255 255 255 / 0.85);
+  /* Glass (see .glass in index.css). On light, glass is frosted white: a thin
+     fill, so the blue light pools behind it (--ambient-*) tint it through the
+     blur. The rim is a gradient: pure white where the light hits (top left),
+     a faint blue-grey edge at the bottom right. */
+  --glass-fill: rgb(255 255 255 / 0.52);
+  --glass-fill-strong: rgb(255 255 255 / 0.76);
   /* The nav bar: every section scrolls under it, so it is the most opaque glass. */
-  --glass-fill-bar: rgb(255 255 255 / 0.92);
-  --glass-rim: linear-gradient(145deg, rgb(255 255 255 / 0.95), rgb(11 18 32 / 0.08) 40%, rgb(11 18 32 / 0.14));
-  --glass-shadow: 0 24px 60px -28px rgb(29 60 120 / 0.35);
+  --glass-fill-bar: rgb(255 255 255 / 0.86);
+  --glass-rim: linear-gradient(
+    145deg,
+    rgb(255 255 255 / 1),
+    rgb(255 255 255 / 0.55) 30%,
+    rgb(40 70 140 / 0.1) 62%,
+    rgb(40 70 140 / 0.2)
+  );
+  /* A 1 px white top edge (light caught by the glass) and a soft blue-grey shadow. */
+  --glass-shadow: inset 0 1px 0 rgb(255 255 255 / 0.8), 0 18px 44px -22px rgb(30 60 140 / 0.35);
+  /* .glass-sheen: the corner highlight and the diagonal streak. */
+  --glass-sheen: rgb(255 255 255 / 0.75);
+  --glass-streak: rgb(255 255 255 / 0.4);
+  /* .glass-glow: the light that follows the pointer, a faint cool blue. */
+  --glass-glow: rgb(90 130 230 / 0.12);
+  /* The still light pools behind the app (AppBackdrop): the glass blurs them. */
+  --ambient-a: rgb(96 140 255 / 0.3);
+  --ambient-b: rgb(130 190 255 / 0.26);
+  /* A third, softer pool behind the middle of the page (centred panels such as login). */
+  --ambient-c: rgb(150 175 255 / 0.2);
+  /* Behind a dialog. */
+  --overlay: rgb(11 18 32 / 0.25);
 
   /* Radius: 8 chips, 12 controls, 20 cards, 28 panels. Glass reads as soft and machined. */
   --radius: 0.75rem;
@@ -151,4 +177,13 @@
     rgb(255 255 255 / 0.16)
   );
   --glass-shadow: 0 30px 70px -30px rgb(0 0 0 / 0.75);
+  --glass-sheen: rgb(255 255 255 / 0.09);
+  --glass-streak: rgb(255 255 255 / 0.035);
+  --glass-glow: rgb(255 255 255 / 0.06);
+  /* A faint silver light at the top left and a deep navy one at the bottom right. */
+  --ambient-a: rgb(190 205 235 / 0.07);
+  --ambient-b: rgb(45 80 170 / 0.13);
+  /* No middle pool on dark: the navy page already gives the glass depth. */
+  --ambient-c: transparent;
+  --overlay: rgb(0 0 0 / 0.45);
 }
