@@ -21,6 +21,24 @@
 -- operator. Clients do NOT see the fund contract itself (no observers): the
 -- app gives it to Alice's command through explicit disclosure, together with
 -- the price snapshot. So no client learns who else uses the fund.
+--
+-- REDEEM (USYC back to USDC, spec gap 13) works in two steps instead of one:
+--
+--   1. Alice calls 'RequestRedeem' for 100 USYC. Her 100 USYC is burned and a
+--      'UsycRedeemRequest' is created. No USDC moves yet.
+--   2. The fund (UsycIssuer, run by the backend's settlement loop) calls
+--      'Settle' with the price at that moment. At index 1.03 it pays Alice
+--      roundDown6 (100 * 1.03) = 103 USDC from its own USDC holdings.
+--   While the request is open, Alice can 'Cancel' it and get her 100 USYC back.
+--
+-- Why not one atomic step like Subscribe? Subscribe spends ALICE's USDC, so
+-- only Alice's own holdings are touched. A redeem spends the FUND's USDC. If
+-- Alice and Bank redeemed at the same moment, both commands would try to spend
+-- the same fund holding and one would fail (contention, UTXO model). Clients
+-- would also have to see the fund's holdings, which tells them its cash
+-- balance. With requests, only the fund's settlement loop touches its USDC,
+-- one request after the other. This is the same "request, then settle"
+-- pattern the spec uses for vault payouts (RedeemRequest, ClaimRequest, ...).
 module Exodus.Fund where
 
 import Exodus.Access
@@ -106,3 +124,148 @@ template UsycFund
         pure SubscribeResult with
           usycCid
           usdcChangeCid = payment.changeCid
+
+    -- ---------------------------------------------------------------------
+    -- RequestRedeem: burn 'usycAmount' USYC now and ask the fund to pay USDC.
+    --
+    -- Example: Alice owns one 150 USYC holding and redeems 100.
+    --   -> her 150 USYC holding is split: 100 is burned, 50 comes back as change
+    --   -> UsycRedeemRequest(owner = Alice, usycAmount = 100) is created
+    -- The USDC amount is NOT fixed here: 'Settle' uses the price at settle
+    -- time, like a real fund that pays the NAV of the day it processes the order.
+    --
+    -- NONCONSUMING, like Subscribe, so many clients can request at once.
+    -- ---------------------------------------------------------------------
+    nonconsuming choice RequestRedeem : RedeemRequestResult
+      with
+        redeemer   : Party                   -- who redeems and will get the USDC, for example Alice
+        accessCid  : ContractId ClientAccess  -- the redeemer's own access pass
+        usycCids   : [ContractId Holding]     -- the USYC holdings to redeem from
+        usycAmount : Decimal                  -- how much USYC to redeem, for example 100.0
+      controller redeemer
+      do
+        -- Only approved clients may redeem (the on-ledger whitelist).
+        checkAccess operator redeemer accessCid
+        assertMsg "usycAmount must be greater than 0" (usycAmount > 0.0)
+        -- Holdings never have more than 6 decimals. Refusing 0.0000001 USYC
+        -- also means Settle can never compute a payout of 0 USDC.
+        assertMsg "usycAmount can have at most 6 decimals" (roundDown6 usycAmount == usycAmount)
+
+        -- 1. Alice gives the USYC back to the fund (payFrom checks it is real
+        --    USYC from this issuer and that she owns it) ...
+        payment <- payFrom redeemer usycIssuer "USYC" usycAmount usycIssuer usycCids
+
+        -- 2. ... and the fund burns it at once. Burning now (not at settle
+        --    time) means Alice cannot spend the same USYC twice while she
+        --    waits. We may archive it because UsycIssuer, the Holding's only
+        --    signatory, signed this fund, so its authority is available here.
+        archive payment.paidCid
+
+        -- 3. The request, signed by both, so neither can change it alone.
+        requestedAt <- getTime
+        requestCid <- create UsycRedeemRequest with
+          usycIssuer
+          usdcIssuer
+          oracle
+          owner = redeemer
+          usycAmount
+          requestedAt
+
+        pure RedeemRequestResult with
+          requestCid
+          usycChangeCid = payment.changeCid
+
+
+-- | What 'RequestRedeem' gives back.
+--
+-- Example: Alice redeems 100 USYC from a 150 USYC holding.
+--   requestCid    -> UsycRedeemRequest(owner = Alice, usycAmount = 100)
+--   usycChangeCid -> Some Holding(owner = Alice, instrument = "USYC", amount = 50)
+data RedeemRequestResult = RedeemRequestResult
+  with
+    requestCid    : ContractId UsycRedeemRequest
+    usycChangeCid : Optional (ContractId Holding)
+  deriving (Eq, Show)
+
+
+-- | What 'Settle' gives back.
+--
+-- Example: the fund pays 103 USDC from a 1000 USDC holding.
+--   usdcCid       -> Holding(owner = Alice, instrument = "USDC", amount = 103)
+--   fundChangeCid -> Some Holding(owner = UsycIssuer, instrument = "USDC", amount = 897)
+data RedeemSettleResult = RedeemSettleResult
+  with
+    usdcCid       : ContractId Holding
+    fundChangeCid : Optional (ContractId Holding)
+  deriving (Eq, Show)
+
+
+-- | An open redeem: Alice's USYC is already burned, the fund still owes her USDC.
+--
+-- The trusted parties (usdcIssuer, oracle) are copied from the fund, because
+-- Settle must run the same checks as Subscribe and has no fund to read them from.
+template UsycRedeemRequest
+  with
+    usycIssuer  : Party    -- the fund: pays the USDC
+    usdcIssuer  : Party    -- the only USDC issuer the fund pays with
+    oracle      : Party    -- the only oracle whose price counts
+    owner       : Party    -- who redeemed, for example Alice
+    usycAmount  : Decimal  -- how much USYC was burned, for example 100.0
+    requestedAt : Time     -- ledger time of the request, to settle and show the oldest first
+  where
+    ensure usycAmount > 0.0
+
+    -- Both sign: the fund promises to pay, and Alice's burned USYC is inside.
+    -- Nobody else sees the request: no operator, no other client. Only Alice
+    -- and the fund know she redeemed.
+    signatory usycIssuer, owner
+
+    -- ---------------------------------------------------------------------
+    -- Settle: the fund pays the USDC at the current price.
+    --
+    -- Example at index 1.03: Alice's 100 USYC request
+    --   -> usdcAmount = roundDown6 (100 * 1.03) = 103.0 USDC
+    --   -> paid from the fund's USDC holdings to Alice, request archived.
+    -- Rounding DOWN means the fund never pays out more than the USYC was worth.
+    --
+    -- We do NOT check Alice's access pass again. She passed the check when she
+    -- asked, and her USYC is already burned. If the admin revokes her
+    -- meanwhile, she must still get paid what she is owed.
+    -- ---------------------------------------------------------------------
+    choice Settle : RedeemSettleResult
+      with
+        rateCid  : ContractId RateIndex  -- the current USYC price snapshot
+        usdcCids : [ContractId Holding]  -- the fund's USDC holdings to pay from
+      controller usycIssuer
+      do
+        -- Same price checks as Subscribe: not expired, our oracle, USYC.
+        rate <- fetchValidRate rateCid
+        assertMsg "RateIndex is not from this fund's oracle" (rate.oracle == oracle)
+        assertMsg "RateIndex is not for USYC" (rate.instrument == "USYC")
+
+        let usdcAmount = roundDown6 (usycAmount * rate.index)
+
+        -- If the fund has too little USDC, payFrom fails with "input holdings
+        -- do not cover the amount". Nothing moves and the request stays open,
+        -- so Alice can still Cancel it.
+        payment <- payFrom usycIssuer usdcIssuer "USDC" usdcAmount owner usdcCids
+
+        pure RedeemSettleResult with
+          usdcCid = payment.paidCid
+          fundChangeCid = payment.changeCid
+
+    -- ---------------------------------------------------------------------
+    -- Cancel: Alice changes her mind before the fund settles.
+    -- The fund mints her burned USYC again, the exact same amount.
+    -- Example: Cancel a 100 USYC request -> Alice gets a new 100 USYC holding.
+    -- This works without the fund acting, because the fund signed the request:
+    -- its authority is available inside the request's choices.
+    -- ---------------------------------------------------------------------
+    choice Cancel : ContractId Holding
+      controller owner
+      do
+        create Holding with
+          issuer = usycIssuer
+          owner
+          instrument = "USYC"
+          amount = usycAmount

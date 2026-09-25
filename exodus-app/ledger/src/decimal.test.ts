@@ -2,7 +2,14 @@
 // These guard the money maths, so every example uses real demo numbers.
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { decimalToUnits, divideRoundDown6, formatAmount, unitsToDecimal } from "./decimal.ts";
+import {
+  decimalToUnits,
+  divideRoundDown6,
+  formatAmount,
+  hasAtMost6Decimals,
+  multiplyRoundDown6,
+  unitsToDecimal,
+} from "./decimal.ts";
 
 describe("decimalToUnits / unitsToDecimal", () => {
   it("turns a decimal into units of 0.0000000001 and back", () => {
@@ -37,5 +44,25 @@ describe("formatAmount", () => {
   it("drops trailing zeros and groups thousands", () => {
     assert.equal(formatAmount("1000.0000000000"), "1,000");
     assert.equal(formatAmount("24.3902430000"), "24.390243");
+  });
+});
+
+describe("multiplyRoundDown6", () => {
+  it("gives the USDC a redeem pays, like the contract's Settle", () => {
+    // Alice redeems 100 USYC at index 1.03: 103 USDC.
+    assert.equal(multiplyRoundDown6("100", "1.03"), "103.0000000000");
+  });
+
+  it("never rounds up, so the fund never pays too much", () => {
+    // 487.804878 * 1.025 = 499.99999995, rounded DOWN (not 500).
+    assert.equal(multiplyRoundDown6("487.804878", "1.025"), "499.9999990000");
+  });
+});
+
+describe("hasAtMost6Decimals", () => {
+  it("accepts holding-sized amounts and refuses smaller ones", () => {
+    assert.equal(hasAtMost6Decimals("100.5"), true);
+    assert.equal(hasAtMost6Decimals("0.000001"), true);
+    assert.equal(hasAtMost6Decimals("0.0000001"), false);
   });
 });

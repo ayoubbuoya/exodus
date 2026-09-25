@@ -95,7 +95,7 @@ export type Instrument = 'USYC' | 'USDC'
 // GET /api/wallet/activity: one token movement, rebuilt from the ledger history.
 export type ActivityRow = {
   updateId: string
-  kind: 'RECEIVED' | 'SENT' | 'SUBSCRIBED' | 'OTHER'
+  kind: 'RECEIVED' | 'SENT' | 'SUBSCRIBED' | 'REDEEM_REQUESTED' | 'REDEEMED' | 'REDEEM_CANCELLED' | 'OTHER'
   at: string
   changes: Record<string, string> // { USDC: "-40.0000000000", USYC: "39.9201590000" }
 }
@@ -110,4 +110,12 @@ export type TransferRequest = {
   receiverPartyId: string
   instrument: Instrument
   amount: string
+}
+
+// GET /api/wallet/redemptions: one redeem request the fund has not paid yet.
+// The USYC is already burned; the USDC arrives when the fund settles.
+export type OpenRedemption = {
+  requestId: string // a ledger contract id, for example "00d1..."
+  usycAmount: string // for example "100.0000000000"
+  requestedAt: string
 }

@@ -17,11 +17,26 @@
 //
 // We cannot tell a faucet mint from a transfer by another client: the receiver
 // only sees the new holding in both cases, so both show as "Received".
-import type { LedgerClient, Transaction } from "./client.ts";
+//
+// Redeems (USYC back to USDC) take two transactions. We also read the
+// UsycRedeemRequest events, so we can name them instead of showing
+// "Sent 100 USYC" and later "Received 103 USDC":
+//
+//   request 100 USYC     archived USYC, created a request     -> USYC -100      REDEEM_REQUESTED
+//   fund settles         archived the request, created USDC   -> USDC +103      REDEEMED
+//   Alice cancels        archived the request, created USYC   -> USYC +100      REDEEM_CANCELLED
+import type { CreatedEvent, LedgerClient, Transaction } from "./client.ts";
 import { decimalToUnits, unitsToDecimal } from "./decimal.ts";
-import { Holding } from "./templates.ts";
+import { Holding, sameTemplateId, UsycRedeemRequest } from "./templates.ts";
 
-export type ActivityKind = "RECEIVED" | "SENT" | "SUBSCRIBED" | "OTHER";
+export type ActivityKind =
+  | "RECEIVED"
+  | "SENT"
+  | "SUBSCRIBED"
+  | "REDEEM_REQUESTED"
+  | "REDEEMED"
+  | "REDEEM_CANCELLED"
+  | "OTHER";
 
 export type ActivityRow = {
   updateId: string; // the ledger's transaction id
@@ -36,16 +51,17 @@ type KnownHolding = { instrument: string; units: bigint };
 
 // Newest first, at most `limit` rows.
 export async function getHoldingActivity(ledger: LedgerClient, party: string, limit = 50): Promise<ActivityRow[]> {
-  const transactions = await ledger.getTransactions(party, {
-    TemplateFilter: { value: { templateId: Holding.templateId, includeCreatedEventBlob: false } },
-  });
+  const transactions = await ledger.getTransactions(party, [
+    { TemplateFilter: { value: { templateId: Holding.templateId, includeCreatedEventBlob: false } } },
+    { TemplateFilter: { value: { templateId: UsycRedeemRequest.templateId, includeCreatedEventBlob: false } } },
+  ]);
 
   const known = new Map<string, KnownHolding>();
   const rows: ActivityRow[] = [];
   for (const transaction of transactions) {
     const changes = netChanges(transaction, party, known);
     if (changes.size > 0) {
-      rows.push(toRow(transaction, changes));
+      rows.push(toRow(transaction, changes, redeemStepOf(transaction)));
     }
   }
   return rows.reverse().slice(0, limit);
@@ -59,6 +75,10 @@ function netChanges(transaction: Transaction, party: string, known: Map<string, 
 
   for (const event of transaction.events) {
     if ("CreatedEvent" in event) {
+      // Redeem request events are only used to name the row (redeemStepOf).
+      if (!isHolding(event.CreatedEvent)) {
+        continue;
+      }
       const holding = Holding.decoder.runWithException(event.CreatedEvent.createArgument);
       if (holding.owner !== party) {
         continue;
@@ -82,26 +102,58 @@ function netChanges(transaction: Transaction, party: string, known: Map<string, 
   return totals;
 }
 
-function toRow(transaction: Transaction, changes: Map<string, bigint>): ActivityRow {
+function isHolding(event: CreatedEvent): boolean {
+  return sameTemplateId(event.templateId, Holding.templateId);
+}
+
+// Which redeem step a transaction is, if any:
+//   "REQUESTED" - it created a UsycRedeemRequest
+//   "CLOSED"    - it archived one (the fund paid it, or the owner cancelled it)
+//   null        - not a redeem
+type RedeemStep = "REQUESTED" | "CLOSED" | null;
+
+function redeemStepOf(transaction: Transaction): RedeemStep {
+  for (const event of transaction.events) {
+    if ("CreatedEvent" in event && sameTemplateId(event.CreatedEvent.templateId, UsycRedeemRequest.templateId)) {
+      return "REQUESTED";
+    }
+    if ("ArchivedEvent" in event && sameTemplateId(event.ArchivedEvent.templateId, UsycRedeemRequest.templateId)) {
+      return "CLOSED";
+    }
+  }
+  return null;
+}
+
+function toRow(transaction: Transaction, changes: Map<string, bigint>, redeemStep: RedeemStep): ActivityRow {
   const changesAsText: Record<string, string> = {};
   for (const [instrument, units] of changes) {
     changesAsText[instrument] = unitsToDecimal(units);
   }
   return {
     updateId: transaction.updateId,
-    kind: classify(changes),
+    kind: classify(changes, redeemStep),
     at: transaction.effectiveAt,
     changes: changesAsText,
   };
 }
 
 // Paid USDC and got USYC in the same transaction -> a fund subscription.
-// Only gains -> received; only losses -> sent.
-function classify(changes: Map<string, bigint>): ActivityKind {
+// Redeem steps are named from the request events (see redeemStepOf).
+// Otherwise: only gains -> received; only losses -> sent.
+function classify(changes: Map<string, bigint>, redeemStep: RedeemStep): ActivityKind {
   const usdc = changes.get("USDC") ?? 0n;
   const usyc = changes.get("USYC") ?? 0n;
   if (usdc < 0n && usyc > 0n) {
     return "SUBSCRIBED";
+  }
+  if (redeemStep === "REQUESTED" && usyc < 0n) {
+    return "REDEEM_REQUESTED";
+  }
+  if (redeemStep === "CLOSED" && usdc > 0n) {
+    return "REDEEMED";
+  }
+  if (redeemStep === "CLOSED" && usyc > 0n) {
+    return "REDEEM_CANCELLED";
   }
   const values = [...changes.values()];
   if (values.every((units) => units > 0n)) {

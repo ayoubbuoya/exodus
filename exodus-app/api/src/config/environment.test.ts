@@ -12,6 +12,7 @@ describe("validateEnvironment", () => {
     assert.equal(environment.LEDGER_URL, "http://localhost:7575");
     assert.equal(environment.FAUCET_AMOUNT, "100.0");
     assert.equal(environment.COOKIE_SECURE, false);
+    assert.equal(environment.REDEEM_SETTLE_SECONDS, 2);
   });
 
   it("turns text into numbers and booleans", () => {

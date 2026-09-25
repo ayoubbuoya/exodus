@@ -51,6 +51,27 @@ export function divideRoundDown6(numerator: string, denominator: string): string
   return unitsToDecimal(quotientUnits - droppedPart);
 }
 
+// a * b, rounded DOWN to 6 decimals, like 'roundDown6 (usycAmount * rate.index)'
+// in the redeem contract. Example: multiplyRoundDown6("487.804878", "1.025")
+// -> "499.9999990000" (487.804878 * 1.025 = 499.99999995, the digits after the 6th are dropped).
+//
+// Use it for PREVIEWS and for choosing the fund's input holdings only. The
+// contract's own result is the real one.
+export function multiplyRoundDown6(a: string, b: string): string {
+  // Both have 10 decimals, so the product has 20: divide once to get back to 10.
+  const productUnits = (decimalToUnits(a) * decimalToUnits(b)) / UNITS_PER_ONE;
+  // Keep 6 of the 10 decimals: drop the last 4 digits.
+  const droppedPart = productUnits % 10_000n;
+  return unitsToDecimal(productUnits - droppedPart);
+}
+
+// True if `value` has no digits after the 6th decimal, like every holding.
+// The redeem contract refuses amounts such as "0.0000001" USYC.
+// Examples: "100.5" -> true, "0.000001" -> true, "0.0000001" -> false.
+export function hasAtMost6Decimals(value: string): boolean {
+  return decimalToUnits(value) % 10_000n === 0n;
+}
+
 // For display only: "1000.0000000000" -> "1,000", "24.3902430000" -> "24.390243".
 export function formatAmount(value: string | number, maxDecimals = 6): string {
   return Number(value).toLocaleString("en-US", { maximumFractionDigits: maxDecimals });

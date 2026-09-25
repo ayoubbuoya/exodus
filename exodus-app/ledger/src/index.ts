@@ -7,6 +7,7 @@ export * from "./inputs.ts";
 export * from "./oracle-schedule.ts";
 export * from "./parties.ts";
 export * from "./queries.ts";
+export * from "./redeem.ts";
 export * from "./subscribe.ts";
 export * from "./templates.ts";
 export * from "./transfers.ts";

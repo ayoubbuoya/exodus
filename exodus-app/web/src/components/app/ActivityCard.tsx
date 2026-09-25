@@ -4,8 +4,16 @@
 //   ↓ Received     +100 USDC                       2 min ago
 //   ⇄ Subscribed   −40 USDC · +39.920159 USYC      1 min ago
 //   ↑ Sent         −10 USYC                        just now
+//   ⌛ Redeem requested  −100 USYC   then   ⇄ Redeemed  +103 USDC
 import type { ComponentType } from 'react'
-import { ArrowDownLeftIcon, ArrowLeftRightIcon, ArrowUpRightIcon, CircleDotIcon } from 'lucide-react'
+import {
+  ArrowDownLeftIcon,
+  ArrowLeftRightIcon,
+  ArrowUpRightIcon,
+  CircleDotIcon,
+  HourglassIcon,
+  Undo2Icon,
+} from 'lucide-react'
 import { formatAmount } from '@exodus/ledger'
 import { useActivity } from '@/api/hooks'
 import type { ActivityRow } from '@/api/types'
@@ -18,6 +26,10 @@ const KIND_LABEL: Record<ActivityRow['kind'], { label: string; Icon: ComponentTy
   RECEIVED: { label: 'Received', Icon: ArrowDownLeftIcon },
   SENT: { label: 'Sent', Icon: ArrowUpRightIcon },
   SUBSCRIBED: { label: 'Subscribed', Icon: ArrowLeftRightIcon },
+  // A redeem is two ledger transactions: the USYC is burned, then the fund pays USDC.
+  REDEEM_REQUESTED: { label: 'Redeem requested', Icon: HourglassIcon },
+  REDEEMED: { label: 'Redeemed', Icon: ArrowLeftRightIcon },
+  REDEEM_CANCELLED: { label: 'Redeem cancelled', Icon: Undo2Icon },
   OTHER: { label: 'Changed', Icon: CircleDotIcon },
 }
 

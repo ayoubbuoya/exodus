@@ -31,6 +31,11 @@ export const HoldingTransferFactory = Exodus.TransferFactory.HoldingTransferFact
 export type UsycFund = Exodus.Fund.UsycFund;
 export const UsycFund = Exodus.Fund.UsycFund;
 
+// An open USYC redeem: the USYC is burned, the fund still owes USDC (Exodus.Fund:UsycRedeemRequest).
+// Only the owner and UsycIssuer see it. UsycIssuer settles it; the owner can cancel it.
+export type UsycRedeemRequest = Exodus.Fund.UsycRedeemRequest;
+export const UsycRedeemRequest = Exodus.Fund.UsycRedeemRequest;
+
 // One approved client's access pass: the on-ledger whitelist (Exodus.Access:ClientAccess).
 export type ClientAccess = Exodus.Access.ClientAccess;
 export const ClientAccess = Exodus.Access.ClientAccess;

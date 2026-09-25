@@ -1,6 +1,6 @@
 # Run Exodus on your machine
 
-This guide takes you from a fresh clone to the full demo: sign up, get approved, claim test USDC, subscribe to simulated USYC and watch the price grow.
+This guide takes you from a fresh clone to the full demo: sign up, get approved, claim test USDC, subscribe to simulated USYC, watch the price grow and redeem it back to USDC.
 
 > "USYC" and "USDC" in Exodus are **simulated** tokens issued by our own demo parties. They are not issued by, connected to, or endorsed by Circle or Hashnote.
 
@@ -92,7 +92,7 @@ Leave it running. It needs about 20–40 seconds to start.
 **Terminal 2: set up the ledger, then run the oracle**
 
 ```bash
-npm run bootstrap   # creates the demo parties, fund, price feed, Alice and Bank (ends with "Done.")
+npm run bootstrap   # creates the demo parties, fund (with a 1,000,000 USDC reserve), price feed, Alice and Bank (ends with "Done.")
 npm run oracle      # keeps running: publishes a new price every 5 s
 ```
 
@@ -130,6 +130,7 @@ Use two browser windows. A private/incognito window gives a second login.
    - **Faucet:** click **Claim 100 test USDC**. Holdings shows 100 USDC and Activity shows "Received +100 USDC".
    - **Subscribe:** enter `50` and check the preview ("You get about 49.5 USYC"), then click **Subscribe**. Activity shows "Subscribed −50 USDC · +49.5 USYC".
    - **Price:** watch the price strip and chart. With `npm run oracle` running, the demo date jumps 7 days every 5 seconds and the USYC price grows (1.00 on Oct 1 2026 → 1.025 on Jan 1 2027 → 1.05 on Apr 1 2027). Your USYC balance stays the same, but its USD value grows. That growth is the yield.
+   - **Redeem:** open the **Redeem** tab, enter `20` USYC and check the estimate ("You get about 20.2 USDC"), then click **Redeem**. Your USYC is burned at once and the request shows under **Pending redeems**. Within about 2 seconds the fund pays you at the price of that moment and the request disappears. Activity shows "Redeem requested −20 USYC", then "Redeemed +20.2… USDC". Click **Cancel** on a pending request (for example while the oracle is stopped) to get the USYC back.
    - **Send:** sign up and approve a second client, copy their party id from their Holdings card, and send them some USYC. Sending to a party without an access pass is refused.
 7. Want the privacy story? Open **`/lab`**. You can act as any demo party (Alice, Bank, the issuers, the Operator) and see which contracts each one can see.
 
@@ -174,6 +175,7 @@ Then restart the ledger, run `npm run bootstrap`, and restart `npm run api` and 
 | "Could not set up the wallet on the ledger" when approving | The ledger is down or still starting | Check terminal 1, wait, click Approve again (safe to repeat) |
 | "Too many attempts. Please wait a minute" | Login is limited to 5 tries per minute per IP (sign-up: 10 per hour) | Wait one minute |
 | "You already used the faucet" | 24 h cooldown per client | Wait, or set `FAUCET_COOLDOWN_HOURS=0` in `api/.env` and restart the API |
+| A redeem stays under **Pending redeems** | The fund pays only with a valid price, so the oracle bot is probably stopped (the API log says "Redeem settlement skipped: No valid USYC price") | Start `npm run oracle`; the request is paid within 2 s. Or click **Cancel** to get the USYC back |
 | "The receiver is not an approved Exodus client" | Tokens only move between approved clients (both need an access pass) | Send to an approved client's party id |
 | API stops at start with "Invalid environment variables" | A value in `api/.env` is missing or wrong | Compare with `api/.env.example`; the message names the variable |
 | API error "Can't reach database server" | Postgres is not running | `npm run db:up` |

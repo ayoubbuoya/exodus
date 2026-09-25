@@ -250,7 +250,9 @@ export function createLedgerClient(options: LedgerClientOptions) {
   }
 
   // Every transaction `party` saw, oldest first, keeping only the events that
-  // match `filter` ("ACS delta" shape: which contracts were created and archived).
+  // match `filters` ("ACS delta" shape: which contracts were created and archived).
+  // Several filters are combined with OR: `[holdings, redeemRequests]` returns
+  // the events of both templates, in the same transactions.
   //
   // Example: Alice's holding history. The faucet shows as one transaction that
   // creates a 100 USDC holding; a subscribe as one that archives her USDC
@@ -259,7 +261,7 @@ export function createLedgerClient(options: LedgerClientOptions) {
   // Reads from the start of the ledger up to its current end, so the request
   // finishes instead of waiting for new transactions. Fine for the demo sandbox;
   // a long-lived ledger would need paging or a stored checkpoint.
-  async function getTransactions(party: string, filter: IdentifierFilter): Promise<Transaction[]> {
+  async function getTransactions(party: string, filters: IdentifierFilter[]): Promise<Transaction[]> {
     const ledgerEnd = await getLedgerEnd();
     if (ledgerEnd === 0) {
       return [];
@@ -271,7 +273,9 @@ export function createLedgerClient(options: LedgerClientOptions) {
         updateFormat: {
           includeTransactions: {
             eventFormat: {
-              filtersByParty: { [party]: { cumulative: [{ identifierFilter: filter }] } },
+              filtersByParty: {
+                [party]: { cumulative: filters.map((filter) => ({ identifierFilter: filter })) },
+              },
               verbose: true,
             },
             transactionShape: "TRANSACTION_SHAPE_ACS_DELTA",

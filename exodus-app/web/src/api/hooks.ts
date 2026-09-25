@@ -12,6 +12,7 @@ import type {
   ApplicationStatus,
   FaucetClaimResult,
   LatestPrice,
+  OpenRedemption,
   Page,
   PricePoint,
   Profile,
@@ -159,12 +160,16 @@ export function useRejectApplication() {
 
 const WALLET_KEY = ['wallet']
 const ACTIVITY_KEY = ['wallet', 'activity']
+const REDEMPTIONS_KEY = ['wallet', 'redemptions']
 
 // How often the dashboard refreshes. The oracle bot publishes every 5 s by
 // default, and a snapshot is valid for 30 s, so a few seconds keeps it "live".
 const PRICE_POLL_MS = 3_000
 const HISTORY_POLL_MS = 10_000
 const WALLET_POLL_MS = 5_000
+
+// While a redeem is pending, check every 2 s: the fund settles within a few seconds.
+const PENDING_REDEEM_POLL_MS = 2_000
 
 // Rows shown in the Activity card.
 const ACTIVITY_ROWS = 10
@@ -202,8 +207,8 @@ export function useActivity() {
   })
 }
 
-// After any wallet command, balances and activity changed: reload both.
-// (WALLET_KEY is a prefix of ACTIVITY_KEY, so one call covers both.)
+// After any wallet command, balances and activity changed: reload them.
+// (WALLET_KEY is a prefix of ACTIVITY_KEY and REDEMPTIONS_KEY, so one call covers all.)
 function refreshWallet(queryClient: QueryClient): Promise<void> {
   return queryClient.invalidateQueries({ queryKey: WALLET_KEY })
 }
@@ -221,6 +226,51 @@ export function useSubscribe() {
   return useMutation({
     mutationFn: (usdcAmount: string) =>
       apiRequest<{ usdcAmount: string; retried: boolean }>('POST', '/wallet/subscriptions', { usdcAmount }),
+    onSuccess: () => refreshWallet(queryClient),
+  })
+}
+
+// The client's redeem requests the fund has not paid yet.
+// Polls fast while one is open. When the list gets shorter, the fund has paid
+// (or the request was cancelled), so we reload the balances and activity at
+// once instead of waiting for their own 5 s poll.
+export function useOpenRedemptions() {
+  const queryClient = useQueryClient()
+  return useQuery({
+    queryKey: REDEMPTIONS_KEY,
+    queryFn: async () => {
+      const before = queryClient.getQueryData<{ items: OpenRedemption[] }>(REDEMPTIONS_KEY)
+      const after = await apiRequest<{ items: OpenRedemption[] }>('GET', '/wallet/redemptions')
+      if (before !== undefined && after.items.length < before.items.length) {
+        // Only the balances and activity: reloading REDEMPTIONS_KEY here would loop.
+        void queryClient.invalidateQueries({ queryKey: WALLET_KEY, exact: true })
+        void queryClient.invalidateQueries({ queryKey: ACTIVITY_KEY })
+      }
+      return after
+    },
+    refetchInterval: (query) => {
+      const openCount = query.state.data?.items.length ?? 0
+      return openCount > 0 ? PENDING_REDEEM_POLL_MS : WALLET_POLL_MS
+    },
+  })
+}
+
+// Alice redeems 100 USYC: burned now, paid in USDC by the fund a few seconds later.
+export function useRequestRedeem() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (usycAmount: string) =>
+      apiRequest<{ usycAmount: string; retried: boolean }>('POST', '/wallet/redemptions', { usycAmount }),
+    onSuccess: () => refreshWallet(queryClient),
+  })
+}
+
+// Alice cancels an open redeem request and gets her USYC back.
+export function useCancelRedeem() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (requestId: string) =>
+      apiRequest<{ requestId: string }>('DELETE', `/wallet/redemptions/${encodeURIComponent(requestId)}`),
     onSuccess: () => refreshWallet(queryClient),
   })
 }

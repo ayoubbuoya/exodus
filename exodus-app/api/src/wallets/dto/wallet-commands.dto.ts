@@ -20,6 +20,24 @@ export class SubscribeDto {
   usdcAmount!: string;
 }
 
+// Holdings never have more than 6 decimals, and the redeem contract refuses
+// smaller amounts such as 0.0000001 USYC, so we check that here already.
+const USYC_AMOUNT_PATTERN = /^\d{1,18}(\.\d{1,6})?$/;
+
+export class RedeemDto {
+  @ApiProperty({ example: "100", description: "USYC to redeem; the fund pays USDC at the price when it settles" })
+  @Matches(USYC_AMOUNT_PATTERN, { message: "Enter a positive amount with at most 6 decimals, for example 100 or 12.5." })
+  usycAmount!: string;
+}
+
+// DELETE /api/wallet/redemptions/:requestId. The id is a Canton contract id:
+// hex text such as "00a1b2...". Checking it here keeps odd input away from the ledger.
+export class RedemptionParamsDto {
+  @ApiProperty({ example: "00" + "ab".repeat(34) })
+  @Matches(/^[0-9a-f]{2,512}$/, { message: "Not a valid redeem request id." })
+  requestId!: string;
+}
+
 export class TransferDto {
   // A party id, not an email: looking clients up by email would let anyone
   // find out who is a client (the same privacy goal as the access passes).

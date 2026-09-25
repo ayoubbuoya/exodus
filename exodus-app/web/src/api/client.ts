@@ -29,7 +29,7 @@ type ApiErrorBody = {
   errors?: { field: string; message: string }[]
 }
 
-type HttpMethod = 'GET' | 'POST' | 'PUT'
+type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE'
 
 export async function apiRequest<T>(method: HttpMethod, path: string, body?: unknown): Promise<T> {
   const response = await fetch(`/api${path}`, {

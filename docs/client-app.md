@@ -8,7 +8,7 @@ This file is the working context for turning `exodus-app/web` from a developer s
 
 ## Goal
 
-A usable product for real users, in the style of the Hashnote USYC app (dark dashboard, price and yield up top, one Subscribe/Redeem panel, holdings and activity below). Scope for now is **only the simulated yield asset** (faucet, subscribe, wallet). Later pages add split (PT/YT) and trading.
+A usable product for real users, in the style of the Hashnote USYC app (dark dashboard, price and yield up top, one Subscribe/Redeem panel, holdings and activity below). Scope for now is **only the simulated yield asset** (faucet, subscribe, redeem, wallet). Later pages add split (PT/YT) and trading.
 
 ## User flow
 
@@ -20,7 +20,7 @@ Example with Alice:
 4. On approval the backend:
    - allocates Alice's **custodial Canton wallet**: a party such as `alice-7f3a::1220…` plus a ledger user with `actAs` rights for it;
    - creates **one `ClientAccess` contract** for her (signed by the Operator, Alice is observer). This single pass is her on-ledger whitelist entry for everything a client can do.
-5. Alice opens `/app` and can do everything a client can do: **faucet** (100 test USDC, with a cooldown), **subscribe** (USDC → USYC), **send**. Later also split and trade.
+5. Alice opens `/app` and can do everything a client can do: **faucet** (100 test USDC, with a cooldown), **subscribe** (USDC → USYC), **redeem** (USYC → USDC, paid by the fund a few seconds later), **send**. Later also split and trade.
 
 ## Pages
 
@@ -29,7 +29,7 @@ Example with Alice:
 | `/` | Everyone | Landing: what Exodus is, how simulated USYC works, "Request access" |
 | `/login`, `/signup` | Everyone | Email + password |
 | `/onboarding` | Signed-in, not approved | Access form, then "pending review" / "rejected" status |
-| `/app` | Approved clients | Dashboard: price strip (USYC price, APY from index growth, demo date, live dot), price chart, Subscribe/Redeem panel (Redeem disabled until spec gap 13 is fixed), faucet card, holdings, activity |
+| `/app` | Approved clients | Dashboard: price strip (USYC price, APY from index growth, demo date, live dot), price chart, Subscribe/Redeem panel (Redeem shows pending requests with a Cancel button), faucet card, holdings, activity |
 | `/admin` | Operator admins | Applications list, Approve / Reject |
 | `/lab` | Developers | The original walking skeleton: party switcher, oracle card and controls, CIP-56 wallet, subscribe, send, "what can this party see?" privacy table. Kept on purpose as the privacy demo for judges |
 
@@ -52,6 +52,7 @@ Example with Alice:
 | M | Page guards | **`<RequireStage stage=…>`** component reading `useProfile()` | Same data style as the rest of the app |
 | N | Country field | **Searchable combobox**, ISO codes from `i18n-iso-countries` | Same codes the API validates |
 | O | Activity list | **Ledger history**: `getHoldingActivity` reads the party's `Holding` creates/archives from `/v2/updates` and nets them per transaction | Shows incoming transfers too; always matches the ledger. A faucet mint and a transfer from another client both show as "Received" |
+| Q | Redeem (added 2026-09-25) | **Request + settle** (approach A): `RequestRedeem` burns the USYC and opens a `UsycRedeemRequest`; the API's `RedeemSettlementService` pays it as UsycIssuer every `REDEEM_SETTLE_SECONDS`, **at the settle-time price**; the owner can cancel. Bootstrap seeds a **1,000,000 USDC fund reserve** | Only the fund's loop spends the fund's USDC, so no contention and clients never see the fund's balance. The option not taken (B, an atomic redeem co-signed by the backend as UsycIssuer) was instant but put the fund's authority on every client command and made concurrent redeems fight over the same holding. See spec 8.0b |
 | P | APY | **Last 30 demo days**, annualised with compounding: `(indexNow / indexThen)^(365 / days) − 1` | Like a fund's 30-day yield; "—" until 7 demo days of history |
 
 ### Why E2 (`ClientAccess`) and not E1 (adding clients to `users` lists)
@@ -113,6 +114,8 @@ Fonts: **Inter** for text, **JetBrains Mono** for numbers (tabular figures so am
 | 5 | `/app` dashboard: price strip, chart, subscribe, faucet, holdings, activity | Done (2026-09-23). Price strip (price, 30-day APY, demo date, days to maturity, Live/Paused), Recharts area chart with crosshair tooltip and a screen-reader table, Subscribe/Redeem panel (Redeem explained as spec gap 13), faucet with countdown, holdings with USD value and party id, send form, activity from the ledger history. Checked in headless Chromium (dark, light, 390 px): faucet, subscribe 40 USDC, send to Operator refused, send 5 USYC to Bank, activity rows |
 | 6 | Update README, CLAUDE.md and the spec; typecheck, lint, tests | Done (2026-09-23). Unit tests with `node:test` (43: ledger 19, API 15, web 9; `npm test` in `exodus-app`), root `README.md` with screenshots (`docs/images/`), spec updated (architecture, trust in the custodial backend, gaps 15–17), `run-locally.md`. The API test found and fixed a bug: `COOKIE_SECURE=false` was read as `true`. Final run: 24 Daml tests, 43 unit tests, typecheck, lint, web build, migrations on an empty database, full browser flow |
 
+| 7 | USYC redeem (spec gap 13): contract, tests, `@exodus/ledger` `redeem.ts`, API endpoints + settlement loop, Redeem tab with pending list, activity labels | Done (2026-09-25). 31 Daml tests (7 new in `RedeemTest`), unit tests for `multiplyRoundDown6`, `hasAtMost6Decimals`, `previewUsdc` and the redeem activity rows. Checked on a fresh sandbox with the oracle running: redeem 100 USYC, price moved before settle, paid 101.331521 USDC at 1.0133152174; cancel gave the USYC back; other parties saw no requests |
+
 Update this table as steps land.
 
 ## Web app structure (step 4)
@@ -136,7 +139,10 @@ Base path `/api` (Swagger UI at `http://localhost:3000/api/docs`). Every respons
 | `GET /wallet` | Approved client | Party id, balances, holdings, next faucet time |
 | `POST /wallet/faucet-claims` | Approved client | 100 test USDC, once per 24 h (429 otherwise) |
 | `POST /wallet/subscriptions` | Approved client | `{ usdcAmount }`, uses `subscribeUsyc` |
+| `POST /wallet/redemptions` | Approved client | `{ usycAmount }` (at most 6 decimals), uses `requestUsycRedeem`: burns the USYC and opens a request |
+| `GET /wallet/redemptions` | Approved client | My open redeem requests `{ items: [{ requestId, usycAmount, requestedAt }] }`, oldest first |
+| `DELETE /wallet/redemptions/:requestId` | Approved client | Cancel an open request; the USYC comes back (422 if the fund already paid it) |
 | `POST /wallet/transfers` | Approved client | `{ receiverPartyId, instrument, amount }`, uses `sendHoldings` |
-| `GET /wallet/activity?limit=` | Approved client | Latest token movements from the ledger: `RECEIVED`, `SENT`, `SUBSCRIBED` with net change per token |
+| `GET /wallet/activity?limit=` | Approved client | Latest token movements from the ledger: `RECEIVED`, `SENT`, `SUBSCRIBED`, `REDEEM_REQUESTED`, `REDEEMED`, `REDEEM_CANCELLED` with net change per token |
 | `GET /prices/usyc/latest` | Public | Newest price snapshot, `isLive`, days to maturity, 30-day APY |
 | `GET /prices/usyc?limit=` | Public | Recorded index history for the chart (changes only, no heartbeats) |

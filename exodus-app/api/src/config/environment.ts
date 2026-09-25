@@ -52,6 +52,11 @@ export class EnvironmentVariables {
   @Min(5)
   WALLET_CHECK_SECONDS: number = 30;
 
+  // How often the fund's settlement loop pays open USYC redeem requests.
+  @IsInt()
+  @Min(1)
+  REDEEM_SETTLE_SECONDS: number = 2;
+
   // Only used by `npm run db:seed`, so optional for the API itself.
   @IsOptional()
   @IsString()

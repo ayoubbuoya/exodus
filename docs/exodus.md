@@ -132,7 +132,7 @@ A market is one asset plus one maturity date. Example: `PT-USYC-APR2027`.
 | Party | Role |
 |---|---|
 | **Operator** | Runs the markets and the vault. Settles redeem, claim, and merge requests. Runs as an automation bot. |
-| **UsycIssuer** | Issues the simulated USYC fund tokens. Admin of the USYC instrument and its transfer factory. Runs the `UsycFund`: receives USDC and mints USYC to subscribers. |
+| **UsycIssuer** | Issues the simulated USYC fund tokens. Admin of the USYC instrument and its transfer factory. Runs the `UsycFund`: receives USDC and mints USYC to subscribers; burns redeemed USYC and pays USDC from its reserve (its settlement loop runs inside the API). |
 | **UsdcIssuer** | Issues the simulated USDC cash. Admin of the USDC instrument and its transfer factory. |
 | **Oracle** | Publishes the index and the demo clock. |
 | **Alice** (demo) | Wants a fixed rate. Buys PT. |
@@ -173,7 +173,7 @@ Off-ledger components (in `exodus-app/`, see its README):
 
 - **Operator bot (NestJS)** (planned): watches `RedeemRequest`, `ClaimRequest`, and `MergeRequest`, then settles them. Merges vault pieces. Calls `Mature` once per market.
 - **Oracle bot** (done, plain Node script for now): moves the index and the demo clock along the section 9 path (1.00 on Oct 1, 1.025 on Jan 1, 1.05 on Apr 1), sends heartbeats so a valid price snapshot always exists, and archives expired snapshots.
-- **Web app** (done, `exodus-app/web`): landing page, sign-up and login, the access form with its review status, the admin review queue (`/admin`), and a Hashnote-style `/app` dashboard: price strip (price, 30-day APY, demo date, live status), price chart, Subscribe/Redeem panel, test USDC faucet, holdings with USD value, a send form and an activity list read from the ledger. The original walking skeleton lives on at `/lab`: act as any demo party, move the demo clock, and use the "what can this party see?" privacy table. Later: PT price, implied fixed APY, YT yield, and a maturity countdown. Plan and decisions: [`client-app.md`](client-app.md).
+- **Web app** (done, `exodus-app/web`): landing page, sign-up and login, the access form with its review status, the admin review queue (`/admin`), and a Hashnote-style `/app` dashboard: price strip (price, 30-day APY, demo date, live status), price chart, Subscribe/Redeem panel (redeem requests show as pending until the fund pays), test USDC faucet, holdings with USD value, a send form and an activity list read from the ledger. The original walking skeleton lives on at `/lab`: act as any demo party, move the demo clock, and use the "what can this party see?" privacy table. Later: PT price, implied fixed APY, YT yield, and a maturity countdown. Plan and decisions: [`client-app.md`](client-app.md).
 - **API backend** (done, NestJS + Prisma + PostgreSQL, `exodus-app/api`): email/password accounts with database sessions, access applications, admin approval (allocates the client's custodial party and ledger user, and creates their `ClientAccess` pass), the test USDC faucet, the USYC price history, and custodial command endpoints (it submits a client's commands with the shared contracts attached as disclosed contracts). It re-creates client wallets after a sandbox restart. The operator bot will live in the same service.
 
 ## 7. Smart contracts
@@ -190,7 +190,7 @@ exodus-contract/
       Holding.daml                # USYC + USDC holdings, roundDown6, payFrom, CIP-56 view  [done]
       TransferFactory.daml        # CIP-56 TransferFactory for our holdings                [done]
       Oracle.daml                 # RateFeed + RateIndex snapshots (index + demo clock)     [done]
-      Fund.daml                   # UsycFund: Subscribe (pay USDC, get USYC atomically)     [done]
+      Fund.daml                   # UsycFund: Subscribe; RequestRedeem + UsycRedeemRequest  [done]
       Access.daml                 # ClientAccess pass (on-ledger client whitelist)          [done]
       Tokens.daml                 # MarketTerms, PT, YT, MaturitySnapshot, Redeem/Claim     [to do]
       Market.daml                 # Market (Split, Mature, RequestMerge), MergeRequest      [to do]
@@ -202,6 +202,7 @@ exodus-contract/
       TokenStandardTest.daml      # wallet view + TransferFactory transfers + passes       [done]
       OracleTest.daml             # publish, failures, privacy                              [done]
       FundTest.daml               # subscribe, stale index, fake oracle/USDC, passes, privacy [done]
+      RedeemTest.daml             # redeem request/settle/cancel, failures, passes, privacy  [done]
       AccessTest.daml             # pass create/revoke rights, who sees which pass          [done]
       DemoTest.daml               # the worked example in section 9                         [to do]
 ```
@@ -212,7 +213,8 @@ exodus-contract/
 |---|---|---|---|
 | `Holding` | issuer | owner | Simulated USYC or USDC. Choices: `Transfer`, `SplitOff`, `MergeWith`. Implements CIP-56 `Holding`. |
 | `HoldingTransferFactory` | admin (issuer) | (none) | One per issuer. Implements CIP-56 `TransferFactory` (`TransferFactory_Transfer`, `TransferFactory_PublicFetch`). Wallets get it through explicit disclosure. A transfer needs the sender's AND the receiver's `ClientAccess` pass (from its trusted `operator`) in `extraArgs.context` under `exodus-sender-access` / `exodus-receiver-access`. |
-| `UsycFund` | usycIssuer | (none) | Nonconsuming `Subscribe`: the subscriber passes its `ClientAccess` pass, pays USDC (via `payFrom`) to UsycIssuer and gets `roundDown6 (usdc / index)` USYC in the same transaction. Checks the pass comes from its trusted `operator`, the `RateIndex` from its trusted `oracle` and the USDC from its `usdcIssuer`. Clients get the fund and the price through explicit disclosure; UsycIssuer must be a `RateIndex` reader, because the price is fetched on its authority. |
+| `UsycFund` | usycIssuer | (none) | Nonconsuming `Subscribe`: the subscriber passes its `ClientAccess` pass, pays USDC (via `payFrom`) to UsycIssuer and gets `roundDown6 (usdc / index)` USYC in the same transaction. Checks the pass comes from its trusted `operator`, the `RateIndex` from its trusted `oracle` and the USDC from its `usdcIssuer`. Clients get the fund and the price through explicit disclosure; UsycIssuer must be a `RateIndex` reader, because the price is fetched on its authority. Nonconsuming `RequestRedeem`: checks the pass, burns the USYC (via `payFrom` to UsycIssuer, then archive) and creates a `UsycRedeemRequest`. |
+| `UsycRedeemRequest` | usycIssuer, owner | (none) | An open USYC redeem: the USYC is burned, the fund owes USDC. `Settle` (usycIssuer): checks the `RateIndex` like `Subscribe` and pays `roundDown6 (usycAmount * index)` USDC from the fund's holdings via `payFrom`. `Cancel` (owner): the fund mints the same USYC again. Nobody else sees it. |
 | `RateFeed` | oracle | (none) | The oracle's private working state: latest index + demo clock + `validFor`. Choice: `Publish` (index and time can only go up; same values allowed as a heartbeat). Each `Publish` creates a new `RateIndex` snapshot. |
 | `ClientAccess` | operator | client, issuers | One pass per approved client: the on-ledger whitelist entry. `Subscribe` checks the subscriber's pass; transfers check both the sender's and the receiver's (later also `Split`/RFQ). The issuers observe every pass because their factories fetch the receiver's pass. Choice: `Revoke` (operator). Replaces the old `users`/`readers` lists (see 8.A and section 11). |
 | `RateIndex` | oracle | operator, readers (= UsycIssuer in the demo) | Read-only price snapshot with `publishedAt` and `validUntil` (ledger time, `validFor` = 30 s in the demo). Not archived when a newer one is published. Choice: `Expire` (oracle, after `validUntil`). Readers use `fetchValidRate`, which rejects expired snapshots. |
@@ -280,7 +282,24 @@ Like the real USYC, any approved client (with a `ClientAccess` pass) can buy USY
 2. `payFrom` merges her USDC holdings, splits off 500 and transfers it to UsycIssuer. She keeps the change.
 3. UsycIssuer's signature on the fund lets the choice mint `roundDown6 (500 / 1.025)` = **487.804878 USYC** for Alice.
 
-If any check fails (no valid pass, a fake oracle, fake USDC, not enough USDC, an expired snapshot), nothing moves. The snapshot stays usable for 30 s even if the oracle publishes a newer price meanwhile (gap 12). The client still retries once on a stale-contract error as a safety net. Redemption (USYC back to USDC) is not built yet (gap 13).
+If any check fails (no valid pass, a fake oracle, fake USDC, not enough USDC, an expired snapshot), nothing moves. The snapshot stays usable for 30 s even if the oracle publishes a newer price meanwhile (gap 12). The client still retries once on a stale-contract error as a safety net.
+
+### 8.0b Redeem USYC (get USDC back)
+
+Redeem is the reverse of Subscribe, but it takes **two steps** (this fixes gap 13):
+
+1. Alice calls `RequestRedeem` on the `UsycFund` (disclosed to her) with her pass and 100 USYC. `payFrom` moves the 100 USYC to UsycIssuer, which burns it at once, so she cannot spend it twice. A `UsycRedeemRequest(owner = Alice, usycAmount = 100)` is created, signed by UsycIssuer and Alice. No USDC moves yet.
+2. Every `REDEEM_SETTLE_SECONDS` (2 s) the API's settlement loop acts as UsycIssuer and calls `Settle` on each open request, oldest first, with the newest valid `RateIndex`. At index 1.03 Alice gets `roundDown6 (100 * 1.03)` = **103 USDC** from the fund's USDC holdings.
+3. While the request is open, Alice can `Cancel` it and gets her 100 USYC back.
+
+Why not one atomic step like Subscribe: a redeem spends the **fund's** USDC. If every client spent it directly, two redeems at the same moment would fight over the same fund holding (UTXO contention), and clients would have to see the fund's holdings, which tells them its cash balance. With requests, only the fund's own loop spends its USDC, one request after the other. It is the same request-then-settle pattern as `RedeemRequest`/`ClaimRequest` for PT and YT.
+
+Decisions:
+
+- **Price at settle time**, like a real fund, which pays at the NAV of the day it processes the order. The UI shows an estimate at the current price.
+- **Fund reserve.** The index only goes up, so a redeem pays out more USDC than was paid in (Bank's starting 1000 USYC was never paid for at all). Bootstrap gives UsycIssuer 1,000,000 simulated USDC, standing in for the T-bills a real fund would sell. If the fund is ever short, `Settle` fails, nothing moves and the request stays open (the owner can still cancel).
+- **No second pass check at settle.** The pass is checked when Alice asks. If the admin revokes her afterwards, the fund still pays what it owes, because her USYC is already burned.
+- **Rounding.** Both steps round down, so a round trip at one price never makes money: 500 USDC → 487.804878 USYC → 499.999999 USDC (`RedeemTest.redeemRoundTrip`).
 
 ### 8.1 Split
 
@@ -416,7 +435,7 @@ The test script checks that `Operator` and `UsdcIssuer` see **zero** `Quote` con
 | UsycIssuer, UsdcIssuer | All (they check passes on transfers, like KYC) | Their own fund / factory; UsycIssuer also the price |
 | Oracle | **No** | Its own feed and snapshots |
 
-The tests check this (`AccessTest.accessPrivacy`, `FundTest.fundPrivacy`, `TokenStandardTest.walletSeesHoldings`). Before the passes, every client saw `users: [Alice, Bank]` on the fund and factories, and `readers: [Alice, Bank]` on every price snapshot.
+Redeem requests are seen only by their owner and UsycIssuer; the fund's USDC holdings (its cash balance) are never shown to clients. The tests check this (`AccessTest.accessPrivacy`, `FundTest.fundPrivacy`, `RedeemTest.redeemPrivacy`, `TokenStandardTest.walletSeesHoldings`). Before the passes, every client saw `users: [Alice, Bank]` on the fund and factories, and `readers: [Alice, Bank]` on every price snapshot.
 
 ## 11. Design decisions
 
@@ -467,7 +486,7 @@ Say these openly in the pitch. Judges respect honesty more than hidden problems.
 | 10 | No off-ledger registry API (`/registry/transfer-instruction/v1/...`, `/registry/metadata/v1/...`) | Real wallets cannot discover the factory or instrument metadata by themselves | Serve these endpoints from the NestJS backend |
 | 11 | ~~No KYC allowlist~~ **Mostly fixed.** Real USYC is permissioned | Anyone could receive simulated USYC | Done: `Subscribe` and every factory transfer need valid passes (sender and receiver). Still open: the owner-only `Holding.Transfer` choice (used inside `payFrom`) does not check passes, so a client could call it directly to send to anyone. The custodial backend never exposes it. Fix later: make `payFrom` pay through the factory with the fund's own pass, then restrict `Holding.Transfer` |
 | 12 | ~~Stale `rateCid`~~ **Fixed.** Every `Publish` used to archive the only `RateIndex`, so a command holding the old id failed (`CONTRACT_NOT_FOUND`, `UNKNOWN_CONTRACT_SYNCHRONIZERS`, `LOCAL_VERDICT_LOCKED_CONTRACTS`). The UI lost 6 of 6 races against a bot publishing every 0.3 s, and 8 of 10 subscribes needed a retry at 1 s. | `Subscribe` and `Split` failed whenever the oracle published between the user's read and submit | Done: the price has two templates. The oracle writes to a private `RateFeed`; each `Publish` creates a `RateIndex` snapshot that stays usable for 30 s and is not archived by the next publish (the Canton Coin `OpenMiningRound` pattern). Result: 10 of 10 subscribes with **0 retries** while the bot publishes every 1 s. The oracle bot sends heartbeats and archives expired snapshots. See gap 14 for the trade-off. |
-| 13 | No USYC redemption (USYC back to USDC) | Users cannot exit USYC to cash | Request + settle (`RedeemUsycRequest`), so many redeemers do not fight over the fund's USDC holdings |
+| 13 | ~~No USYC redemption (USYC back to USDC)~~ **Fixed.** | Users could not exit USYC to cash | Done: `RequestRedeem` burns the USYC and creates a `UsycRedeemRequest`; the API's settlement loop (UsycIssuer) pays it at the settle-time price; the owner can cancel. Many redeemers never fight over the fund's USDC holdings. Bootstrap seeds a 1,000,000 USDC fund reserve. See 8.0b |
 | 14 | While two snapshots are valid, a user may pick the older, lower price (the index only goes up) | `Subscribe` at an older index gives slightly more USYC: at most about one window of yield (in the demo, 30 s is a few demo days; in production, with a daily price, it is negligible). `Split` at an older index gives fewer PT/YT, so there is no gain. | Keep the window short. If needed: `Subscribe` could require `rate.simTime >= fund.lastSimTime`, tracked on a consuming fund record, at the cost of contention |
 | 15 | Subscribe and send read the disclosed contracts (fund, price, factory, receiver's pass) with the **client's** ledger user | Works only on a ledger without authentication (the local sandbox). With auth, a client's user cannot read as UsycIssuer | Read disclosures with the backend's ledger user and submit with the client's: give `subscribeUsyc` / `sendHoldings` two ledger clients |
 | 16 | The activity list re-reads the party's whole ledger history on every request | Slow on a long-lived ledger | Store the last offset per client and read only new transactions (or stream `/v2/updates`) |
@@ -484,6 +503,7 @@ HackCanton Season 3 is a 5-week online hackathon. Two official posts give differ
 | 2 | Walking skeleton in `exodus-app/`: sandbox, bootstrap, oracle bot, web UI (CIP-56 wallet, send, privacy table) | Done |
 | 2 | Fix known gap 12 (stale `rateCid`): `RateFeed` + short-lived `RateIndex` snapshots | Done |
 | 3 | `ClientAccess` passes + explicit disclosure (fixes gap 9, most of gap 11, and the client-list leak) | Done |
+| 3 | USYC redeem: request + settle loop in the API + cancel (fixes gap 13) | Done |
 | 2 | Fix known gaps 1, 2, 4. Operator bot (NestJS). | To do |
 | 3 | Client app: Tailwind/shadcn UI, landing, sign-up, access form, admin approval, custodial wallets, faucet, Hashnote-style dashboard; skeleton kept as `/lab` (see `client-app.md`) | Done |
 | 3 | Web UI: markets, RFQ screen, yield chart, maturity countdown | To do |

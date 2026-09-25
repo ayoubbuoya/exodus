@@ -1,14 +1,18 @@
 // What an approved client can do with their custodial wallet: see balances,
-// subscribe USDC into USYC, and send tokens to another approved client.
+// subscribe USDC into USYC, redeem USYC back into USDC, and send tokens to
+// another approved client.
 //
 // Each command is sent with the client's own ledger user (LedgerService.clientFor)
 // and reuses the same @exodus/ledger helpers as the /lab page, including the
 // explicit disclosure of the fund, price snapshot, factory and receiver's pass.
 import { Injectable, Logger } from "@nestjs/common";
 import {
+  cancelUsycRedeem,
   decimalToUnits,
   getHoldingActivity,
   getOwnedHoldings,
+  getRedeemRequests,
+  requestUsycRedeem,
   type ActivityRow,
   sendHoldings,
   subscribeUsyc,
@@ -16,7 +20,7 @@ import {
 } from "@exodus/ledger";
 import type { ClientWallet } from "../common/request-context.ts";
 import { LedgerService } from "../ledger/ledger.service.ts";
-import type { SubscribeDto, TransferDto } from "./dto/wallet-commands.dto.ts";
+import type { RedeemDto, SubscribeDto, TransferDto } from "./dto/wallet-commands.dto.ts";
 import { FaucetService } from "./faucet.service.ts";
 import { toHttpError } from "../ledger/ledger-errors.ts";
 
@@ -32,6 +36,14 @@ export type WalletOverview = {
 
 // `retried` is true when the first try hit a stale contract and the second worked.
 export type SubscribeResult = { usdcAmount: string; retried: boolean };
+
+// A redeem request was accepted: the USYC is burned, the USDC follows when
+// the fund settles (every few seconds).
+export type RedeemResult = { usycAmount: string; retried: boolean };
+
+// One of the client's open redeem requests, for the "Pending" list.
+// Example: { requestId: "00d1...", usycAmount: "100.0000000000", requestedAt: "2026-09-25T10:00:00Z" }
+export type OpenRedemption = { requestId: string; usycAmount: string; requestedAt: string };
 
 @Injectable()
 export class WalletService {
@@ -90,6 +102,49 @@ export class WalletService {
       return { usdcAmount: dto.usdcAmount, retried: outcome.retried };
     } catch (error) {
       throw toHttpError(error, "Subscribe", this.logger);
+    }
+  }
+
+  // Alice redeems 100 USYC: burned now, paid in USDC by the fund's settlement
+  // loop (RedeemSettlementService) at the price of that moment.
+  async requestRedeem(wallet: ClientWallet, dto: RedeemDto): Promise<RedeemResult> {
+    const parties = await this.ledger.getDemoParties();
+    try {
+      const outcome = await requestUsycRedeem(this.ledger.clientFor(wallet.ledgerUserId), {
+        redeemer: wallet.partyId,
+        usycIssuer: parties.UsycIssuer,
+        usycAmount: dto.usycAmount,
+      });
+      this.logger.log(`User ${wallet.userId} requested a redeem of ${dto.usycAmount} USYC`);
+      return { usycAmount: dto.usycAmount, retried: outcome.retried };
+    } catch (error) {
+      throw toHttpError(error, "Redeem request", this.logger);
+    }
+  }
+
+  // The client's redeem requests the fund has not paid yet, oldest first.
+  async listOpenRedemptions(wallet: ClientWallet): Promise<OpenRedemption[]> {
+    try {
+      const requests = await getRedeemRequests(this.ledger.clientFor(wallet.ledgerUserId), wallet.partyId);
+      return requests.map((request) => ({
+        requestId: request.contractId,
+        usycAmount: request.payload.usycAmount,
+        requestedAt: request.payload.requestedAt,
+      }));
+    } catch (error) {
+      throw toHttpError(error, "Reading redeem requests", this.logger);
+    }
+  }
+
+  // Alice cancels an open request and gets her USYC back. Fails with 422 if
+  // the fund has already paid it.
+  async cancelRedeem(wallet: ClientWallet, requestId: string): Promise<{ requestId: string }> {
+    try {
+      await cancelUsycRedeem(this.ledger.clientFor(wallet.ledgerUserId), wallet.partyId, requestId);
+      this.logger.log(`User ${wallet.userId} cancelled redeem request ${requestId.slice(0, 12)}...`);
+      return { requestId };
+    } catch (error) {
+      throw toHttpError(error, "Redeem cancel", this.logger);
     }
   }
 

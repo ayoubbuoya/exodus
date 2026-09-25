@@ -14,6 +14,11 @@
 //   5. The USYC fund (UsycFund), accepting the Operator's passes.
 //   6. ClientAccess passes for Alice and Bank (the demo clients are "approved").
 //   7. Starting balances: Bank gets 1000 USYC, Alice gets 1000 USDC.
+//   8. The fund's USDC reserve: UsycIssuer gets 1,000,000 USDC, so it can pay
+//      redeems (spec gap 13). Why a reserve: the index only goes up, so a
+//      redeem pays out MORE USDC than the subscriber once paid in (Bank's
+//      1000 USYC were never paid for at all). A real fund sells T-bills for
+//      that cash; our simulated fund just starts with it.
 //
 // Clients see none of 3-5: the app attaches them to client commands through
 // explicit disclosure (see docs/client-app.md).
@@ -194,6 +199,9 @@ async function main(): Promise<void> {
   await grantClientAccess(ledger, parties, "Bank");
   await mintIfEmpty(ledger, parties, "UsycIssuer", "Bank", "USYC", "1000.0");
   await mintIfEmpty(ledger, parties, "UsdcIssuer", "Alice", "USDC", "1000.0");
+  // Only on a fresh ledger: once the fund holds any USDC (a reserve, or
+  // subscription payments), rerunning bootstrap does not add more.
+  await mintIfEmpty(ledger, parties, "UsdcIssuer", "UsycIssuer", "USDC", "1000000.0");
 
   console.log("Done.");
 }

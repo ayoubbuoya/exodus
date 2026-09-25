@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { getHoldingActivity } from "./activity.ts";
 import type { LedgerClient, Transaction } from "./client.ts";
-import { Holding } from "./templates.ts";
+import { Holding, UsycRedeemRequest } from "./templates.ts";
 
 const ALICE = "client-alice::1220aa";
 const BOB = "client-bob::1220bb";
@@ -14,7 +14,10 @@ const USYC_ISSUER = "UsycIssuer::1220dd";
 
 type HoldingEvent =
   | { created: string; owner: string; instrument: string; amount: string }
-  | { archived: string };
+  | { archived: string }
+  // A UsycRedeemRequest created or archived in the same transaction.
+  | { redeemRequestCreated: string }
+  | { redeemRequestArchived: string };
 
 // Builds a transaction from a short list of created / archived holdings.
 function transaction(updateId: string, events: HoldingEvent[]): Transaction {
@@ -24,6 +27,13 @@ function transaction(updateId: string, events: HoldingEvent[]): Transaction {
     offset: Number(updateId),
     synchronizerId: "sync",
     events: events.map((event) => {
+      if ("redeemRequestCreated" in event) {
+        // getHoldingActivity only reads the template id of request events.
+        return { CreatedEvent: { contractId: event.redeemRequestCreated, templateId: UsycRedeemRequest.templateId } };
+      }
+      if ("redeemRequestArchived" in event) {
+        return { ArchivedEvent: { contractId: event.redeemRequestArchived, templateId: UsycRedeemRequest.templateId } };
+      }
       if ("created" in event) {
         const issuer = event.instrument === "USDC" ? USDC_ISSUER : USYC_ISSUER;
         return {
@@ -106,5 +116,39 @@ describe("getHoldingActivity", () => {
 
   it("returns nothing for a party with no history", async () => {
     assert.deepEqual(await getHoldingActivity(fakeLedger([]), ALICE), []);
+  });
+
+  it("names the redeem steps from the request events", async () => {
+    const redeemHistory = [
+      transaction("1", [{ created: "usyc-150", owner: ALICE, instrument: "USYC", amount: "150.0" }]),
+      // Alice redeems 100 of her 150 USYC: burned, 50 change, request created.
+      transaction("2", [
+        { archived: "usyc-150" },
+        { created: "usyc-50", owner: ALICE, instrument: "USYC", amount: "50.0" },
+        { redeemRequestCreated: "request-100" },
+      ]),
+      // The fund settles at 1.03: the request is archived, Alice gets 103 USDC.
+      transaction("3", [
+        { redeemRequestArchived: "request-100" },
+        { created: "usdc-103", owner: ALICE, instrument: "USDC", amount: "103.0" },
+      ]),
+      // A second request for 50 USYC, then Alice cancels it and gets the 50 back.
+      transaction("4", [{ archived: "usyc-50" }, { redeemRequestCreated: "request-50" }]),
+      transaction("5", [
+        { redeemRequestArchived: "request-50" },
+        { created: "usyc-50-back", owner: ALICE, instrument: "USYC", amount: "50.0" },
+      ]),
+    ];
+    const rows = await getHoldingActivity(fakeLedger(redeemHistory), ALICE);
+    assert.deepEqual(
+      rows.map((row) => ({ updateId: row.updateId, kind: row.kind, changes: row.changes })),
+      [
+        { updateId: "5", kind: "REDEEM_CANCELLED", changes: { USYC: "50.0000000000" } },
+        { updateId: "4", kind: "REDEEM_REQUESTED", changes: { USYC: "-50.0000000000" } },
+        { updateId: "3", kind: "REDEEMED", changes: { USDC: "103.0000000000" } },
+        { updateId: "2", kind: "REDEEM_REQUESTED", changes: { USYC: "-100.0000000000" } },
+        { updateId: "1", kind: "RECEIVED", changes: { USYC: "150.0000000000" } },
+      ],
+    );
   });
 });
