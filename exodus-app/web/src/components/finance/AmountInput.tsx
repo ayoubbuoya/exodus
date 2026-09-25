@@ -19,13 +19,27 @@ type AmountInputProps = {
   onChange: (value: string) => void
   // What the user has, for the "Balance … [Max]" line. Leave out to hide it.
   balance?: string
+  // The balance's unit when it is not the input's, for example "USDC" while
+  // buying PT (you pay in USDC). Defaults to `unit`.
+  balanceUnit?: string
   // Fills in the whole balance. Leave out for no Max button.
   onMax?: () => void
   invalid?: boolean
   disabled?: boolean
 }
 
-export function AmountInput({ id, label, unit, value, onChange, balance, onMax, invalid = false, disabled = false }: AmountInputProps) {
+export function AmountInput({
+  id,
+  label,
+  unit,
+  value,
+  onChange,
+  balance,
+  balanceUnit = unit,
+  onMax,
+  invalid = false,
+  disabled = false,
+}: AmountInputProps) {
   return (
     <div
       className={cn(
@@ -41,7 +55,7 @@ export function AmountInput({ id, label, unit, value, onChange, balance, onMax, 
             <span>
               Balance{' '}
               <span className="num text-foreground">
-                {formatAmount(balance)} {unit}
+                {formatAmount(balance)} {balanceUnit}
               </span>
             </span>
             {onMax !== undefined && (

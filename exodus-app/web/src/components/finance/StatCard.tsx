@@ -32,7 +32,8 @@ export function StatCard({ label, value, sub, icon: Icon, tone = 'default', load
       {loading ? (
         <Skeleton className="mt-3 h-7 w-2/3" />
       ) : (
-        <p className={cn('mt-2 font-display text-[26px] leading-none', tone === 'yield' && 'text-yt')}>{value}</p>
+        // A little smaller on phones, where two cards share a row.
+        <p className={cn('mt-2 font-display text-[22px] leading-none sm:text-[26px]', tone === 'yield' && 'text-yt')}>{value}</p>
       )}
       {sub !== undefined && !loading && <p className="num mt-2.5 text-xs text-muted-foreground">{sub}</p>}
     </div>

@@ -124,7 +124,7 @@ function MobileBar() {
 function AppFooter() {
   return (
     <footer className="px-4 pt-6 pb-8 sm:px-6 lg:px-10">
-      <p className="mx-auto max-w-[1180px] border-t border-foreground/6 pt-5 text-xs leading-5 text-faint">
+      <p className="mx-auto max-w-295 border-t border-foreground/6 pt-5 text-xs leading-5 text-faint">
         Exodus is a HackCanton Season 3 project running on a Canton test ledger. "USYC" and "USDC" are simulated tokens
         issued by the UsycIssuer and UsdcIssuer demo parties. They are not issued by, connected to, or endorsed by Circle
         or Hashnote. Nothing here is an offer of securities or investment advice.

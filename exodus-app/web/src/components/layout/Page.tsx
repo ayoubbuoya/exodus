@@ -10,7 +10,7 @@ import { cn } from 'cn'
 
 export function Page({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <div className={cn('mx-auto grid w-full max-w-[1180px] gap-6 px-4 py-6 sm:px-6 lg:px-10 lg:py-10', className)}>
+    <div className={cn('mx-auto grid w-full max-w-295 gap-6 px-4 py-6 sm:px-6 lg:px-10 lg:py-10', className)}>
       {children}
     </div>
   )
@@ -29,8 +29,10 @@ type PageHeaderProps = {
 
 export function PageHeader({ title, description, actions, eyebrow }: PageHeaderProps) {
   return (
-    <header className="flex flex-wrap items-end gap-x-6 gap-y-4">
-      <div className="min-w-0 flex-1">
+    // Phones stack the title and the actions; wider screens put them side by
+    // side (otherwise the actions would squeeze the title into a narrow column).
+    <header className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-end sm:gap-x-6">
+      <div className="min-w-0 sm:flex-1">
         {eyebrow !== undefined && <div className="mb-3">{eyebrow}</div>}
         <h1 className="font-display text-[30px] leading-tight sm:text-[36px]">{title}</h1>
         {description !== undefined && <p className="mt-1.5 text-[15px] text-muted-foreground">{description}</p>}
