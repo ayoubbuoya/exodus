@@ -12,7 +12,7 @@ This is a **walking skeleton**: a thin but real end-to-end slice (ledger, bot, U
 
 | Folder | Package | What it does |
 |---|---|---|
-| `ledger/` | `@exodus/ledger` | Typed client for the Canton JSON Ledger API v2, read helpers (`getRateIndex`, `getOwnedHoldings`, ...), CIP-56 `sendHoldings`, `subscribeUsyc` (USDC to USYC, with stale-index retry), the demo oracle schedule, and the `bootstrap` script. Shared by the bot and the UI. |
+| `ledger/` | `@exodus/ledger` | Typed client for the Canton JSON Ledger API v2, read helpers (`getRateIndex`, `getOwnedHoldings`, ...), CIP-56 `sendHoldings`, the USYC fund on-ramp (`subscribeUsyc`, `redeem.ts`), the demo oracle schedule, and the `bootstrap` script. The markets (the Pendle part): `markets.ts` (read markets, `splitUsyc`, `requestMerge`), `tokens.ts` (PT/YT positions), `rfq.ts` (quote, accept, reject, dealer side), `lifecycle.ts` (claim, PT redeem, cancel; the Operator's `settleMarketRequests` and `matureDueMarkets`), `market-math.ts` (fixed APY, dealer price, exact payout previews), and the `demo:markets` script. Shared by the bot, the API and the UI. |
 | `oracle-bot/` | `@exodus/oracle-bot` | Moves the USYC index and the demo clock forward along the spec §9 path. |
 | `web/` | `@exodus/web` | React + Vite + Tailwind CSS 4 + shadcn/ui UI with React Router. `/` is the public landing page; `/signup`, `/login`, `/onboarding` (access form and review status), `/admin` (review queue) and `/app` (the approved client's dashboard: price, APY, chart, subscribe, faucet, holdings, send, activity) talk to the backend API. `/lab` is the developer lab: party switcher, oracle card, CIP-56 wallet, USYC subscribe card, send form, oracle controls and a "what can this party see?" privacy table. |
 | `api/` | `@exodus/api` | NestJS + Prisma + PostgreSQL backend: email/password accounts (DB sessions), access applications, admin approval (allocates the client's custodial party + ledger user and creates their `ClientAccess` pass), the 100 test USDC faucet, custodial wallet commands (subscribe, send) and the USYC price history. Endpoints are listed in `../docs/client-app.md`; Swagger UI at `http://localhost:3000/api/docs`. |
@@ -90,7 +90,15 @@ Other commands: `npm test` (unit tests of ledger, api and web, with Node's `node
 | `HoldingTransferFactory` × 2 | one for UsycIssuer, one for UsdcIssuer; no observers (disclosed to senders); accepts the Operator's access passes |
 | `UsycFund` | signed by UsycIssuer, no observers (disclosed to subscribers); accepts USDC from UsdcIssuer, the index from Oracle and the Operator's access passes |
 | `ClientAccess` × 2 | access passes for Alice and Bank, signed by Operator, observed by the client and both issuers |
-| `Holding` | 1000 USYC for Bank, 1000 USDC for Alice |
+| `Holding` | 1000 USDC for Alice, 10,000 USDC of dealer cash for Bank (to buy PT back), 1,000,000 USDC fund reserve for UsycIssuer; 1000 USYC for Bank, split at once (next rows) |
+| `Market` | `PT-USYC-APR2027`, maturity 2027-04-01 on the demo clock; signed by Operator, no observers (disclosed to clients) |
+| `PrincipalToken` + `YieldToken` | Bank splits its 1000 USYC: 1000 PT + 1000 YT (spec section 9, step 1), so the house dealer has PT to sell. The USYC goes to the Operator's vault |
+
+Rerunning `bootstrap` changes nothing: each step checks first.
+
+## Markets demo script
+
+`npm run demo:markets` runs spec section 9 end to end through `@exodus/ledger` (Alice buys 500 PT at 0.975, Bank claims 24.390243 USYC on Jan 1, the market matures at 1.05, both redeem 476.190476 USYC, the vault keeps 0.000002 USYC of dust), plus split/merge, sell/buy-back, reject and expiry round trips. It prints one line per check and exits with code 1 if one fails. It needs a fresh sandbox and moves the demo clock to maturity, so restart `npm run ledger` (and rerun `npm run bootstrap`) before and after it. Use `LEDGER_URL` to point it at another sandbox.
 
 ## What the skeleton checks (results from 2026-09-23)
 

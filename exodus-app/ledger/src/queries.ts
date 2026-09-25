@@ -46,7 +46,8 @@ function toDisclosedContract(event: CreatedEvent): DisclosedContract {
 }
 
 // All active contracts of one template that `party` sees, decoded, with their disclosure.
-async function getDisclosable<T>(
+// Example: getDisclosable(ledger, operator, Market) -> every market, ready to disclose.
+export async function getDisclosable<T>(
   ledger: LedgerClient,
   party: string,
   template: { templateId: string; decoder: { runWithException: (value: unknown) => T } },
@@ -78,6 +79,11 @@ export async function getRateSnapshots(ledger: LedgerClient, party: string): Pro
 // It may be expired (if the oracle bot is stopped). Check with isRateValid.
 export async function getRateIndex(ledger: LedgerClient, party: string): Promise<Disclosable<RateIndex> | null> {
   const snapshots = await getRateSnapshots(ledger, party);
+  return pickNewestRate(snapshots);
+}
+
+// The newest snapshot of a list (same rule as getRateIndex), or null for an empty list.
+export function pickNewestRate<T extends Contract<RateIndex>>(snapshots: T[]): T | null {
   if (snapshots.length === 0) {
     return null;
   }

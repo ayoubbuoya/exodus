@@ -10,7 +10,8 @@
   "scripts": {
     "bootstrap": "node src/bootstrap.ts",
     "typecheck": "tsc --noEmit -p .",
-    "test": "node --test \"src/**/*.test.ts\""
+    "test": "node --test \"src/**/*.test.ts\"",
+    "demo:markets": "node src/demo-markets.ts"
   },
   "dependencies": {
     "@daml.js/exodus-contract-main-0.0.1": "^3.5.11",

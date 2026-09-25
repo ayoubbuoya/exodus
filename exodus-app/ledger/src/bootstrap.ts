@@ -20,17 +20,28 @@
 //      1000 USYC were never paid for at all). A real fund sells T-bills for
 //      that cash; our simulated fund just starts with it.
 //
-// Clients see none of 3-5: the app attaches them to client commands through
-// explicit disclosure (see docs/client-app.md).
+// Then the MARKETS part (the Pendle part; docs/markets-plan.md, Phase 5):
+//   9. The demo market PT-USYC-APR2027 (maturity Apr 1 2027, decision D4),
+//      signed by the Operator, seen by nobody else.
+//  10. Bank (the house dealer, decision D2) gets 10,000 USDC of dealer cash,
+//      so it can BUY PT back when a client sells.
+//  11. Bank splits its 1000 USYC into 1000 PT + 1000 YT (spec section 9,
+//      step 1), so it has PT to sell. The USYC goes to the Operator's vault.
+//
+// Clients see none of 3-5 and 9: the app attaches them to client commands
+// through explicit disclosure (see docs/client-app.md).
 //
 // "USYC" and "USDC" are SIMULATED tokens issued by our demo issuer parties,
 // not by Circle.
 import { readFile } from "node:fs/promises";
 import { createLedgerClient, type LedgerClient } from "./client.ts";
-import { DEMO_START } from "./oracle-schedule.ts";
+import { DEMO_MARKET_ID, getMarket, getMarketRate, hasReachedMaturity, splitUsyc } from "./markets.ts";
+import { ensureFreshRate } from "./oracle.ts";
+import { DEMO_MATURITY, DEMO_START } from "./oracle-schedule.ts";
 import { DEMO_PARTY_NAMES, partyName, type DemoParties, type DemoPartyName } from "./parties.ts";
 import { getClientAccess, getOwnedHoldings, getRateFeed, getTransferFactory, getUsycFund } from "./queries.ts";
-import { ClientAccess, Holding, HoldingTransferFactory, RateFeed, UsycFund } from "./templates.ts";
+import { ClientAccess, Holding, HoldingTransferFactory, Market, RateFeed, UsycFund } from "./templates.ts";
+import { getPrincipalTokens, getYieldTokens } from "./tokens.ts";
 
 const LEDGER_URL = process.env.LEDGER_URL ?? "http://localhost:7575";
 const DAR_URL = new URL("../../../exodus-contract/main/.daml/dist/exodus-contract-main-0.0.1.dar", import.meta.url);
@@ -185,6 +196,63 @@ async function mintIfEmpty(
   console.log(`Minted ${amount} ${instrument} to ${owner}`);
 }
 
+// The demo market PT-USYC-APR2027. The Operator signs it; nobody observes it.
+async function createDemoMarket(ledger: LedgerClient, parties: DemoParties): Promise<void> {
+  const current = await getMarket(ledger, parties.Operator, DEMO_MARKET_ID);
+  if (current !== null) {
+    console.log(`Market exists: ${DEMO_MARKET_ID}${current.payload.matured ? " (matured)" : ""}`);
+    return;
+  }
+  await ledger.create(parties.Operator, Market, {
+    operator: parties.Operator,
+    terms: {
+      marketId: DEMO_MARKET_ID,
+      assetIssuer: parties.UsycIssuer,
+      instrument: "USYC",
+      oracle: parties.Oracle,
+      maturity: DEMO_MATURITY,
+    },
+    matured: false,
+  });
+  console.log(`Market created: ${DEMO_MARKET_ID}, matures ${DEMO_MATURITY} (demo clock)`);
+}
+
+// True if `party` holds any PT or YT of the demo market.
+async function holdsMarketTokens(ledger: LedgerClient, party: string): Promise<boolean> {
+  const pts = await getPrincipalTokens(ledger, party, DEMO_MARKET_ID);
+  const yts = await getYieldTokens(ledger, party, DEMO_MARKET_ID);
+  return pts.length > 0 || yts.length > 0;
+}
+
+// Spec section 9, step 1: Bank splits its 1000 USYC into 1000 PT + 1000 YT,
+// so the house dealer has PT to sell. Skipped once Bank holds any PT or YT of
+// the market, or when the market can no longer split (matured or past its date).
+async function splitBankUsyc(ledger: LedgerClient, parties: DemoParties): Promise<void> {
+  if (await holdsMarketTokens(ledger, parties.Bank)) {
+    console.log(`Bank already holds PT/YT of ${DEMO_MARKET_ID}`);
+    return;
+  }
+  const market = await getMarket(ledger, parties.Operator, DEMO_MARKET_ID);
+  if (market === null || market.payload.matured) {
+    console.log("Bank split skipped: the market has matured");
+    return;
+  }
+  // A fresh price first, so the split works even before the oracle bot runs.
+  await ensureFreshRate(ledger, parties.Oracle);
+  const rate = await getMarketRate(ledger, parties.Operator, market.payload.terms);
+  if (rate !== null && hasReachedMaturity(rate.payload, market.payload.terms)) {
+    console.log("Bank split skipped: the demo clock has reached maturity (restart the sandbox for a fresh demo)");
+    return;
+  }
+  await splitUsyc(ledger, {
+    splitter: parties.Bank,
+    operator: parties.Operator,
+    marketId: DEMO_MARKET_ID,
+    usycAmount: "1000",
+  });
+  console.log(`Bank split 1000 USYC into ${DEMO_MARKET_ID} PT + YT (at index ${rate?.payload.index ?? "?"})`);
+}
+
 async function main(): Promise<void> {
   console.log(`Bootstrapping Exodus demo on ${LEDGER_URL}`);
   const ledger = createLedgerClient({ baseUrl: LEDGER_URL });
@@ -197,11 +265,23 @@ async function main(): Promise<void> {
   await createUsycFund(ledger, parties);
   await grantClientAccess(ledger, parties, "Alice");
   await grantClientAccess(ledger, parties, "Bank");
-  await mintIfEmpty(ledger, parties, "UsycIssuer", "Bank", "USYC", "1000.0");
+  // Bank's 1000 USYC become PT + YT in step 11. After that Bank holds no USYC,
+  // so "already holds USYC" alone would mint it again on every rerun.
+  if (await holdsMarketTokens(ledger, parties.Bank)) {
+    console.log("Bank already split its USYC into PT + YT");
+  } else {
+    await mintIfEmpty(ledger, parties, "UsycIssuer", "Bank", "USYC", "1000.0");
+  }
   await mintIfEmpty(ledger, parties, "UsdcIssuer", "Alice", "USDC", "1000.0");
   // Only on a fresh ledger: once the fund holds any USDC (a reserve, or
   // subscription payments), rerunning bootstrap does not add more.
   await mintIfEmpty(ledger, parties, "UsdcIssuer", "UsycIssuer", "USDC", "1000000.0");
+
+  // The markets (the Pendle part).
+  await createDemoMarket(ledger, parties);
+  // Dealer cash: Bank pays with it when a client sells PT (decision D3).
+  await mintIfEmpty(ledger, parties, "UsdcIssuer", "Bank", "USDC", "10000.0");
+  await splitBankUsyc(ledger, parties);
 
   console.log("Done.");
 }

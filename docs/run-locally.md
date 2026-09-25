@@ -92,7 +92,7 @@ Leave it running. It needs about 20–40 seconds to start.
 **Terminal 2: set up the ledger, then run the oracle**
 
 ```bash
-npm run bootstrap   # creates the demo parties, fund (with a 1,000,000 USDC reserve), price feed, Alice and Bank (ends with "Done.")
+npm run bootstrap   # creates the demo parties, fund (with a 1,000,000 USDC reserve), price feed, Alice and Bank, and the market PT-USYC-APR2027 where Bank splits its 1000 USYC into PT + YT (ends with "Done.")
 npm run oracle      # keeps running: publishes a new price every 5 s
 ```
 
@@ -195,5 +195,6 @@ Then restart the ledger, run `npm run bootstrap`, and restart `npm run api` and 
 | `npm run lint -w @exodus/web` | Lint the web app |
 | `cd ../exodus-contract/test && dpm test` | Run the Daml contract tests |
 | `npm run oracle:once` | Move the demo clock one step (7 days) and exit |
+| `npm run demo:markets` | Run the whole markets story (spec section 9: buy PT, claim, mature, redeem) through `@exodus/ledger` and check every amount. **Needs a fresh sandbox** (restart `npm run ledger`, then `npm run bootstrap`; `npm run oracle` stopped). It moves the demo clock to maturity, so restart the ledger again afterwards |
 | http://localhost:3000/api/docs | Swagger: try every API endpoint |
 | `npm run db:migrate:dev -w @exodus/api -- --name what_changed` | Create a migration after editing `api/prisma/schema.prisma` |

@@ -28,7 +28,9 @@ Exodus: private fixed-rate yield markets on Canton, built for HackCanton Season 
 
 **Markets (Pendle-lite), in progress since 2026-09-25:** `docs/markets-plan.md` is the multi-session tracker (agreed decisions D1–D5, phases 1–9 with checkboxes, status table, session log). Read it at the start of every session, tick tasks as they land, and add a session log line at the end.
 
-The Daml contracts are complete (Phases 1–4). Still to do (see `docs/markets-plan.md`): the app phases 5–7 (ledger client + bootstrap, API + operator/dealer bots, web screens). Put new code in `main/daml/Exodus/` and tests in `test/daml/Exodus/`, with module names `Exodus.<Name>`. `Split` must read the price with `fetchValidRate`. The market screens in `exodus-app/web` are built together in Phase 7 of `docs/markets-plan.md` (not one per contract). Still planned off-ledger: the operator bot for `Market`/`Rfq` settlement (inside `exodus-app/api`) and the CIP-56 registry API. Put a `*.test.ts` (node:test) next to new pure off-ledger logic.
+The Daml contracts are complete (Phases 1–4). Phase 5 is done: `@exodus/ledger` has the markets client (`markets.ts`, `tokens.ts`, `rfq.ts`, `lifecycle.ts`, pure maths in `market-math.ts`, `oracle.ts` for publishing prices), bootstrap creates `PT-USYC-APR2027` and Bank splits its 1000 USYC (plus 10,000 USDC dealer cash), and `npm run demo:markets` runs spec section 9 through the client. Clients read nothing shared: the Market, MaturitySnapshot, prices and the other side's pass are read as the Operator and disclosed (a sell quote's USDC as UsdcIssuer). Still to do (see `docs/markets-plan.md`): phases 6–7 (API + operator/dealer bots, web screens).
+
+**The USYC fund is only the on-ramp.** Subscribe/redeem (USDC ↔ USYC, `/app`) is the simulated way to get a yield-bearing token; the product is the Pendle markets on top of it. Keep them as separate pages, flows and modules, with names that cannot be confused (`PtRedeemRequest` vs `UsycRedeemRequest`). Put new code in `main/daml/Exodus/` and tests in `test/daml/Exodus/`, with module names `Exodus.<Name>`. `Split` must read the price with `fetchValidRate`. The market screens in `exodus-app/web` are built together in Phase 7 of `docs/markets-plan.md` (not one per contract). Still planned off-ledger: the operator bot for `Market`/`Rfq` settlement (inside `exodus-app/api`) and the CIP-56 registry API. Put a `*.test.ts` (node:test) next to new pure off-ledger logic.
 
 "USYC"/"USDC" are simulations issued by the `UsycIssuer`/`UsdcIssuer` demo parties, not by Circle. Keep that clear in code comments, docs and UI.
 
@@ -62,6 +64,7 @@ npm run ledger         # dpm sandbox with our DAR; JSON API on :7575, no auth, i
 npm run bootstrap      # parties, RateFeed + first snapshot, transfer factories, UsycFund, access passes for Alice and Bank, starting balances (idempotent; rerun after each sandbox start; retries while the sandbox connects)
 npm run oracle         # oracle bot: advance the clock + heartbeat + expire old snapshots (ORACLE_TICK_SECONDS, ORACLE_STEP_DAYS)
 npm run oracle:hold    # heartbeat only (move the clock by hand in the UI); npm run oracle:once for one tick
+npm run demo:markets   # spec section 9 end to end through @exodus/ledger, 47 checks; needs a FRESH sandbox (clock at Oct 1, `npm run oracle` stopped) and moves the clock to maturity
 npm run web            # UI on http://localhost:5173 (Vite proxies /v2 to :7575 and /api to :3000)
 npm run db:up          # PostgreSQL in Docker (api/docker-compose.yml); then db:migrate and db:seed (admin from api/.env)
 npm run api            # build (prisma generate + tsc) and start the backend on :3000, Swagger at /api/docs

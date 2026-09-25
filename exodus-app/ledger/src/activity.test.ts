@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { getHoldingActivity } from "./activity.ts";
 import type { LedgerClient, Transaction } from "./client.ts";
-import { Holding, UsycRedeemRequest } from "./templates.ts";
+import { ClaimRequest, Holding, MergeRequest, PrincipalToken, PtRedeemRequest, UsycRedeemRequest, YieldToken } from "./templates.ts";
 
 const ALICE = "client-alice::1220aa";
 const BOB = "client-bob::1220bb";
@@ -148,6 +148,182 @@ describe("getHoldingActivity", () => {
         { updateId: "3", kind: "REDEEMED", changes: { USDC: "103.0000000000" } },
         { updateId: "2", kind: "REDEEM_REQUESTED", changes: { USYC: "-100.0000000000" } },
         { updateId: "1", kind: "RECEIVED", changes: { USYC: "150.0000000000" } },
+      ],
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Market tokens (PT and YT)
+// ---------------------------------------------------------------------------
+
+const BANK = "Bank::1220ee";
+const OPERATOR = "Operator::1220ff";
+const PT = "PT-USYC-APR2027";
+const YT = "YT-USYC-APR2027";
+const TERMS = {
+  marketId: PT,
+  assetIssuer: USYC_ISSUER,
+  instrument: "USYC",
+  oracle: "Oracle::1220aa",
+  maturity: "2027-04-01T00:00:00Z",
+};
+const AT = "2026-09-25T10:00:00Z";
+
+// Market events: tokens and requests created or archived.
+type MarketEvent =
+  | { holding: string; owner: string; instrument: string; amount: string }
+  | { pt: string; owner: string; amount: string; lockedFor?: string }
+  | { yt: string; owner: string; amount: string; lastIndex: string }
+  | { claimRequest: string; owner: string; amount: string }
+  | { ptRedeemRequest: string; owner: string; ptAmount: string }
+  | { mergeRequest: string; owner: string; amount: string }
+  | { archived: string; templateId: string };
+
+function created(contractId: string, templateId: string, createArgument: unknown) {
+  return { CreatedEvent: { contractId, templateId, createArgument } };
+}
+
+function marketTransaction(updateId: string, events: MarketEvent[]): Transaction {
+  return {
+    updateId,
+    effectiveAt: `2026-09-25T10:00:0${updateId}Z`,
+    offset: Number(updateId),
+    synchronizerId: "sync",
+    events: events.map((event) => {
+      if ("archived" in event) {
+        return { ArchivedEvent: { contractId: event.archived, templateId: event.templateId } };
+      }
+      if ("holding" in event) {
+        const issuer = event.instrument === "USDC" ? USDC_ISSUER : USYC_ISSUER;
+        return created(event.holding, Holding.templateId, { issuer, owner: event.owner, instrument: event.instrument, amount: event.amount });
+      }
+      if ("pt" in event) {
+        const lock = event.lockedFor === undefined ? null : { holder: event.lockedFor, lockedUntil: AT };
+        return created(event.pt, PrincipalToken.templateId, { operator: OPERATOR, owner: event.owner, terms: TERMS, amount: event.amount, lock });
+      }
+      if ("yt" in event) {
+        return created(event.yt, YieldToken.templateId, {
+          operator: OPERATOR, owner: event.owner, terms: TERMS, amount: event.amount, lastIndex: event.lastIndex,
+        });
+      }
+      if ("claimRequest" in event) {
+        return created(event.claimRequest, ClaimRequest.templateId, {
+          operator: OPERATOR, owner: event.owner, terms: TERMS, amount: event.amount, lastIndex: "1.0", requestedAt: AT,
+        });
+      }
+      if ("ptRedeemRequest" in event) {
+        return created(event.ptRedeemRequest, PtRedeemRequest.templateId, {
+          operator: OPERATOR, owner: event.owner, terms: TERMS, ptAmount: event.ptAmount, maturityIndex: "1.05", requestedAt: AT,
+        });
+      }
+      return created(event.mergeRequest, MergeRequest.templateId, {
+        operator: OPERATOR, owner: event.owner, terms: TERMS, amount: event.amount, lastIndex: "1.025", requestedAt: AT,
+      });
+    }),
+  } as unknown as Transaction;
+}
+
+const archivedPt = (contractId: string) => ({ archived: contractId, templateId: PrincipalToken.templateId });
+const archivedYt = (contractId: string) => ({ archived: contractId, templateId: YieldToken.templateId });
+const archivedHolding = (contractId: string) => ({ archived: contractId, templateId: Holding.templateId });
+
+// Bank's side of the spec section 9 demo, oldest first.
+const BANK_HISTORY = [
+  marketTransaction("1", [{ holding: "usyc-1000", owner: BANK, instrument: "USYC", amount: "1000.0" }]),
+  // Split 1000 USYC at 1.00: the USYC goes to the Operator's vault.
+  marketTransaction("2", [
+    archivedHolding("usyc-1000"),
+    { holding: "vault-1000", owner: OPERATOR, instrument: "USYC", amount: "1000.0" },
+    { pt: "pt-1000", owner: BANK, amount: "1000.0" },
+    { yt: "yt-1000", owner: BANK, amount: "1000.0", lastIndex: "1.0" },
+  ]),
+  // Quote to Alice: 500 PT split off and locked for her. Still Bank's: no row.
+  marketTransaction("3", [
+    archivedPt("pt-1000"),
+    { pt: "pt-500", owner: BANK, amount: "500.0" },
+    { pt: "pt-500-locked", owner: BANK, amount: "500.0", lockedFor: ALICE },
+  ]),
+  // Alice accepts: the locked PT goes to her, 487.5 USDC to Bank.
+  marketTransaction("4", [
+    archivedPt("pt-500-locked"),
+    { pt: "pt-500-alice", owner: ALICE, amount: "500.0" },
+    { holding: "usdc-487", owner: BANK, instrument: "USDC", amount: "487.5" },
+  ]),
+  // Claim request: the YT moves into the request. Still Bank's: no row.
+  marketTransaction("5", [archivedYt("yt-1000"), { claimRequest: "claim-1", owner: BANK, amount: "1000.0" }]),
+  // Settled at 1.025: the YT comes back with the new lastIndex, plus the yield.
+  marketTransaction("6", [
+    { archived: "claim-1", templateId: ClaimRequest.templateId },
+    { yt: "yt-1000-b", owner: BANK, amount: "1000.0", lastIndex: "1.025" },
+    { holding: "usyc-24", owner: BANK, instrument: "USYC", amount: "24.390243" },
+  ]),
+  // Merge 100 PT + 100 YT: both go into the request, the rest is change. No row.
+  marketTransaction("7", [
+    archivedPt("pt-500"),
+    archivedYt("yt-1000-b"),
+    { mergeRequest: "merge-1", owner: BANK, amount: "100.0" },
+    { pt: "pt-400", owner: BANK, amount: "400.0" },
+    { yt: "yt-900", owner: BANK, amount: "900.0", lastIndex: "1.025" },
+  ]),
+  // Settled: 100 / 1.025 = 97.560975 USYC.
+  marketTransaction("8", [
+    { archived: "merge-1", templateId: MergeRequest.templateId },
+    { holding: "usyc-97", owner: BANK, instrument: "USYC", amount: "97.560975" },
+  ]),
+  // A second claim, then Bank cancels it: nothing changed, so no rows.
+  marketTransaction("9", [archivedYt("yt-900"), { claimRequest: "claim-2", owner: BANK, amount: "900.0" }]),
+];
+BANK_HISTORY.push(
+  marketTransaction("10", [
+    { archived: "claim-2", templateId: ClaimRequest.templateId },
+    { yt: "yt-900-back", owner: BANK, amount: "900.0", lastIndex: "1.025" },
+  ]),
+);
+
+describe("getHoldingActivity with market tokens", () => {
+  it("shows Bank's split, sale, claim and merge; requests and cancels add no rows", async () => {
+    const rows = await getHoldingActivity(fakeLedger(BANK_HISTORY), BANK);
+    assert.deepEqual(
+      rows.map((row) => ({ updateId: row.updateId, kind: row.kind, changes: row.changes })),
+      [
+        { updateId: "8", kind: "MERGED", changes: { [PT]: "-100.0000000000", [YT]: "-100.0000000000", USYC: "97.5609750000" } },
+        { updateId: "6", kind: "CLAIMED", changes: { USYC: "24.3902430000" } },
+        { updateId: "4", kind: "SOLD_PT", changes: { [PT]: "-500.0000000000", USDC: "487.5000000000" } },
+        { updateId: "2", kind: "SPLIT", changes: { USYC: "-1000.0000000000", [PT]: "1000.0000000000", [YT]: "1000.0000000000" } },
+        { updateId: "1", kind: "RECEIVED", changes: { USYC: "1000.0000000000" } },
+      ],
+    );
+  });
+
+  it("shows Alice's purchase and PT redeem, and ignores Bank's PT locked for her", async () => {
+    const aliceHistory = [
+      marketTransaction("1", [{ holding: "usdc-1000", owner: ALICE, instrument: "USDC", amount: "1000.0" }]),
+      // Alice sees the PT Bank locked for her, but it is Bank's: no row.
+      marketTransaction("2", [{ pt: "pt-500-locked", owner: BANK, amount: "500.0", lockedFor: ALICE }]),
+      // She accepts: pays 487.5 of her 1000 USDC and gets the 500 PT.
+      marketTransaction("3", [
+        archivedHolding("usdc-1000"),
+        { holding: "usdc-512", owner: ALICE, instrument: "USDC", amount: "512.5" },
+        { holding: "usdc-487-bank", owner: BANK, instrument: "USDC", amount: "487.5" },
+        archivedPt("pt-500-locked"),
+        { pt: "pt-500", owner: ALICE, amount: "500.0" },
+      ]),
+      // After maturity she redeems: the PT moves into the request (no row) ...
+      marketTransaction("4", [archivedPt("pt-500"), { ptRedeemRequest: "redeem-1", owner: ALICE, ptAmount: "500.0" }]),
+      // ... and the settlement at 1.05 pays 476.190476 USYC.
+      marketTransaction("5", [
+        { archived: "redeem-1", templateId: PtRedeemRequest.templateId },
+        { holding: "usyc-476", owner: ALICE, instrument: "USYC", amount: "476.190476" },
+      ]),
+    ];
+    const rows = await getHoldingActivity(fakeLedger(aliceHistory), ALICE);
+    assert.deepEqual(
+      rows.map((row) => ({ updateId: row.updateId, kind: row.kind, changes: row.changes })),
+      [
+        { updateId: "5", kind: "REDEEMED_PT", changes: { [PT]: "-500.0000000000", USYC: "476.1904760000" } },
+        { updateId: "3", kind: "BOUGHT_PT", changes: { USDC: "-487.5000000000", [PT]: "500.0000000000" } },
+        { updateId: "1", kind: "RECEIVED", changes: { USDC: "1000.0000000000" } },
       ],
     );
   });

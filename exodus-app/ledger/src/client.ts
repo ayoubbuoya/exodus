@@ -31,7 +31,9 @@ export type SubmitOptions = {
   // Contracts the submitter cannot see but the command uses (see DisclosedContract).
   disclosedContracts?: DisclosedContract[];
 };
-type Command = components["schemas"]["Command"];
+// One command inside a submission (a create or an exercise).
+export type LedgerCommand = components["schemas"]["Command"];
+type Command = LedgerCommand;
 type CantonError = components["schemas"]["JsCantonError"];
 
 export type LedgerClientOptions = {
@@ -91,6 +93,31 @@ function toLedgerError(body: unknown, response: Response): LedgerError {
   }
   const text = typeof body === "string" ? body : JSON.stringify(body);
   return new LedgerError(`HTTP_${response.status}`, text, response.status);
+}
+
+// Builds one exercise command without sending it. Put several into
+// ledger.submitCommands(...) to run them in ONE transaction: all succeed or
+// none does. Example: the dealer bot withdraws an expired quote and unlocks
+// its PT together:
+//   await ledger.submitCommands(bank, [
+//     exerciseCommand(Quote.Quote_Withdraw, quoteCid, {}),
+//     exerciseCommand(PrincipalToken.PT_Unlock, lockedPtCid, {}),
+//   ]);
+// The commands cannot use each other's results (the second cannot use a
+// contract the first creates), because they are all built before sending.
+export function exerciseCommand<T extends object, C, R, K>(
+  choice: Choice<T, C, R, K>,
+  contractId: string,
+  argument: C,
+): LedgerCommand {
+  return {
+    ExerciseCommand: {
+      templateId: choice.template().templateId,
+      contractId,
+      choice: choice.choiceName,
+      choiceArgument: choice.argumentEncode(argument),
+    },
+  };
 }
 
 export function createLedgerClient(options: LedgerClientOptions) {
@@ -342,20 +369,16 @@ export function createLedgerClient(options: LedgerClientOptions) {
     argument: C,
     options: SubmitOptions = {},
   ): Promise<void> {
-    await submit(
-      actAs,
-      [
-        {
-          ExerciseCommand: {
-            templateId: choice.template().templateId,
-            contractId,
-            choice: choice.choiceName,
-            choiceArgument: choice.argumentEncode(argument),
-          },
-        },
-      ],
-      options,
-    );
+    await submit(actAs, [exerciseCommand(choice, contractId, argument)], options);
+  }
+
+  // Sends several commands (see exerciseCommand) as `actAs` in ONE transaction.
+  // Example: Bank claims the yield of its 3 YT pieces at once.
+  async function submitCommands(actAs: string, commands: LedgerCommand[], options: SubmitOptions = {}): Promise<void> {
+    if (commands.length === 0) {
+      throw new Error("submitCommands needs at least one command");
+    }
+    await submit(actAs, commands, options);
   }
 
   return {
@@ -368,6 +391,7 @@ export function createLedgerClient(options: LedgerClientOptions) {
     getTransactions,
     create,
     exercise,
+    submitCommands,
   };
 }
 

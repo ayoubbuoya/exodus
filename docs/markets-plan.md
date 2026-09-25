@@ -51,6 +51,9 @@ What a user can do when we are finished (the spec section 9 example):
 | R2 | Firm quotes (Phase 3) | **Dealer's PT locked for the buyer** until `validUntil`; the dealer cannot withdraw or unlock before. Sell side: exact USDC set aside but not lockable, so an accept fails if the dealer spent it (Pendle's rule) | Institutional RFQ quotes are firm; the spec forbids selling the same PT twice | B: no lock, like Pendle (a fill fails if the maker's tokens are gone) |
 | R3 | Fills (Phase 3) | **Full size only** | A quote is for exactly what was asked; simpler | B: partial fills like Pendle |
 | R4 | Cash leg (Phase 3) | **USDC** (cash-for-bond DvP) | Institutional story; keeps the privacy split (UsdcIssuer sees cash, Operator sees PT) | B: USYC, like Pendle's SY |
+| L1 | Dealer stock from bootstrap (Phase 5, 2026-09-25) | **Bank splits its 1000 USYC** into 1000 PT + 1000 YT (spec step 1) and gets **10,000 USDC** of dealer cash to buy PT back | The spec section 9 numbers stay exact; the sell side works from day one | B: Bank starts with 10,000 USYC (changes the profit table). C: no dealer cash (sell side only in Phase 6) |
+| L2 | Activity rows for payouts (Phase 5) | **PT/YT inside the owner's open request still count as the owner's**: only the settled result shows (CLAIMED +24.390243 USYC); asking and cancelling add no row; open requests are listed apart | The feed shows what really changed. The fund's USYC redeem keeps its two rows, because there the USYC is really burned | A: two rows per payout, like the USYC redeem ("YT −1000", then "+24.39 USYC, +1000 YT") |
+| L3 | Demo script and the clock (Phase 5) | **`npm run demo:markets` publishes the Jan 1 and Apr 1 prices itself** on a fresh sandbox and stops with a clear message otherwise | The whole section 9 story in ~15 s, checked to 6 decimals | B: only the steps before maturity, never moving the clock |
 
 Settled by the spec (no choice needed): the vault is USYC owned by the Operator; `MarketTerms` is copied into every PT and YT (no contract keys in Daml 3.x); `Market` choices are nonconsuming except `Mature`; every payout uses `roundDown6`; maturity uses the oracle's `simTime`; settlement follows the request → operator settle → owner cancel pattern (same as `UsycRedeemRequest`).
 
@@ -73,7 +76,7 @@ Settled by the spec (no choice needed): the vault is USYC owned by the Operator;
 | 2 | Life cycle: claim, mature, redeem, merge | Done | 2026-09-25 | (fill in after commit) |
 | 3 | Private RFQ and atomic DvP | Done | 2026-09-25 | (fill in after commit) |
 | 4 | Full demo test (`DemoTest.daml`) | Done | 2026-09-25 | (fill in after commit) |
-| 5 | Ledger client and bootstrap | To do | | |
+| 5 | Ledger client and bootstrap | Done | 2026-09-25 | (fill in after commit) |
 | 6 | Backend: markets API, operator bot, dealer bot | To do | | |
 | 7 | Web app screens | To do | | |
 | 8 | Hardening and token standard (stretch) | To do | | |
@@ -137,14 +140,16 @@ File: `test/daml/Exodus/DemoTest.daml`.
 
 ### Phase 5: Ledger client and bootstrap (`@exodus/ledger`)
 
-- [ ] `markets.ts`: read markets (as Operator, for disclosure), `splitUsyc`, `requestMerge`
-- [ ] `tokens.ts`: PT/YT positions, claimable yield preview
-- [ ] `rfq.ts`: create RFQ, list quotes, accept, reject; dealer side: list RFQs, quote, withdraw
-- [ ] `lifecycle.ts`: request claim/redeem, cancel; settle calls and `mature` for the operator bot
-- [ ] Pure helpers with `*.test.ts`: fixed APY, price for a target APY, claim preview, merge preview
-- [ ] Bootstrap: create market `APR2027` (maturity = `DEMO_MATURITY`), Bank splits USYC so it holds PT to sell (idempotent)
-- [ ] `getHoldingActivity` learns PT/YT rows: SPLIT, BOUGHT_PT, SOLD_PT, CLAIMED, REDEEMED_PT, MERGED
-- [ ] `npm run codegen:daml`, typecheck, `npm test`
+- [x] `markets.ts`: read markets and maturity snapshots (as Operator, for disclosure), the market's price, `splitUsyc`, `requestMerge` (joins PT/YT pieces first; retries once on a stale contract)
+- [x] `tokens.ts`: PT/YT positions (free vs locked PT, claimable yield preview), `mergePtPieces`, `mergeYtPieces`
+- [x] `rfq.ts`: `requestQuote`, `getRfqRequests`, `getQuotes`, `acceptQuote` (discloses the dealer's pass, the price and, when selling, the dealer's USDC read as UsdcIssuer), `rejectQuote`, `cancelRfq`; dealer side: `quoteRfq`, `declineRfq`, `withdrawExpiredQuotes` (`Quote_Withdraw` + `PT_Unlock` in one transaction, plus stray expired locks)
+- [x] `lifecycle.ts`: `requestClaim`, `requestPtRedeem` (join pieces first: rounding is per request), list and cancel requests; `matureDueMarkets` and `settleMarketRequests` (oldest first across claim/redeem/merge) for the operator bot
+- [x] Pure helpers with `*.test.ts`: `market-math.ts` (fixed APY, price for a target APY with Pendle's 365-day year, exact split/claim/merge/redeem/quote previews), Daml-exact `divideDaml`/`multiplyDaml` (round half to even) in `decimal.ts`
+- [x] Client: `exerciseCommand` + `submitCommands` (several choices in one transaction); `pickInputs` works for PT; `oracle.ts` (`publishRate`, `ensureFreshRate`)
+- [x] Bootstrap: market `PT-USYC-APR2027` (maturity = `DEMO_MATURITY`), 10,000 USDC dealer cash for Bank, Bank splits 1000 USYC (L1; idempotent, heartbeat before the split)
+- [x] `getHoldingActivity` learns PT/YT rows: SPLIT, BOUGHT_PT, SOLD_PT, CLAIMED, REDEEMED_PT, MERGED (L2). Fixed `unitsToDecimal` for negative amounts with a fraction ("-487.5", was "-487.-5")
+- [x] `npm run codegen:daml`, typecheck, `npm test` (46 ledger + 15 api + 12 web)
+- [x] `npm run demo:markets` (L3): 47/47 checks on a fresh sandbox
 
 **Done when:** a Node script can run the full demo against the sandbox through `@exodus/ledger`.
 
@@ -197,3 +202,4 @@ File: `test/daml/Exodus/DemoTest.daml`.
 - 2026-09-25: Phase 2 done after reading Pendle V2's `PendleYieldToken.sol`: Q1 = Pendle-style maturity, Q2 = merge on the token. Added the guiding rule "our version of Pendle on Canton". 47 Daml scripts pass. Next: Phase 3 detailed plan (RFQ + PT lock).
 - 2026-09-25: Phase 3 done after reading Pendle V2's limit-order contracts (`IPLimitRouter`, `LimitRouterBase`, `LimitMathCore`, `MarketMathCore`): R1–R4 = A. `Rfq.daml`, PT lock, `splitExact`/`splitExactPt`, `RfqTest.daml`; 54 Daml scripts pass. Next: Phase 4 (`DemoTest.daml`).
 - 2026-09-25: Phase 4 done: `DemoTest.demoWorkedExample` proves spec section 9 end to end (profit table, vault dust 0.000002); 55 Daml scripts pass. The Daml contracts are complete. Next: Phase 5 detailed plan (ledger client and bootstrap).
+- 2026-09-25: Phase 5 done (L1–L3 = recommended). `markets.ts`, `tokens.ts`, `rfq.ts`, `lifecycle.ts`, `market-math.ts`, `oracle.ts`, bootstrap market + Bank split, PT/YT activity rows, `npm run demo:markets` (47/47 checks on a throwaway sandbox). Agreed with the user: the USYC fund (subscribe/redeem) is only the simulated on-ramp; the markets are the product, on their own pages and flows (Phase 7). Next: Phase 6 detailed plan (markets API, operator bot, dealer bot).
