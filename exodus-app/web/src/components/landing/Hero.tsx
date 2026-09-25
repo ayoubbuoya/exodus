@@ -31,8 +31,6 @@ import { SIGNUP_PATH } from './links.ts'
 
 // Overlays that appear once the wedge has left the slot (--slide close to 1).
 const AFTER_SPLIT: CSSProperties = { opacity: 'clamp(0, calc((var(--slide, 0) - 0.7) * 3.4), 1)' }
-// The starting amount fades out as the cut begins.
-const BEFORE_SPLIT: CSSProperties = { opacity: 'clamp(0, calc(1 - var(--seam, 0) * 1.5), 1)' }
 
 // Annotation font sizes in canvas units (they scale with the artboard), with
 // a floor in px. Quieter than the split story's big amounts just below, so
@@ -139,11 +137,6 @@ export function Hero() {
             onReady={onReady}
             label={`${SPLIT.usyc} USYC split into ${SPLIT.pt} PT, the silver principal block, and ${SPLIT.yt} YT, the blue glass yield wedge. Both mature on ${MATURITY_DATE}.`}
           >
-            {/* Where it starts: 1,000 USYC. It fades as the cut begins. */}
-            <Note style={{ left: artX(F, 250), top: artY(F, 180), ...BEFORE_SPLIT }} label="Deposit">
-              <span className="num">{SPLIT.usyc} USYC</span>
-            </Note>
-
             {/* PT: a dot on the block's lowest point, a line down, a short
                 shoulder to the right, and the label hanging under it. */}
             <AnchorDot at={ANCHORS.shellBottom} tone="pt" />
