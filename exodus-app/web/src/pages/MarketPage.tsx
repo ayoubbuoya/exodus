@@ -10,7 +10,7 @@
 //
 // Anyone logged in may look; only approved clients (with a wallet) can act.
 import type { ReactNode } from 'react'
-import { Link, useParams } from 'react-router'
+import { Link, useParams, useSearchParams } from 'react-router'
 import { ArrowLeftIcon } from 'lucide-react'
 import { formatAmount, formatUsd } from '@exodus/ledger'
 import { useProfile } from '@/api/hooks'
@@ -28,6 +28,7 @@ import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { marketTabFrom } from '@/lib/markets'
 
 export function MarketPage() {
   const { marketId = '' } = useParams()
@@ -85,12 +86,15 @@ function MarketHeader({ market }: { market: MarketView }) {
 
 // The action tabs and the "your position" card.
 function MarketWorkspace({ market }: { market: MarketView }) {
-  // After maturity the useful tab is "At maturity"; before, trading PT.
-  const firstTab = market.matured ? 'maturity' : 'fixed'
+  // The open tab lives in the address (?tab=mint), so other pages can link to
+  // an action. Without one: trading PT before maturity, "At maturity" after.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const tab = marketTabFrom(searchParams.get('tab'), market.matured)
   return (
     <div className="grid gap-6 lg:grid-cols-3">
       <Card className="lg:col-span-2">
-        <Tabs defaultValue={firstTab}>
+        {/* `replace`: switching tabs should not fill the Back button's history. */}
+        <Tabs value={tab} onValueChange={(value) => setSearchParams({ tab: value }, { replace: true })}>
           <CardHeader>
             <CardTitle className="sr-only">Actions</CardTitle>
             {/* Four tabs do not fit a phone's width: the list scrolls sideways. */}

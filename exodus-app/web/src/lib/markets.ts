@@ -1,6 +1,45 @@
 // Small pure helpers for the market screens (no React, easy to test).
 import { decimalToUnits } from '@exodus/ledger'
 import type { ActivityRow, QuoteView, RfqSide } from '../api/types.ts'
+import { formatDemoDate } from './format.ts'
+
+// A market's name the way Pendle writes it: the asset and the maturity.
+// Example: { instrument: "USYC", maturity: "2027-04-01T00:00:00Z" } -> "USYC · Apr 1, 2027"
+export function marketName(market: { instrument: string; maturity: string }): string {
+  return `${market.instrument} · ${formatDemoDate(market.maturity)}`
+}
+
+// The four tabs of a market page, in Pendle's words:
+//   fixed     Fixed Yield (PT): buy or sell PT privately
+//   mint      Mint / Redeem: USYC <-> PT + YT
+//   yield     Yield (YT): claim what YT has earned
+//   maturity  At maturity: redeem PT
+export type MarketTab = 'fixed' | 'mint' | 'yield' | 'maturity'
+
+const MARKET_TABS: MarketTab[] = ['fixed', 'mint', 'yield', 'maturity']
+
+// The tab to open from the page address (?tab=yield), so other pages can link
+// straight to an action (the Portfolio's "Claim" opens the Yield tab).
+// Anything missing or unknown opens the most useful tab: trading PT before
+// maturity, redeeming PT after.
+export function marketTabFrom(value: string | null, matured: boolean): MarketTab {
+  const known = MARKET_TABS.find((tab) => tab === value)
+  if (known !== undefined) {
+    return known
+  }
+  return matured ? 'maturity' : 'fixed'
+}
+
+// How much of a firm quote's life is left, from 1 (just arrived) to 0
+// (expired), for the countdown bar. `seenAtMs`: when the quote first showed up.
+// Example: valid until 10:01:00, seen at 10:00:00, now 10:00:45 -> 0.25.
+export function quoteTimeLeftShare(validUntil: string, seenAtMs: number, nowMs: number): number {
+  const total = Date.parse(validUntil) - seenAtMs
+  if (total <= 0) {
+    return 0
+  }
+  return Math.min(1, Math.max(0, (Date.parse(validUntil) - nowMs) / total))
+}
 
 // Where a "Get firm quote" is, from Alice's point of view:
 //   idle      nothing asked yet
