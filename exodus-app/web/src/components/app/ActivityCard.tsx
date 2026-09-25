@@ -1,15 +1,18 @@
 // The client's latest token movements, newest first, rebuilt by the API from
 // the ledger history. Shows tokens other clients sent too.
 // Example rows:
-//   ↓ Received     +100 USDC                       2 min ago
-//   ⇄ Subscribed   −40 USDC · +39.920159 USYC      1 min ago
-//   ↑ Sent         −10 USYC                        just now
+//   ↓ Received     +100 USDC                       Sep 25, 14:02
+//   ⇄ Subscribed   −40 USDC · +39.920159 USYC      Sep 25, 14:03
+//   ↑ Sent         −10 USYC                        Sep 25, 14:05
 //   ⌛ Redeem requested  −100 USYC   then   ⇄ Redeemed  +103 USDC
 //
-// Two uses (decision 3A, Phase 7):
+// Two uses (decision W3, Phase 7):
 //   scope "wallet"  (/app)       every row, so the USYC balance is always
 //                                explained; market rows get a "Markets" tag
 //   scope "markets" (/portfolio) only the rows that moved PT or YT, or claimed yield
+//
+// Colours: what came in is bright, what went out is dimmed; yield that was
+// claimed is the yield blue (it is yield).
 import type { ComponentType } from 'react'
 import {
   ArrowDownLeftIcon,
@@ -23,15 +26,16 @@ import {
   SplitIcon,
   Undo2Icon,
 } from 'lucide-react'
+import { cn } from 'cn'
 import { formatAmount } from '@exodus/ledger'
 import { useActivity } from '@/api/hooks'
 import type { ActivityKind, ActivityRow } from '@/api/types'
 import { FormError } from '@/components/FormError'
-import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { formatSignedAmount } from '@/lib/format'
 import { isMarketActivity } from '@/lib/markets'
+import { shortSymbol } from '@/lib/tokens'
 
 const KIND_LABEL: Record<ActivityKind, { label: string; Icon: ComponentType<{ className?: string }> }> = {
   RECEIVED: { label: 'Received', Icon: ArrowDownLeftIcon },
@@ -73,14 +77,14 @@ export function ActivityCard({ scope = 'wallet' }: ActivityCardProps) {
         {activity.isPending && <Skeleton className="h-32 w-full" />}
         {activity.isError && <FormError error={activity.error} />}
         {activity.data !== undefined && rows.length === 0 && (
-          <p className="py-6 text-center text-sm text-muted-foreground">
+          <p className="rounded-2xl bg-foreground/3 px-6 py-8 text-center text-sm text-muted-foreground">
             {scope === 'wallet'
               ? 'Nothing yet. Claim test USDC from the faucet to get started.'
               : 'No market activity yet. Mint PT + YT or buy PT in a market.'}
           </p>
         )}
         {rows.length > 0 && (
-          <ul className="flex flex-col divide-y">
+          <ul className="-mx-2 grid">
             {rows.map((row) => (
               <ActivityItem key={row.updateId} row={row} tagMarkets={scope === 'wallet'} />
             ))}
@@ -100,31 +104,46 @@ function symbolRank(symbol: string): number {
   return 3
 }
 
-// "PT-USYC-APR2027" is long for a phone: show "PT" and keep the full name as a tooltip.
-function shortSymbol(symbol: string): string {
-  return symbol.startsWith('PT-') || symbol.startsWith('YT-') ? symbol.slice(0, 2) : symbol
+// "Sep 25, 14:02": the real time of the ledger transaction (not the demo date).
+function formatWhen(iso: string): string {
+  return new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })
 }
 
 function ActivityItem({ row, tagMarkets }: { row: ActivityRow; tagMarkets: boolean }) {
   const { label, Icon } = KIND_LABEL[row.kind]
   const changes = Object.entries(row.changes).sort(([a], [b]) => symbolRank(a) - symbolRank(b))
   return (
-    <li className="flex items-center gap-3 py-2.5">
-      <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted">
-        <Icon className="size-4 text-muted-foreground" />
+    <li className="flex items-center gap-3 rounded-2xl px-2 py-2.5 transition-colors hover:bg-foreground/3">
+      <span
+        className={cn(
+          'grid size-9 shrink-0 place-items-center rounded-full bg-foreground/8',
+          row.kind === 'CLAIMED' && 'bg-yt-tint text-yt',
+          row.kind === 'REDEEM_REQUESTED' && 'bg-info/15 text-info',
+        )}
+      >
+        <Icon className="size-4" />
       </span>
       <div className="flex min-w-0 flex-1 flex-col">
         <span className="flex items-center gap-2 text-sm font-medium">
           {label}
-          {tagMarkets && isMarketActivity(row) && <Badge variant="outline">Markets</Badge>}
+          {tagMarkets && isMarketActivity(row) && (
+            <span className="rounded-full bg-foreground/8 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">Markets</span>
+          )}
         </span>
-        <span className="text-xs text-muted-foreground">{new Date(row.at).toLocaleString()}</span>
+        <span className="num text-xs text-muted-foreground">{formatWhen(row.at)}</span>
       </div>
-      <div className="num text-right text-sm">
+      <div className="num grid text-right text-sm">
         {changes.map(([symbol, amount]) => (
-          <div key={symbol} title={symbol}>
+          <span
+            key={symbol}
+            title={symbol}
+            className={cn(
+              amount.startsWith('-') ? 'text-muted-foreground' : 'text-foreground',
+              row.kind === 'CLAIMED' && !amount.startsWith('-') && 'text-yt',
+            )}
+          >
             {formatSignedAmount(amount, shortSymbol(symbol), (value) => formatAmount(value))}
-          </div>
+          </span>
         ))}
       </div>
     </li>
