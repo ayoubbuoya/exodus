@@ -47,7 +47,7 @@ Example with Alice:
 | D | Wallet | **Custodial**: the backend allocates a party + ledger user per client and submits commands for them after checking the session | Easy for users, like Hashnote. Self-custody (Canton external party with browser-held key) is a later step |
 | E | On-ledger whitelist | **E2: one `ClientAccess` pass per client** + **explicit disclosure** of shared contracts | See below |
 | F | Frontend stack | **Tailwind CSS 4** (`@tailwindcss/vite`) + **shadcn/ui** (Radix, code copied into `src/components/ui`) + **React Router** + **Recharts** + **lucide-react** | Accessible dialogs/tabs/toasts, readable code we own |
-| G | Theme | **"Meridian"** (replaced "Exodus Night" on 2026-09-23): dark first, light mode too; two brand inks, the text colour for principal (PT) and copper for yield (YT) only | See the palette below |
+| G | Theme | **"Glacier"** (replaced "Meridian" on 2026-09-24): **always dark** smoky glass, the same look on the landing page and in the app (the app's light mode was removed on 2026-09-25); silver for principal (PT), electric blue for yield (YT) only | One look, matching the landing page; see `web/src/styles/tokens.css` |
 | H | Session | **DB session**: random token in the httpOnly cookie, only its SHA-256 in `sessions` (agreed 2026-09-23) | Logout and revoking work at once; a JWT stays valid until it expires |
 | I | Sandbox restarts | **Auto re-provision**: every `WALLET_CHECK_SECONDS` the API re-creates wallets whose party is gone | The sandbox is in-memory; clients keep their account, balances restart at 0 and the faucet cooldown resets |
 | J | First admin | **Seed script** `npm run db:seed` from `ADMIN_EMAIL` / `ADMIN_PASSWORD` | Explicit; nobody can sign up as admin through the API |

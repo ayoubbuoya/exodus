@@ -22,7 +22,7 @@ type StatCardProps = {
 
 export function StatCard({ label, value, sub, icon: Icon, tone = 'default', loading = false }: StatCardProps) {
   return (
-    <div className="glass rounded-3xl p-5">
+    <div className="glass glass-glow rounded-3xl p-5">
       <div className="flex items-start justify-between gap-3">
         <span className="text-[13px] text-muted-foreground">{label}</span>
         <span className={cn('grid size-8 shrink-0 place-items-center rounded-full bg-foreground/8', tone === 'yield' && 'text-yt')}>

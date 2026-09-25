@@ -4,22 +4,15 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="color-scheme" content="dark light" />
-    <!-- Browser UI colour: deep navy in dark mode (the default), frost in light mode. -->
-    <meta name="theme-color" content="#060A13" media="(prefers-color-scheme: dark)" />
-    <meta name="theme-color" content="#EEF2F8" media="(prefers-color-scheme: light)" />
+    <!-- The whole site is always dark Glacier glass (the `dark` class above), so the
+         browser UI and form controls are dark too. -->
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#060A13" />
     <meta
       name="description"
       content="Exodus: private fixed-rate yield markets on Canton. Split simulated USYC into principal and yield, and trade them by private RFQ with atomic settlement."
     />
     <title>Exodus · Private fixed-rate yield on Canton</title>
-    <!-- Apply the saved theme before the page paints, so a light-mode user never sees a dark flash.
-         Same storage key as src/components/theme/ThemeProvider.tsx. -->
-    <script>
-      try {
-        if (localStorage.getItem('exodus-theme') === 'light') document.documentElement.classList.remove('dark')
-      } catch (error) {}
-    </script>
   </head>
   <body>
     <div id="root"></div>

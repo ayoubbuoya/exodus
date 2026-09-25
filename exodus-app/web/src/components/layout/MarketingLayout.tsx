@@ -1,7 +1,7 @@
-import type { PointerEvent } from 'react'
 import { Outlet, ScrollRestoration } from 'react-router'
 import { LandingNav } from '@/components/landing/LandingNav'
 import { SPEC_URL } from '@/components/landing/links'
+import { followPointer } from './followPointer.ts'
 import { Logo } from './Logo.tsx'
 
 // The frame of the public landing page: its own top bar, the page, a footer,
@@ -52,19 +52,6 @@ export function MarketingLayout() {
       <ScrollRestoration />
     </div>
   )
-}
-
-// Glass panels with the `glass-glow` class have a soft light that follows the
-// pointer. One listener for the whole page (event delegation) writes the
-// pointer position, relative to the panel under it, into --mx / --my. The CSS
-// in index.css does the rest, so React never re-renders for it.
-function followPointer(event: PointerEvent<HTMLDivElement>) {
-  if (event.pointerType !== 'mouse') return
-  const panel = (event.target as Element).closest<HTMLElement>('.glass-glow')
-  if (panel === null) return
-  const box = panel.getBoundingClientRect()
-  panel.style.setProperty('--mx', `${event.clientX - box.left}px`)
-  panel.style.setProperty('--my', `${event.clientY - box.top}px`)
 }
 
 // The light behind the page, fixed to the screen while the content scrolls

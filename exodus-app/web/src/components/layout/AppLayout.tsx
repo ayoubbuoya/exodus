@@ -2,7 +2,7 @@
 //
 // Desktop (1024 px and wider): a floating glass sidebar on the left, the
 // same shape as the app window on the landing page ("The app" section):
-//   logo · navigation · demo clock · account · "simulated tokens" + theme
+//   logo · navigation · demo clock · account · "simulated tokens"
 // It stays in place while the page scrolls.
 // Phones and tablets: a floating glass bar at the top (logo, demo date, menu
 // button); the menu opens the same navigation and account below it.
@@ -19,8 +19,8 @@ import { AccountCard } from './AccountCard.tsx'
 import { AppBackdrop } from './AppBackdrop.tsx'
 import { AppNav } from './AppNav.tsx'
 import { DemoClock } from './DemoClock.tsx'
+import { followPointer } from './followPointer.ts'
 import { Logo } from './Logo.tsx'
-import { ThemeToggle } from './ThemeToggle.tsx'
 
 export function AppLayout() {
   // "loading" while the next page's code downloads (pages load lazily, see
@@ -29,7 +29,12 @@ export function AppLayout() {
   const navigation = useNavigation()
 
   return (
-    <div className="relative isolate min-h-svh bg-background text-foreground lg:grid lg:grid-cols-[272px_minmax(0,1fr)]">
+    // Always dark, like the landing page (the whole app is Glacier glass), and
+    // the same pointer light on every `glass-glow` panel.
+    <div
+      className="relative isolate min-h-svh bg-background text-foreground lg:grid lg:grid-cols-[272px_minmax(0,1fr)]"
+      onPointerMove={followPointer}
+    >
       <AppBackdrop />
       {navigation.state === 'loading' && (
         <div role="progressbar" aria-label="Loading the page" className="fixed inset-x-0 top-0 z-50 h-0.5 animate-pulse bg-foreground/60" />
@@ -62,9 +67,8 @@ function Sidebar() {
         <div className="grid gap-2">
           <DemoClock variant="card" />
           <AccountCard />
-          <div className="flex items-center justify-between gap-2 pt-1 pl-1">
+          <div className="pt-1 pl-1">
             <SimulatedBadge />
-            <ThemeToggle />
           </div>
         </div>
       </div>
@@ -110,9 +114,8 @@ function MobileBar() {
           <AppNav profile={profile} onNavigate={() => setMenuOpen(false)} />
           <DemoClock variant="card" />
           <AccountCard />
-          <div className="flex items-center justify-between gap-2 pl-1">
+          <div className="pl-1">
             <SimulatedBadge />
-            <ThemeToggle />
           </div>
         </div>
       )}

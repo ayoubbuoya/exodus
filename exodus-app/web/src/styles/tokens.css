@@ -15,7 +15,9 @@
  *   the maturity line.
  *
  * `:root` holds the light theme ("Frost") and `.dark` the dark theme
- * ("Glacier", the default). The ThemeProvider puts the `dark` class on <html>.
+ * ("Glacier"). The whole site is always dark: index.html puts the `dark`
+ * class on <html> (the app's light mode was removed on 2026-09-25, so the app
+ * looks like the landing page). The Frost values stay for a light island.
  *
  * Two scoping classes let one part of a page use a fixed theme:
  * - `.dark` on any element: the landing page is always dark.

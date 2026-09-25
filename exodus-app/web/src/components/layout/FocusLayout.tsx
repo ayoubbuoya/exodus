@@ -2,15 +2,16 @@
 //
 // Before an admin approves the account there is nothing to navigate to, so
 // these pages get no sidebar: just the logo (back to the home page), the
-// "simulated tokens" note, the theme switch and, once signed in, "Log out".
+// "simulated tokens" note and, once signed in, "Log out". Always dark, like
+// the landing page the visitor just came from.
 import { Outlet, ScrollRestoration } from 'react-router'
 import { LogOutIcon } from 'lucide-react'
 import { useProfile } from '@/api/hooks'
 import { SimulatedBadge } from '@/components/SimulatedBadge'
 import { Button } from '@/components/ui/button'
 import { AppBackdrop } from './AppBackdrop.tsx'
+import { followPointer } from './followPointer.ts'
 import { Logo } from './Logo.tsx'
-import { ThemeToggle } from './ThemeToggle.tsx'
 import { useSignOut } from './useSignOut.ts'
 
 export function FocusLayout() {
@@ -19,13 +20,12 @@ export function FocusLayout() {
   const isSignedIn = profile !== undefined && profile !== null
 
   return (
-    <div className="relative isolate flex min-h-svh flex-col bg-background text-foreground">
+    <div className="relative isolate flex min-h-svh flex-col bg-background text-foreground" onPointerMove={followPointer}>
       <AppBackdrop />
       <header className="mx-auto flex w-full max-w-5xl items-center gap-2 px-4 pt-5 sm:px-6">
         <Logo />
         <div className="ml-auto flex items-center gap-1.5">
           <SimulatedBadge />
-          <ThemeToggle />
           {isSignedIn && (
             <Button variant="ghost" size="sm" onClick={signOut} disabled={isSigningOut}>
               <LogOutIcon data-icon="inline-start" />

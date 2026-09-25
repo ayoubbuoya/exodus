@@ -21,7 +21,7 @@ export function AuthCard({ title, description, children, footer, step, width = '
   return (
     <div className={width === 'md' ? 'mx-auto w-full max-w-md' : 'mx-auto w-full max-w-xl'}>
       {step !== undefined && <OnboardingSteps current={step} />}
-      <section aria-labelledby="auth-title" className="glass glass-sheen rounded-2xl p-6 sm:p-8">
+      <section aria-labelledby="auth-title" className="glass glass-sheen glass-glow rounded-2xl p-6 sm:p-8">
         <h1 id="auth-title" className="font-display text-[28px] leading-tight sm:text-[32px]">
           {title}
         </h1>

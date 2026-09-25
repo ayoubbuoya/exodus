@@ -5,8 +5,9 @@
  * - The colour values live in `styles/tokens.css` (light on `:root`, dark on `.dark`).
  * - Tailwind v4 reads the `@theme inline` block below and turns each entry into
  *   utility classes. For example `--color-yt` gives us `text-yt`, `bg-yt`, ...
- * - The ThemeProvider puts the `dark` class on <html>, so switching theme only
- *   swaps variables. shadcn/ui components use the same names and follow along.
+ * - index.html puts the `dark` class on <html>: the whole site (landing page and
+ *   app) is always dark Glacier glass. shadcn/ui components use the same
+ *   variable names and follow along.
  */
 @import "tailwindcss";
 @import "tw-animate-css";

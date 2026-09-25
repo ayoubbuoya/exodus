@@ -73,7 +73,7 @@ function MarketRow({ market }: { market: MarketView }) {
   const href = `/markets/${encodeURIComponent(market.marketId)}`
 
   return (
-    <article aria-labelledby={`market-${market.marketId}`} className="glass glass-sheen grid gap-6 rounded-3xl p-5 sm:p-6">
+    <article aria-labelledby={`market-${market.marketId}`} className="glass glass-sheen glass-glow grid gap-6 rounded-3xl p-5 sm:p-6">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
         <MarketBadge />
         <div className="grid min-w-0 gap-0.5">
