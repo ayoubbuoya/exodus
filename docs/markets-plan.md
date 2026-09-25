@@ -41,6 +41,8 @@ What a user can do when we are finished (the spec section 9 example):
 | D3 | Trades | **Buy and sell PT now** (`RfqRequest` has a `side`). YT trading is a stretch goal (Phase 8) | Alice can exit before maturity without holding YT | B: buy PT only (the old spec) |
 | D4 | Creating markets | **One demo market `APR2027` from bootstrap now**; an admin "Create market" form later (Phase 8) | The oracle's demo schedule ends at Apr 1 2027, so more markets need a longer clock anyway | B: admin form from the start |
 | D5 | Public price on the Markets page | **Indicative price from the house dealer's settings**, served off-ledger by the API ("Indicative 0.975 · 5.19% fixed"). Real quotes stay private on the ledger | A useful product page without leaking any real trade | B: no price until you ask for a quote (most private, weak page) |
+| P1 | Pass check on PT/YT transfers (Phase 1, 2026-09-25) | **Both passes**: `PT_Transfer` / `YT_Transfer` take the sender's and the receiver's `ClientAccess` pass, like the USYC/USDC factory. The app discloses the receiver's pass (read as the Operator) | PT/YT only move between approved clients; we do not repeat spec gap 11 | B: no check, like `Holding.Transfer` |
+| P2 | When to build the PT lock (Phase 1, 2026-09-25) | **In Phase 3, with the RFQ** | The lock only exists for quotes, so its rules (who unlocks, what happens on quote expiry) are designed together with `Quote` | B: build it in Phase 1 and guess its rules |
 
 Settled by the spec (no choice needed): the vault is USYC owned by the Operator; `MarketTerms` is copied into every PT and YT (no contract keys in Daml 3.x); `Market` choices are nonconsuming except `Mature`; every payout uses `roundDown6`; maturity uses the oracle's `simTime`; settlement follows the request → operator settle → owner cancel pattern (same as `UsycRedeemRequest`).
 
@@ -59,7 +61,7 @@ Settled by the spec (no choice needed): the vault is USYC owned by the Operator;
 
 | Phase | What | Status | Date | Commit |
 |---|---|---|---|---|
-| 1 | PT/YT tokens and Split | To do | | |
+| 1 | PT/YT tokens and Split | Done | 2026-09-25 | (fill in after commit) |
 | 2 | Life cycle: claim, mature, redeem, merge | To do | | |
 | 3 | Private RFQ and atomic DvP | To do | | |
 | 4 | Full demo test (`DemoTest.daml`) | To do | | |
@@ -77,13 +79,13 @@ Phases 1–7 are the must-have product. Phase 8 is done if time allows. Phase 9 
 
 Files: `main/daml/Exodus/Tokens.daml`, `main/daml/Exodus/Market.daml`, `test/daml/Exodus/MarketTest.daml`.
 
-- [ ] `MarketTerms` (marketId, assetIssuer, instrument, oracle, maturity) and `IndexSource` (`CurrentRate` / `AtMaturity`)
-- [ ] `PrincipalToken` (Operator signs; owner and `lockedFor` observe): `PT_Transfer`, `PT_SplitOff`, `PT_MergeWith`, `PT_Lock`, `PT_Unlock`
-- [ ] `YieldToken` (Operator signs; owner observes; keeps `lastIndex`): `YT_Transfer`, `YT_SplitOff`, `YT_MergeWith` (only with the same `lastIndex`)
-- [ ] `Market` (Operator signs, `matured` flag, no client observers, D1), nonconsuming `Split`: `checkAccess`, `fetchValidRate`, USYC to the Operator vault via `payFrom`, mint `roundDown6 (shares * index)` PT and YT
-- [ ] `Split` fails when: no or wrong pass, USYC from another issuer, expired or fake price, market matured, `simTime >= maturity`
-- [ ] Tests: happy path (1000 USYC at 1.00 → 1000 + 1000), each failure, transfers and locks, privacy (Alice sees no Bank PT/YT, clients see no `Market`)
-- [ ] Update spec section 7 tables (`Market` observers, pass on `Split`)
+- [x] `MarketTerms` (marketId, assetIssuer, instrument, oracle, maturity). `IndexSource` moved to Phase 2 (it needs `MaturitySnapshot`)
+- [x] `PrincipalToken` (Operator signs; owner observes): `PT_Transfer` (both passes, P1), `PT_SplitOff`, `PT_MergeWith` (same market). `PT_Lock` / `PT_Unlock` moved to Phase 3 (P2)
+- [x] `YieldToken` (Operator signs; owner observes; keeps `lastIndex`): `YT_Transfer` (both passes), `YT_SplitOff`, `YT_MergeWith` (same market and same `lastIndex`)
+- [x] `Market` (Operator signs, `matured` flag, no client observers, D1), nonconsuming `Split`: `checkAccess`, `fetchValidRate`, USYC to the Operator vault via `payFrom`, mint `roundDown6 (usycAmount * index)` PT and YT
+- [x] `Split` fails when: no, wrong or revoked pass, fake or foreign USYC, USDC, expired price, fake oracle, other asset, market matured, `simTime >= maturity`, amount 0 or 7 decimals, not enough USYC
+- [x] Tests in `MarketTest.daml`: `marketSplit`, `marketSplitAtIndex`, `marketSplitFailures`, `marketSplitNeedsAccessPass`, `marketSplitTimeRules`, `tokenTransfers`, `marketPrivacy` (each failure checked once with a plain `submit` to confirm it fails for the intended reason)
+- [x] Update spec section 7 tables (`Market` observers, pass on `Split`, PT/YT choices), 8.1 rules, file tree
 
 **Done when:** `dpm test` passes with the new tests, and the spec tables match the code.
 
@@ -91,6 +93,7 @@ Files: `main/daml/Exodus/Tokens.daml`, `main/daml/Exodus/Market.daml`, `test/dam
 
 Files: `Tokens.daml`, `Market.daml`, `test/daml/Exodus/LifecycleTest.daml`.
 
+- [ ] `IndexSource` (`CurrentRate` / `AtMaturity`) and `MaturitySnapshot`
 - [ ] `ClaimRequest` / `YT_RequestClaim`: `Claim_Settle` (operator, pays `notional * (1/lastIndex - 1/newIndex)` from the vault, re-creates the YT with the new `lastIndex`), `Claim_Cancel` (owner)
 - [ ] `Mature` is **consuming**: archives the `Market`, re-creates it with `matured = True` (gap 1); requires `simTime == maturity` (gap 2); creates `MaturitySnapshot`
 - [ ] `RedeemRequest` / `PT_RequestRedeem` (rejected before maturity, gap 4): `Redeem_Settle` pays `ptAmount / maturityIndex`, `Redeem_Cancel`
@@ -106,6 +109,7 @@ Files: `Tokens.daml`, `Market.daml`, `test/daml/Exodus/LifecycleTest.daml`.
 Files: `main/daml/Exodus/Rfq.daml`, `test/daml/Exodus/RfqTest.daml`.
 
 - [ ] `RfqRequest` (requester signs, dealer observes; `side = BuyPt | SellPt`, amount, market, requester's pass): `Rfq_Quote` (dealer), `Rfq_Cancel` (requester)
+- [ ] `PT_Lock` / `PT_Unlock` on `PrincipalToken` (`lockedFor` observes; a locked PT cannot be transferred, split or merged). Moved here from Phase 1 (P2)
 - [ ] `Quote` (requester + dealer sign): price in (0, 1], `validUntil` (gap 8); for a buy the dealer's PT is locked for the buyer
 - [ ] `Quote_Accept`: cash via `payFrom` + PT delivered in **one** transaction; both passes checked; fails after `validUntil`
 - [ ] `Quote_Reject` / `Quote_Withdraw` unlock the PT
@@ -181,3 +185,4 @@ File: `test/daml/Exodus/DemoTest.daml`.
 ## Session log
 
 - 2026-09-25: plan agreed with all recommended decisions (D1–D5 = A). Next: Phase 1 detailed plan.
+- 2026-09-25: Phase 1 done (P1 = A, P2 = A). `Tokens.daml`, `Market.daml`, `MarketTest.daml`; 39 Daml scripts pass. No app changes yet (screens are Phase 7). Next: Phase 2 detailed plan.

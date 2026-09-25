@@ -192,8 +192,8 @@ exodus-contract/
       Oracle.daml                 # RateFeed + RateIndex snapshots (index + demo clock)     [done]
       Fund.daml                   # UsycFund: Subscribe; RequestRedeem + UsycRedeemRequest  [done]
       Access.daml                 # ClientAccess pass (on-ledger client whitelist)          [done]
-      Tokens.daml                 # MarketTerms, PT, YT, MaturitySnapshot, Redeem/Claim     [to do]
-      Market.daml                 # Market (Split, Mature, RequestMerge), MergeRequest      [to do]
+      Tokens.daml                 # MarketTerms, PT, YT [done]; MaturitySnapshot, Redeem/Claim [to do]
+      Market.daml                 # Market + Split [done]; Mature, RequestMerge, MergeRequest [to do]
       Rfq.daml                    # RfqRequest, Quote (private DvP, pays with payFrom)       [to do]
   test/                           # package exodus-contract-test
     daml.yaml
@@ -204,6 +204,7 @@ exodus-contract/
       FundTest.daml               # subscribe, stale index, fake oracle/USDC, passes, privacy [done]
       RedeemTest.daml             # redeem request/settle/cancel, failures, passes, privacy  [done]
       AccessTest.daml             # pass create/revoke rights, who sees which pass          [done]
+      MarketTest.daml             # split, PT/YT transfers + merges, passes, time rules, privacy [done]
       DemoTest.daml               # the worked example in section 9                         [to do]
 ```
 
@@ -216,12 +217,12 @@ exodus-contract/
 | `UsycFund` | usycIssuer | (none) | Nonconsuming `Subscribe`: the subscriber passes its `ClientAccess` pass, pays USDC (via `payFrom`) to UsycIssuer and gets `roundDown6 (usdc / index)` USYC in the same transaction. Checks the pass comes from its trusted `operator`, the `RateIndex` from its trusted `oracle` and the USDC from its `usdcIssuer`. Clients get the fund and the price through explicit disclosure; UsycIssuer must be a `RateIndex` reader, because the price is fetched on its authority. Nonconsuming `RequestRedeem`: checks the pass, burns the USYC (via `payFrom` to UsycIssuer, then archive) and creates a `UsycRedeemRequest`. |
 | `UsycRedeemRequest` | usycIssuer, owner | (none) | An open USYC redeem: the USYC is burned, the fund owes USDC. `Settle` (usycIssuer): checks the `RateIndex` like `Subscribe` and pays `roundDown6 (usycAmount * index)` USDC from the fund's holdings via `payFrom`. `Cancel` (owner): the fund mints the same USYC again. Nobody else sees it. |
 | `RateFeed` | oracle | (none) | The oracle's private working state: latest index + demo clock + `validFor`. Choice: `Publish` (index and time can only go up; same values allowed as a heartbeat). Each `Publish` creates a new `RateIndex` snapshot. |
-| `ClientAccess` | operator | client, issuers | One pass per approved client: the on-ledger whitelist entry. `Subscribe` checks the subscriber's pass; transfers check both the sender's and the receiver's (later also `Split`/RFQ). The issuers observe every pass because their factories fetch the receiver's pass. Choice: `Revoke` (operator). Replaces the old `users`/`readers` lists (see 8.A and section 11). |
+| `ClientAccess` | operator | client, issuers | One pass per approved client: the on-ledger whitelist entry. `Subscribe` and `Split` check the client's pass; transfers (USYC/USDC through the factory, PT and YT) check both the sender's and the receiver's (later also the RFQ). The issuers observe every pass because their factories fetch the receiver's pass. Choice: `Revoke` (operator). Replaces the old `users`/`readers` lists (see 8.A and section 11). |
 | `RateIndex` | oracle | operator, readers (= UsycIssuer in the demo) | Read-only price snapshot with `publishedAt` and `validUntil` (ledger time, `validFor` = 30 s in the demo). Not archived when a newer one is published. Choice: `Expire` (oracle, after `validUntil`). Readers use `fetchValidRate`, which rejects expired snapshots. |
-| `Market` | operator | members | Choices: `Split`, `Mature`, `RequestMerge`. All nonconsuming. |
+| `Market` | operator | (none) | Fields: `terms`, `matured`. Nonconsuming `Split`: the splitter passes its `ClientAccess` pass and a valid `RateIndex` (read with `fetchValidRate`, from the market's oracle), pays USYC into the Operator's vault (via `payFrom`) and gets `roundDown6 (usycAmount * index)` PT and YT. Refused once `matured` or when `simTime >= maturity`. Clients get the market through explicit disclosure (decision D1 in [`markets-plan.md`](markets-plan.md)). To do: `Mature` (consuming, gaps 1 and 2), `RequestMerge`. |
 | `MaturitySnapshot` | operator | members | Frozen index at maturity. |
-| `PrincipalToken` | operator | owner, lockedFor | Choices: `PT_Transfer`, `PT_SplitOff`, `PT_Lock`, `PT_Unlock`, `PT_DeliverLocked`, `PT_RequestRedeem`. |
-| `YieldToken` | operator | owner | Choices: `YT_Transfer`, `YT_SplitOff`, `YT_RequestClaim`. |
+| `PrincipalToken` | operator | owner (later also `lockedFor`) | Done: `PT_Transfer` (needs the sender's and the receiver's `ClientAccess` pass), `PT_SplitOff`, `PT_MergeWith` (same market only). To do: `PT_Lock`, `PT_Unlock`, `PT_DeliverLocked` (Phase 3, with the RFQ), `PT_RequestRedeem` (Phase 2). |
+| `YieldToken` | operator | owner | Keeps `lastIndex` (yield is paid up to it). Done: `YT_Transfer` (both passes, like PT), `YT_SplitOff`, `YT_MergeWith` (same market AND same `lastIndex`, otherwise unclaimed yield would be lost or doubled). To do: `YT_RequestClaim` (Phase 2). |
 | `RedeemRequest` | operator, owner | | `Redeem_Settle` (operator), `Redeem_Cancel` (owner). |
 | `ClaimRequest` | operator, owner | | `Claim_Settle` (operator), `Claim_Cancel` (owner). |
 | `MergeRequest` | operator, owner | | `Merge_Settle` (operator), `Merge_Cancel` (owner). |
@@ -256,8 +257,8 @@ sequenceDiagram
 
 ### Shared data types
 
-- `MarketTerms`: marketId, assetIssuer, instrument, oracle, maturity. Copied into every PT and YT.
-- `IndexSource`: `CurrentRate` (live oracle, before maturity) or `AtMaturity` (frozen snapshot, after maturity).
+- `MarketTerms` (done, in `Tokens.daml`): marketId, assetIssuer, instrument, oracle, maturity. Copied into every PT and YT.
+- `IndexSource` (Phase 2, with `MaturitySnapshot`): `CurrentRate` (live oracle, before maturity) or `AtMaturity` (frozen snapshot, after maturity).
 
 ## 8. User flows
 
@@ -313,7 +314,14 @@ sequenceDiagram
   Market-->>Bank: 1000 PT + 1000 YT (index 1.00)
 ```
 
-Rules: user must be a member, the holding must be USYC from the market's issuer, and the market must not be matured.
+Rules (all checked in `Market.Split`, tested in `MarketTest`):
+
+- The splitter must pass its own `ClientAccess` pass. The `Market` and the price snapshot are disclosed to the command (read as the Operator); clients cannot see them.
+- The price is a `RateIndex` that has not expired (`fetchValidRate`), from the market's oracle, for the market's asset.
+- The holdings must be USYC from the market's issuer, owned by the splitter (`payFrom`). The amount has at most 6 decimals.
+- The market must not be matured, and the demo clock must be before maturity (`simTime < maturity`), even if nobody has called `Mature` yet.
+- PT = YT = `roundDown6 (usycAmount * index)`. Example: 333.333333 USYC at 1.025 gives 341.666666 PT and YT.
+- The YT starts with `lastIndex` = the split index.
 
 ### 8.2 Private PT sale (RFQ + DvP)
 
@@ -499,7 +507,7 @@ HackCanton Season 3 is a 5-week online hackathon. Two official posts give differ
 | Week | Goal | Status |
 |---|---|---|
 | 1 | Daml core: Holding (USYC/USDC) with CIP-56 `Holding` + `TransferFactory` | Done (tests pass) |
-| 1-2 | Daml core: Oracle (done), Split, PT/YT, Claim, Redeem, Merge, RFQ, demo test | To do |
+| 1-2 | Daml core: Oracle (done), Split + PT/YT (done, 2026-09-25), Claim, Redeem, Merge, RFQ, demo test. Tracked in [`markets-plan.md`](markets-plan.md) | In progress |
 | 2 | Walking skeleton in `exodus-app/`: sandbox, bootstrap, oracle bot, web UI (CIP-56 wallet, send, privacy table) | Done |
 | 2 | Fix known gap 12 (stale `rateCid`): `RateFeed` + short-lived `RateIndex` snapshots | Done |
 | 3 | `ClientAccess` passes + explicit disclosure (fixes gap 9, most of gap 11, and the client-list leak) | Done |

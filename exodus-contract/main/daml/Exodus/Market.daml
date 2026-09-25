@@ -1,0 +1,133 @@
+-- | A market: one yield asset (USYC) plus one maturity date, for example
+-- PT-USYC-APR2027. Its main job is 'Split': USYC in, PT + YT out.
+--
+-- Example on Oct 1 2026 at index 1.00:
+--   Bank splits 1000 USYC.
+--   -> 1000 USYC goes from Bank to the Operator's vault
+--   -> Bank gets 1000 PT + 1000 YT (lastIndex 1.00)
+-- All in ONE transaction. If any check fails, nothing moves.
+--
+-- WHO SEES THE MARKET: nobody but the Operator (decision D1 in
+-- docs/markets-plan.md). Clients use it through EXPLICIT DISCLOSURE: the app
+-- reads the Market as the Operator and attaches it to Alice's command, exactly
+-- like the UsycFund. Access is checked with Alice's 'ClientAccess' pass inside
+-- the choice. So approving a new client never re-creates the market, and no
+-- client can see who else uses it. (The old spec had a 'members' observer
+-- list instead; see spec section 11.)
+--
+-- Not here yet (see docs/markets-plan.md, Phase 2): 'Mature' (it will set
+-- 'matured' and fix spec gaps 1 and 2) and 'RequestMerge'.
+module Exodus.Market where
+
+import Exodus.Access
+import Exodus.Holding
+import Exodus.Oracle
+import Exodus.Tokens
+
+
+-- | What 'Split' gives back.
+--
+-- Example: Alice splits 600 USYC from a 1000 USYC holding at index 1.00.
+--   ptCid         -> PrincipalToken(owner = Alice, amount = 600)
+--   ytCid         -> YieldToken(owner = Alice, amount = 600, lastIndex = 1.00)
+--   usycChangeCid -> Some Holding(owner = Alice, instrument = "USYC", amount = 400)
+data MarketSplitResult = MarketSplitResult
+  with
+    ptCid         : ContractId PrincipalToken
+    ytCid         : ContractId YieldToken
+    usycChangeCid : Optional (ContractId Holding)
+  deriving (Eq, Show)
+
+
+template Market
+  with
+    operator : Party        -- runs the market, owns the vault, signs every PT and YT
+    terms    : MarketTerms  -- asset, oracle and maturity; copied into every PT and YT
+    matured  : Bool         -- False until maturity; Phase 2's 'Mature' will set it to True
+  where
+    ensure terms.marketId /= "" && terms.instrument /= ""
+
+    signatory operator
+
+    -- No observers on purpose (decision D1): clients get the market through
+    -- explicit disclosure, like the UsycFund.
+
+    -- ---------------------------------------------------------------------
+    -- Split: put USYC into the vault, get PT + YT for the same USD value.
+    --
+    --   PT = YT = roundDown6 (usycAmount * index)
+    --
+    -- Examples:
+    --   1000 USYC at index 1.00        -> 1000 PT + 1000 YT
+    --   1000 USYC at index 1.025       -> 1025 PT + 1025 YT
+    --   333.333333 USYC at index 1.025 -> 341.666666 PT + YT
+    --                                     (341.666666325 rounded DOWN)
+    -- Rounding down means the market never issues more PT/YT than the USYC in
+    -- the vault is worth, so the vault can never go negative.
+    --
+    -- NONCONSUMING: the Market is not archived, so Alice and Bank can split at
+    -- the same moment without fighting over this contract (UTXO contention).
+    -- ---------------------------------------------------------------------
+    nonconsuming choice Split : MarketSplitResult
+      with
+        splitter   : Party                   -- who pays the USYC and gets PT + YT, for example Bank
+        accessCid  : ContractId ClientAccess  -- the splitter's own access pass
+        rateCid    : ContractId RateIndex     -- a USYC price snapshot that has not expired
+        usycCids   : [ContractId Holding]     -- the USYC holdings to pay from
+        usycAmount : Decimal                  -- how much USYC to split, for example 1000.0
+      controller splitter
+      do
+        -- 1. Only approved clients may split (the on-ledger whitelist).
+        checkAccess operator splitter accessCid
+
+        -- 2. The amount. Holdings never have more than 6 decimals, so an
+        --    amount like 0.0000001 USYC cannot be paid anyway.
+        assertMsg "usycAmount must be greater than 0" (usycAmount > 0.0)
+        assertMsg "usycAmount can have at most 6 decimals" (roundDown6 usycAmount == usycAmount)
+
+        -- 3. The price. 'fetchValidRate' fails if the snapshot has expired
+        --    (never use a bare 'fetch' for prices, spec gap 12). The Operator
+        --    observes every RateIndex, and it signs this Market, so the fetch
+        --    is allowed even though Alice cannot see the snapshot herself.
+        rate <- fetchValidRate rateCid
+
+        -- Without these checks Alice could create her OWN RateIndex with index
+        -- 100.0 and get 100,000 PT for 1000 USYC, backed by nothing.
+        assertMsg "RateIndex is not from this market's oracle" (rate.oracle == terms.oracle)
+        assertMsg "RateIndex is not for this market's asset" (rate.instrument == terms.instrument)
+
+        -- 4. No new PT/YT at or after maturity. We check BOTH:
+        --    - 'matured': set once the Operator has called Mature (Phase 2);
+        --    - the oracle's demo clock: on Apr 1 the market is over even if
+        --      nobody has called Mature yet. Without this, Bank could split at
+        --      the maturity index and redeem at once.
+        assertMsg "market has matured" (not matured)
+        assertMsg "market has reached its maturity date" (rate.simTime < terms.maturity)
+
+        -- 5. The USYC goes into the Operator's vault. 'payFrom' checks that
+        --    each input is real USYC from the market's issuer and owned by
+        --    the splitter, then merges, splits and transfers the exact amount.
+        payment <- payFrom splitter terms.assetIssuer terms.instrument usycAmount operator usycCids
+
+        -- 6. The USD notional of the USYC, rounded down.
+        let notional = roundDown6 (usycAmount * rate.index)
+        assertMsg "usycAmount is too small: it is worth less than 0.000001 USD" (notional > 0.0)
+
+        -- 7. Mint PT and YT. The Operator's authority is available because it
+        --    signed this Market. The YT starts earning yield from today's index.
+        ptCid <- create PrincipalToken with
+          operator
+          owner = splitter
+          terms
+          amount = notional
+        ytCid <- create YieldToken with
+          operator
+          owner = splitter
+          terms
+          amount = notional
+          lastIndex = rate.index
+
+        pure MarketSplitResult with
+          ptCid
+          ytCid
+          usycChangeCid = payment.changeCid

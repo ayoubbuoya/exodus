@@ -1,0 +1,221 @@
+-- | The two tokens a market makes out of USYC: PT (Principal Token) and YT (Yield Token).
+--
+-- When Bank splits 1000 USYC at index 1.00 in the market PT-USYC-APR2027, it gets:
+--
+--   PrincipalToken(owner = Bank, amount = 1000)                    -- pays 1000 USD of USYC on Apr 1 2027
+--   YieldToken    (owner = Bank, amount = 1000, lastIndex = 1.00)  -- gets all the yield until Apr 1 2027
+--
+-- The AMOUNT of both is a USD notional, not a USYC count: splitting 1000 USYC
+-- at index 1.025 gives 1025 PT and 1025 YT (see 'Split' in Exodus.Market).
+--
+-- WHO SIGNS: the Operator, like the issuer signs a USYC Holding. Only the
+-- Operator can mint PT and YT, and it only does so inside 'Split', where the
+-- USYC goes into its vault at the same time. So every PT and YT on the ledger
+-- is backed by USYC in the vault.
+--
+-- PT and YT use the same UTXO style as 'Holding': you never edit a token in
+-- place, you archive it and create new ones (SplitOff, MergeWith, Transfer).
+--
+-- Not here yet (see docs/markets-plan.md):
+--   - claim, redeem and merge requests: Phase 2
+--   - locking a PT for a quote (PT_Lock / PT_Unlock): Phase 3, with the RFQ
+--   - the CIP-56 'Holding' interface for PT and YT (spec gap 7): Phase 8
+module Exodus.Tokens where
+
+import Exodus.Access
+
+
+-- | What a market is about. Copied into every PT and YT.
+--
+-- Why copy it? Daml 3.x has no contract keys, so a token cannot look up "its"
+-- Market contract. With the terms inside the token, the token itself knows its
+-- maturity date and which asset pays it out, and two tokens can be compared:
+-- a PT of APR2027 must never be merged into a PT of JUL2027.
+data MarketTerms = MarketTerms
+  with
+    marketId    : Text   -- for example "PT-USYC-APR2027"
+    assetIssuer : Party  -- the only issuer whose USYC the market accepts (UsycIssuer)
+    instrument  : Text   -- the yield asset, for example "USYC"
+    oracle      : Party  -- the only oracle whose index counts
+    maturity    : Time   -- the end date, on the oracle's DEMO clock (simTime), for example Apr 1 2027
+  deriving (Eq, Show)
+
+
+-- | What 'PT_SplitOff' gives back.
+-- Example: splitting 300 off a 1000 PT gives splitCid = 300 PT, restCid = 700 PT.
+data PtSplitResult = PtSplitResult
+  with
+    splitCid : ContractId PrincipalToken
+    restCid  : ContractId PrincipalToken
+  deriving (Eq, Show)
+
+
+-- | What 'YT_SplitOff' gives back.
+-- Example: splitting 300 off a 1000 YT gives splitCid = 300 YT, restCid = 700 YT.
+data YtSplitResult = YtSplitResult
+  with
+    splitCid : ContractId YieldToken
+    restCid  : ContractId YieldToken
+  deriving (Eq, Show)
+
+
+-- | Principal Token: at maturity, 1 PT pays 1 USD worth of the asset.
+--
+-- Before maturity it sells below 1.00, and the discount is the buyer's fixed
+-- return. Example: Alice buys 500 PT at 0.975 for 487.5 USDC and gets 500 USD
+-- of USYC on Apr 1 2027 (+2.56% in 6 months, about 5.19% a year).
+template PrincipalToken
+  with
+    operator : Party        -- runs the market and the vault; signs the token
+    owner    : Party        -- who holds it, for example Bank
+    terms    : MarketTerms  -- which market it belongs to
+    amount   : Decimal      -- USD notional, for example 1000.0
+  where
+    ensure amount > 0.0
+
+    -- The Operator vouches that the token is backed by USYC in its vault.
+    signatory operator
+
+    -- Only the owner (and the Operator) sees it. Alice cannot see Bank's PT.
+    observer owner
+
+    -- ---------------------------------------------------------------------
+    -- PT_Transfer: give this whole PT to another approved client.
+    --
+    -- Example: Bank sends 300 PT to Alice.
+    --   Before: PrincipalToken(owner = Bank,  amount = 300)
+    --   After:  PrincipalToken(owner = Alice, amount = 300)
+    --
+    -- BOTH parties need an access pass (decision P1, Phase 1 plan). This is
+    -- the same rule as our USYC/USDC transfer factory, so PT can only move
+    -- between approved clients. We do not repeat spec gap 11 (the unchecked
+    -- 'Holding.Transfer'). Alice cannot see Bank's pass or the other way round:
+    -- the app discloses the receiver's pass to the sender's command. The fetch
+    -- works because the Operator signs this token AND every pass.
+    -- ---------------------------------------------------------------------
+    choice PT_Transfer : ContractId PrincipalToken
+      with
+        newOwner          : Party                   -- the receiver, for example Alice
+        senderAccessCid   : ContractId ClientAccess  -- the owner's own pass
+        receiverAccessCid : ContractId ClientAccess  -- the receiver's pass (disclosed to the owner)
+      controller owner
+      do
+        checkAccess operator owner senderAccessCid
+        checkAccess operator newOwner receiverAccessCid
+        create this with owner = newOwner
+
+    -- ---------------------------------------------------------------------
+    -- PT_SplitOff: cut this PT into two pieces with the same owner.
+    -- Example: Bank wants to sell exactly 500 of its 1000 PT.
+    --   PT_SplitOff 500  ->  splitCid = 500 PT, restCid = 500 PT
+    -- ---------------------------------------------------------------------
+    choice PT_SplitOff : PtSplitResult
+      with
+        splitAmount : Decimal
+      controller owner
+      do
+        assertMsg "splitAmount must be greater than 0" (splitAmount > 0.0)
+        assertMsg "splitAmount must be less than the token amount" (splitAmount < amount)
+        splitCid <- create this with amount = splitAmount
+        restCid  <- create this with amount = amount - splitAmount
+        pure PtSplitResult with splitCid; restCid
+
+    -- ---------------------------------------------------------------------
+    -- PT_MergeWith: join another PT of the SAME market into this one.
+    -- Example: Alice holds 300 PT and 200 PT of APR2027 -> one 500 PT.
+    -- ---------------------------------------------------------------------
+    choice PT_MergeWith : ContractId PrincipalToken
+      with
+        otherCid : ContractId PrincipalToken
+      controller owner
+      do
+        -- Merging with itself would double the amount.
+        assertMsg "cannot merge a token with itself" (otherCid /= self)
+        other <- fetch otherCid
+        assertMsg "operator must match" (other.operator == operator)
+        assertMsg "owner must match" (other.owner == owner)
+        -- A PT of another market has another maturity (or another asset), so
+        -- it is a different product. Comparing the whole terms record checks all of it.
+        assertMsg "market must match" (other.terms == terms)
+        archive otherCid
+        create this with amount = amount + other.amount
+
+
+-- | Yield Token: gets all the yield of 'amount' USD of the asset until maturity.
+--
+-- 'lastIndex' is the index up to which the yield has already been paid. At
+-- split time it is the split index. Each claim (Phase 2) pays the yield from
+-- 'lastIndex' to the new index and moves 'lastIndex' forward.
+--
+-- Example: 1000 YT with lastIndex 1.00. On Jan 1 the index is 1.025, so the
+-- claim pays 1000 * (1/1.00 - 1/1.025) = 24.390243 USYC and the YT becomes
+-- 1000 YT with lastIndex 1.025.
+template YieldToken
+  with
+    operator  : Party        -- runs the market and the vault; signs the token
+    owner     : Party        -- who holds it, for example Bank
+    terms     : MarketTerms  -- which market it belongs to
+    amount    : Decimal      -- USD notional, for example 1000.0
+    lastIndex : Decimal      -- yield is paid up to this index, for example 1.00
+  where
+    -- lastIndex > 0 because the claim formula divides by it.
+    ensure amount > 0.0 && lastIndex > 0.0
+
+    signatory operator
+    observer owner
+
+    -- ---------------------------------------------------------------------
+    -- YT_Transfer: give this whole YT to another approved client.
+    -- Same rules as PT_Transfer: both the owner and the receiver need a pass.
+    -- The unclaimed yield goes with the token: the receiver can claim it.
+    -- ---------------------------------------------------------------------
+    choice YT_Transfer : ContractId YieldToken
+      with
+        newOwner          : Party                   -- the receiver, for example Alice
+        senderAccessCid   : ContractId ClientAccess  -- the owner's own pass
+        receiverAccessCid : ContractId ClientAccess  -- the receiver's pass (disclosed to the owner)
+      controller owner
+      do
+        checkAccess operator owner senderAccessCid
+        checkAccess operator newOwner receiverAccessCid
+        create this with owner = newOwner
+
+    -- ---------------------------------------------------------------------
+    -- YT_SplitOff: cut this YT into two pieces. Both keep the same lastIndex.
+    -- Example: 1000 YT at lastIndex 1.00 -> 300 YT + 700 YT, both at 1.00.
+    -- ---------------------------------------------------------------------
+    choice YT_SplitOff : YtSplitResult
+      with
+        splitAmount : Decimal
+      controller owner
+      do
+        assertMsg "splitAmount must be greater than 0" (splitAmount > 0.0)
+        assertMsg "splitAmount must be less than the token amount" (splitAmount < amount)
+        splitCid <- create this with amount = splitAmount
+        restCid  <- create this with amount = amount - splitAmount
+        pure YtSplitResult with splitCid; restCid
+
+    -- ---------------------------------------------------------------------
+    -- YT_MergeWith: join another YT of the same market AND the same lastIndex.
+    --
+    -- Why the same lastIndex? Two YTs with different lastIndex have earned
+    -- different yield. Example on Jan 1 (index 1.025):
+    --   100 YT at lastIndex 1.00  -> has 2.439024 USYC of unclaimed yield
+    --   100 YT at lastIndex 1.025 -> has 0 unclaimed yield
+    -- Merged into 200 YT, which lastIndex would be right? 1.00 pays yield
+    -- that was never earned; 1.025 throws the 2.439024 USYC away. So we refuse.
+    -- Claim both first (Phase 2): then both have the newest lastIndex and merge fine.
+    -- ---------------------------------------------------------------------
+    choice YT_MergeWith : ContractId YieldToken
+      with
+        otherCid : ContractId YieldToken
+      controller owner
+      do
+        assertMsg "cannot merge a token with itself" (otherCid /= self)
+        other <- fetch otherCid
+        assertMsg "operator must match" (other.operator == operator)
+        assertMsg "owner must match" (other.owner == owner)
+        assertMsg "market must match" (other.terms == terms)
+        assertMsg "lastIndex must match: claim the yield of both tokens first" (other.lastIndex == lastIndex)
+        archive otherCid
+        create this with amount = amount + other.amount

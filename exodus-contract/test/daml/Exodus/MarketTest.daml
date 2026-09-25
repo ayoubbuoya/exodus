@@ -1,0 +1,564 @@
+-- | Tests for Exodus.Market ('Split') and Exodus.Tokens (PT and YT).
+--
+-- Clients (Alice, Bank) cannot see the Market or the price snapshots. Like the
+-- real app will do, every split reads them as the Operator and attaches them
+-- to the client's command with explicit disclosure (see 'splitOn' below).
+--
+-- Run them with:
+--   cd exodus-contract && dpm build --all
+--   cd test && dpm test --files daml/Exodus/MarketTest.daml
+module Exodus.MarketTest where
+
+import DA.Assert ((===))  -- 'a === b' fails the test if a and b are not equal
+import DA.Date (Month(..), date)
+import DA.Foldable (forA_)  -- run the same checks for each party
+import DA.List (sort)
+import DA.Time (addRelTime, seconds, time)
+import Daml.Script
+import Exodus.Access
+import Exodus.FundTest (grantAccess, issue, ownedAmounts)
+import Exodus.Holding
+import Exodus.Market
+import Exodus.Oracle
+import Exodus.OracleTest (apr1, jan1, oct1, startFeed)
+import Exodus.Tokens
+
+
+-- | Everything the market tests need.
+data MarketSetup = MarketSetup
+  with
+    usycIssuer  : Party
+    usdcIssuer  : Party
+    oracle      : Party
+    operator    : Party
+    alice       : Party
+    bank        : Party
+    terms       : MarketTerms              -- PT-USYC-APR2027
+    marketCid   : ContractId Market
+    feedCid     : ContractId RateFeed      -- the oracle's feed, to publish newer snapshots
+    rateCid     : ContractId RateIndex     -- index 1.00 on Oct 1 2026, valid for 30 seconds
+    aliceAccess : ContractId ClientAccess  -- Alice's pass
+    bankAccess  : ContractId ClientAccess  -- Bank's pass
+
+
+-- | Parties, a price snapshot at 1.00 (Oct 1 2026), the market
+-- PT-USYC-APR2027, and passes for Alice and Bank. This is step 0 of the
+-- worked example in spec section 9.
+--
+-- The snapshot readers are [UsycIssuer], like in bootstrap. The Operator is
+-- not in that list, but it always observes the snapshots (the 'operator'
+-- field), and 'Split' reads the price on the Operator's authority.
+setupMarket : Script MarketSetup
+setupMarket = do
+  usycIssuer <- allocateParty "UsycIssuer"
+  usdcIssuer <- allocateParty "UsdcIssuer"
+  oracle     <- allocateParty "Oracle"
+  operator   <- allocateParty "Operator"
+  alice      <- allocateParty "Alice"
+  bank       <- allocateParty "Bank"
+
+  (feedCid, rateCid) <- startFeed oracle operator [usycIssuer]
+
+  let terms = MarketTerms with
+        marketId = "PT-USYC-APR2027"
+        assetIssuer = usycIssuer
+        instrument = "USYC"
+        oracle = oracle
+        maturity = apr1
+  marketCid <- submit operator do
+    createCmd Market with
+      operator = operator
+      terms = terms
+      matured = False
+
+  aliceAccess <- grantAccess operator [usycIssuer, usdcIssuer] alice
+  bankAccess <- grantAccess operator [usycIssuer, usdcIssuer] bank
+
+  pure MarketSetup with ..
+
+
+-- | The oracle publishes a new price. Returns (the new feed, the new snapshot).
+-- The feed id changes on every publish, so tests pass the newest one in.
+publish : MarketSetup -> ContractId RateFeed -> Decimal -> Time -> Script (ContractId RateFeed, ContractId RateIndex)
+publish s feedCid newIndex newSimTime = submit s.oracle do
+  exerciseCmd feedCid Publish with newIndex; newSimTime
+
+
+-- | What the app attaches to a client's Split: the market and the price
+-- snapshot, both read as the Operator (it signs one and observes the other).
+marketDisclosures : MarketSetup -> ContractId Market -> ContractId RateIndex -> Script [Disclosure]
+marketDisclosures s marketCid rateCid = do
+  Some market <- queryDisclosure s.operator marketCid
+  Some rate <- queryDisclosure s.operator rateCid
+  pure [market, rate]
+
+
+-- | The Split command, as the app would build it.
+splitCmd : Party -> ContractId ClientAccess -> ContractId RateIndex -> [ContractId Holding] -> Decimal -> ContractId Market -> Commands MarketSplitResult
+splitCmd splitter accessCid rateCid usycCids usycAmount marketCid =
+  exerciseCmd marketCid Split with
+    splitter
+    accessCid
+    rateCid
+    usycCids
+    usycAmount
+
+
+-- | 'splitter' splits on 'marketCid', with the market and the price disclosed to it.
+splitOn : MarketSetup -> ContractId Market -> Party -> ContractId ClientAccess -> ContractId RateIndex -> [ContractId Holding] -> Decimal -> Script MarketSplitResult
+splitOn s marketCid splitter accessCid rateCid usycCids usycAmount = do
+  disclosures <- marketDisclosures s marketCid rateCid
+  submit (actAs splitter <> discloseMany disclosures) do
+    splitCmd splitter accessCid rateCid usycCids usycAmount marketCid
+
+
+-- | Same as 'splitOn', but the command must be rejected.
+splitMustFailOn : MarketSetup -> ContractId Market -> Party -> ContractId ClientAccess -> ContractId RateIndex -> [ContractId Holding] -> Decimal -> Script ()
+splitMustFailOn s marketCid splitter accessCid rateCid usycCids usycAmount = do
+  disclosures <- marketDisclosures s marketCid rateCid
+  submitMustFail (actAs splitter <> discloseMany disclosures) do
+    splitCmd splitter accessCid rateCid usycCids usycAmount marketCid
+
+
+-- | Split on the setup's market (PT-USYC-APR2027).
+split : MarketSetup -> Party -> ContractId ClientAccess -> ContractId RateIndex -> [ContractId Holding] -> Decimal -> Script MarketSplitResult
+split s = splitOn s s.marketCid
+
+
+-- | Same as 'split', but the command must be rejected.
+splitMustFail : MarketSetup -> Party -> ContractId ClientAccess -> ContractId RateIndex -> [ContractId Holding] -> Decimal -> Script ()
+splitMustFail s = splitMustFailOn s s.marketCid
+
+
+-- | 'sender' sends a whole PT to 'receiver'. The sender cannot see the
+-- receiver's pass, so the app reads it as the Operator and discloses it.
+ptTransfer : MarketSetup -> Party -> ContractId ClientAccess -> Party -> ContractId ClientAccess -> ContractId PrincipalToken -> Script (ContractId PrincipalToken)
+ptTransfer s sender senderAccessCid receiver receiverAccessCid ptCid = do
+  Some receiverPass <- queryDisclosure s.operator receiverAccessCid
+  submit (actAs sender <> discloseMany [receiverPass]) do
+    exerciseCmd ptCid PT_Transfer with
+      newOwner = receiver
+      senderAccessCid
+      receiverAccessCid
+
+
+-- | Same as 'ptTransfer', for a YT.
+ytTransfer : MarketSetup -> Party -> ContractId ClientAccess -> Party -> ContractId ClientAccess -> ContractId YieldToken -> Script (ContractId YieldToken)
+ytTransfer s sender senderAccessCid receiver receiverAccessCid ytCid = do
+  Some receiverPass <- queryDisclosure s.operator receiverAccessCid
+  submit (actAs sender <> discloseMany [receiverPass]) do
+    exerciseCmd ytCid YT_Transfer with
+      newOwner = receiver
+      senderAccessCid
+      receiverAccessCid
+
+
+-- | Amounts of all PTs that 'party' can see, smallest first.
+ptAmounts : Party -> Script [Decimal]
+ptAmounts party = do
+  pts <- query @PrincipalToken party
+  pure (sort [pt.amount | (_, pt) <- pts])
+
+
+-- | Amounts of all YTs that 'party' can see, smallest first.
+ytAmounts : Party -> Script [Decimal]
+ytAmounts party = do
+  yts <- query @YieldToken party
+  pure (sort [yt.amount | (_, yt) <- yts])
+
+
+-- | Step 1 of spec section 9: on Oct 1 2026 at index 1.00, Bank splits
+-- 1000 USYC and gets 1000 PT + 1000 YT. The vault holds 1000 USYC.
+-- Then Alice splits 600 of her 1000 USYC and keeps 400 as change.
+marketSplit : Script ()
+marketSplit = script do
+  s <- setupMarket
+  bankUsyc <- issue s.usycIssuer s.bank "USYC" 1000.0
+
+  result <- split s s.bank s.bankAccess s.rateCid [bankUsyc] 1000.0
+
+  -- 1000 USYC * 1.00 = 1000 PT, for this market, signed by the Operator.
+  Some pt <- queryContractId s.bank result.ptCid
+  pt.operator === s.operator
+  pt.owner    === s.bank
+  pt.terms    === s.terms
+  pt.amount   === 1000.0
+
+  -- The same notional of YT, earning yield from today's index 1.00.
+  Some yt <- queryContractId s.bank result.ytCid
+  yt.operator  === s.operator
+  yt.owner     === s.bank
+  yt.terms     === s.terms
+  yt.amount    === 1000.0
+  yt.lastIndex === 1.0
+
+  -- All of Bank's USYC went into the Operator's vault. No change.
+  result.usycChangeCid === None
+  bankUsycLeft <- ownedAmounts s.bank "USYC"
+  bankUsycLeft === []
+  vault <- ownedAmounts s.operator "USYC"
+  vault === [1000.0]
+
+  -- The Market is still there (nonconsuming), so Alice can split too.
+  Some _ <- queryContractId s.operator s.marketCid
+
+  -- Alice splits 600 of her 1000 USYC: 600 PT + 600 YT, and 400 USYC change.
+  aliceUsyc <- issue s.usycIssuer s.alice "USYC" 1000.0
+  aliceResult <- split s s.alice s.aliceAccess s.rateCid [aliceUsyc] 600.0
+  Some alicePt <- queryContractId s.alice aliceResult.ptCid
+  alicePt.amount === 600.0
+  Some aliceYt <- queryContractId s.alice aliceResult.ytCid
+  aliceYt.amount === 600.0
+  Some changeCid <- pure aliceResult.usycChangeCid
+  Some change <- queryContractId s.alice changeCid
+  change.amount === 400.0
+
+  vaultNow <- ownedAmounts s.operator "USYC"
+  sort vaultNow === [600.0, 1000.0]
+  pure ()
+
+
+-- | PT and YT are a USD notional: USYC * index, rounded DOWN to 6 decimals.
+marketSplitAtIndex : Script ()
+marketSplitAtIndex = script do
+  s <- setupMarket
+  -- Jan 1 2027: the fund has earned 2.5%.
+  (_, rateJan) <- publish s s.feedCid 1.025 jan1
+
+  -- 1000 USYC * 1.025 = 1025 PT + 1025 YT, earning yield from 1.025.
+  bankUsyc <- issue s.usycIssuer s.bank "USYC" 1000.0
+  result <- split s s.bank s.bankAccess rateJan [bankUsyc] 1000.0
+  Some pt <- queryContractId s.bank result.ptCid
+  pt.amount === 1025.0
+  Some yt <- queryContractId s.bank result.ytCid
+  yt.amount    === 1025.0
+  yt.lastIndex === 1.025
+
+  -- 333.333333 * 1.025 = 341.666666325, rounded DOWN (not up to ...667).
+  aliceUsyc <- issue s.usycIssuer s.alice "USYC" 333.333333
+  aliceResult <- split s s.alice s.aliceAccess rateJan [aliceUsyc] 333.333333
+  Some alicePt <- queryContractId s.alice aliceResult.ptCid
+  alicePt.amount === 341.666666
+  Some aliceYt <- queryContractId s.alice aliceResult.ytCid
+  aliceYt.amount === 341.666666
+  pure ()
+
+
+-- | Things that must NOT work. After each one, nothing has moved.
+marketSplitFailures : Script ()
+marketSplitFailures = script do
+  s <- setupMarket
+  usyc <- issue s.usycIssuer s.alice "USYC" 400.0
+
+  let aliceMustFail = splitMustFail s s.alice s.aliceAccess
+
+  -- Not enough USYC: she has 400 and wants to split 500.
+  aliceMustFail s.rateCid [usyc] 500.0
+
+  -- Zero, and an amount with 7 decimals (holdings have at most 6).
+  aliceMustFail s.rateCid [usyc] 0.0
+  aliceMustFail s.rateCid [usyc] 100.0000001
+
+  -- No input holdings at all.
+  aliceMustFail s.rateCid [] 100.0
+
+  -- A FAKE RateIndex: Alice publishes her own index of 100.0 to get
+  -- 10,000 PT for 100 USYC. The market only trusts its own oracle.
+  -- (operator = the real Operator, so the Operator can read and disclose it.)
+  now <- getTime
+  fakeRateCid <- submit s.alice do
+    createCmd RateIndex with
+      oracle = s.alice
+      operator = s.operator
+      readers = []
+      instrument = "USYC"
+      index = 100.0
+      simTime = oct1
+      publishedAt = now
+      validUntil = addRelTime now (seconds 30)
+  aliceMustFail fakeRateCid [usyc] 100.0
+
+  -- A RateIndex from the right oracle, but for another asset.
+  otherRateCid <- submit s.oracle do
+    createCmd RateIndex with
+      oracle = s.oracle
+      operator = s.operator
+      readers = []
+      instrument = "OTHER"
+      index = 1.0
+      simTime = oct1
+      publishedAt = now
+      validUntil = addRelTime now (seconds 30)
+  aliceMustFail otherRateCid [usyc] 100.0
+
+  -- Splitting USDC instead of USYC.
+  aliceUsdc <- issue s.usdcIssuer s.alice "USDC" 1000.0
+  aliceMustFail s.rateCid [aliceUsdc] 100.0
+
+  -- Home-made "USYC" from an unknown issuer.
+  fakeIssuer <- allocateParty "FakeIssuer"
+  fakeUsyc <- issue fakeIssuer s.alice "USYC" 1000.0
+  aliceMustFail s.rateCid [fakeUsyc] 100.0
+
+  -- Someone else's USYC (Bank's).
+  bankUsyc <- issue s.usycIssuer s.bank "USYC" 1000.0
+  aliceMustFail s.rateCid [bankUsyc] 100.0
+
+  -- Alice cannot split in Bank's name, even with Bank's pass.
+  disclosures <- marketDisclosures s s.marketCid s.rateCid
+  submitMustFail (actAs s.alice <> discloseMany disclosures) do
+    splitCmd s.bank s.bankAccess s.rateCid [bankUsyc] 100.0 s.marketCid
+
+  -- Nothing moved: Alice's 400 USYC is untouched, nobody got PT/YT, and the
+  -- vault is empty.
+  Some aliceUsyc <- queryContractId s.alice usyc
+  aliceUsyc.amount === 400.0
+  operatorPts <- ptAmounts s.operator
+  operatorPts === []
+  operatorYts <- ytAmounts s.operator
+  operatorYts === []
+  vault <- ownedAmounts s.operator "USYC"
+  vault === []
+  pure ()
+
+
+-- | The access pass is the whitelist: without a valid pass of her own, a
+-- party cannot split.
+marketSplitNeedsAccessPass : Script ()
+marketSplitNeedsAccessPass = script do
+  s <- setupMarket
+  carol <- allocateParty "Carol"
+  carolUsyc <- issue s.usycIssuer carol "USYC" 1000.0
+
+  -- Carol tries Alice's pass: refused ("access pass belongs to another
+  -- client"). Carol cannot even see Alice's pass; the test hands it to her
+  -- command to prove the contract checks it.
+  Some alicePass <- queryDisclosure s.alice s.aliceAccess
+  marketAndRate <- marketDisclosures s s.marketCid s.rateCid
+  submitMustFail (actAs carol <> discloseMany (alicePass :: marketAndRate)) do
+    splitCmd carol s.aliceAccess s.rateCid [carolUsyc] 100.0 s.marketCid
+
+  -- Carol makes her own "pass" (operator = Carol): refused.
+  carolFakePass <- submit carol do
+    createCmd ClientAccess with operator = carol; client = carol; issuers = []
+  splitMustFail s carol carolFakePass s.rateCid [carolUsyc] 100.0
+
+  -- The admin approves Carol: now it works. 100 USYC * 1.00 = 100 PT.
+  carolAccess <- grantAccess s.operator [s.usycIssuer, s.usdcIssuer] carol
+  result <- split s carol carolAccess s.rateCid [carolUsyc] 100.0
+  Some pt <- queryContractId carol result.ptCid
+  pt.amount === 100.0
+
+  -- The admin revokes Carol: her next split is refused. Her PT, YT and
+  -- remaining USYC stay hers.
+  submit s.operator do exerciseCmd carolAccess Revoke
+  Some carolChange <- pure result.usycChangeCid
+  splitMustFail s carol carolAccess s.rateCid [carolChange] 100.0
+  carolUsycLeft <- ownedAmounts carol "USYC"
+  carolUsycLeft === [900.0]
+  carolPts <- ptAmounts carol
+  carolPts === [100.0]
+  pure ()
+
+
+-- | Time rules: the price snapshot must not have expired, and no split is
+-- allowed on a matured market or once the demo clock reaches maturity.
+marketSplitTimeRules : Script ()
+marketSplitTimeRules = script do
+  s <- setupMarket
+  usyc <- issue s.usycIssuer s.alice "USYC" 1000.0
+
+  -- 31 seconds later the first snapshot has expired (spec gap 12 window).
+  passTime (seconds 31)
+  splitMustFail s s.alice s.aliceAccess s.rateCid [usyc] 100.0
+
+  -- An oracle heartbeat (same price) gives a fresh snapshot, and it works.
+  (feed2, rateFresh) <- publish s s.feedCid 1.0 oct1
+  result1 <- split s s.alice s.aliceAccess rateFresh [usyc] 100.0
+  Some usyc900 <- pure result1.usycChangeCid
+
+  -- A market that is already matured refuses splits, even with a valid price.
+  -- (Phase 2's 'Mature' will create it; here the Operator creates it directly.)
+  maturedCid <- submit s.operator do
+    createCmd Market with
+      operator = s.operator
+      terms = s.terms
+      matured = True
+  splitMustFailOn s maturedCid s.alice s.aliceAccess rateFresh [usyc900] 100.0
+
+  -- The day before maturity still works: 100 USYC * 1.049 = 104.9 PT.
+  (feed3, rateMar31) <- publish s feed2 1.049 (time (date 2027 Mar 31) 0 0 0)
+  result2 <- split s s.alice s.aliceAccess rateMar31 [usyc900] 100.0
+  Some pt <- queryContractId s.alice result2.ptCid
+  pt.amount === 104.9
+  Some usyc800 <- pure result2.usycChangeCid
+
+  -- On the maturity date the market is over, even though nobody has called
+  -- Mature: splitting at the final index would be free money.
+  (_, rateApr1) <- publish s feed3 1.05 apr1
+  splitMustFail s s.alice s.aliceAccess rateApr1 [usyc800] 100.0
+
+  aliceUsycLeft <- ownedAmounts s.alice "USYC"
+  aliceUsycLeft === [800.0]
+  pure ()
+
+
+-- | PT and YT move like holdings: split off, merge, and transfer between
+-- approved clients only.
+tokenTransfers : Script ()
+tokenTransfers = script do
+  s <- setupMarket
+  bankUsyc <- issue s.usycIssuer s.bank "USYC" 1000.0
+  result <- split s s.bank s.bankAccess s.rateCid [bankUsyc] 1000.0
+
+  -- Bank sends Alice 300 PT, then 200 more. Alice merges them into 500 PT.
+  PtSplitResult with splitCid = pt300; restCid = pt700 <- submit s.bank do
+    exerciseCmd result.ptCid PT_SplitOff with splitAmount = 300.0
+  alicePt300 <- ptTransfer s s.bank s.bankAccess s.alice s.aliceAccess pt300
+  Some received <- queryContractId s.alice alicePt300
+  received.owner  === s.alice
+  received.amount === 300.0
+  received.terms  === s.terms
+
+  PtSplitResult with splitCid = pt200; restCid = pt500 <- submit s.bank do
+    exerciseCmd pt700 PT_SplitOff with splitAmount = 200.0
+  alicePt200 <- ptTransfer s s.bank s.bankAccess s.alice s.aliceAccess pt200
+  alicePt500 <- submit s.alice do
+    exerciseCmd alicePt300 PT_MergeWith with otherCid = alicePt200
+  alicePts <- ptAmounts s.alice
+  alicePts === [500.0]
+
+  -- Bank sends Alice 400 YT. The unclaimed yield goes with it: lastIndex stays 1.00.
+  YtSplitResult with splitCid = yt400; restCid = yt600 <- submit s.bank do
+    exerciseCmd result.ytCid YT_SplitOff with splitAmount = 400.0
+  aliceYt <- ytTransfer s s.bank s.bankAccess s.alice s.aliceAccess yt400
+  Some aliceYtData <- queryContractId s.alice aliceYt
+  aliceYtData.amount    === 400.0
+  aliceYtData.lastIndex === 1.0
+
+  -- Carol was never approved. Bank cannot send her PT, not with her own
+  -- home-made pass (operator = Carol: the Operator never signed it and cannot
+  -- even see it, so Canton refuses the fetch before 'checkAccess' runs) ...
+  carol <- allocateParty "Carol"
+  carolFakePass <- submit carol do
+    createCmd ClientAccess with operator = carol; client = carol; issuers = []
+  Some carolPass <- queryDisclosure carol carolFakePass
+  submitMustFail (actAs s.bank <> discloseMany [carolPass]) do
+    exerciseCmd pt500 PT_Transfer with
+      newOwner = carol
+      senderAccessCid = s.bankAccess
+      receiverAccessCid = carolFakePass
+
+  -- ... and not with Alice's pass as the receiver's pass.
+  Some alicePass <- queryDisclosure s.operator s.aliceAccess
+  submitMustFail (actAs s.bank <> discloseMany [alicePass]) do
+    exerciseCmd pt500 PT_Transfer with
+      newOwner = carol
+      senderAccessCid = s.bankAccess
+      receiverAccessCid = s.aliceAccess
+
+  -- Bank cannot use Alice's pass as its own sender pass either.
+  submitMustFail (actAs s.bank <> discloseMany [alicePass]) do
+    exerciseCmd pt500 PT_Transfer with
+      newOwner = s.alice
+      senderAccessCid = s.aliceAccess
+      receiverAccessCid = s.aliceAccess
+
+  -- Split-off amounts must leave two real pieces.
+  submitMustFail s.bank do exerciseCmd pt500 PT_SplitOff with splitAmount = 0.0
+  submitMustFail s.bank do exerciseCmd pt500 PT_SplitOff with splitAmount = 500.0
+  submitMustFail s.bank do exerciseCmd yt600 YT_SplitOff with splitAmount = 600.0
+
+  -- A token cannot be merged with itself (that would double it).
+  submitMustFail s.alice do exerciseCmd alicePt500 PT_MergeWith with otherCid = alicePt500
+
+  -- Jan 1: Bank splits 100 more USYC at 1.025 -> 102.5 YT with lastIndex 1.025.
+  -- It cannot be merged with Bank's 600 YT from 1.00: they earned different yield.
+  (_, rateJan) <- publish s s.feedCid 1.025 jan1
+  moreUsyc <- issue s.usycIssuer s.bank "USYC" 200.0
+  janResult <- split s s.bank s.bankAccess rateJan [moreUsyc] 100.0
+  submitMustFail s.bank do exerciseCmd yt600 YT_MergeWith with otherCid = janResult.ytCid
+
+  -- PT of another market (JUL2027) cannot be merged into APR2027 PT.
+  julMarketCid <- submit s.operator do
+    createCmd Market with
+      operator = s.operator
+      terms = s.terms with
+        marketId = "PT-USYC-JUL2027"
+        maturity = time (date 2027 Jul 1) 0 0 0
+      matured = False
+  Some usyc100 <- pure janResult.usycChangeCid
+  julResult <- splitOn s julMarketCid s.bank s.bankAccess rateJan [usyc100] 100.0
+  submitMustFail s.bank do exerciseCmd pt500 PT_MergeWith with otherCid = julResult.ptCid
+
+  -- Once Alice's pass is revoked, she cannot send her PT to anyone.
+  submit s.operator do exerciseCmd s.aliceAccess Revoke
+  Some bankPass <- queryDisclosure s.operator s.bankAccess
+  submitMustFail (actAs s.alice <> discloseMany [bankPass]) do
+    exerciseCmd alicePt500 PT_Transfer with
+      newOwner = s.bank
+      senderAccessCid = s.aliceAccess
+      receiverAccessCid = s.bankAccess
+
+  -- Nothing moved by the failed commands: Alice still has her 500 PT and
+  -- 400 YT, and Bank's 500 PT and 600 YT are untouched.
+  alicePtsEnd <- ptAmounts s.alice
+  alicePtsEnd === [500.0]
+  aliceYtsEnd <- ytAmounts s.alice
+  aliceYtsEnd === [400.0]
+  Some _ <- queryContractId s.bank pt500
+  Some _ <- queryContractId s.bank yt600
+  pure ()
+
+
+-- | Privacy: clients see only their own PT and YT, nobody but the Operator
+-- sees the Market, and the issuers and the oracle see no PT or YT at all.
+marketPrivacy : Script ()
+marketPrivacy = script do
+  s <- setupMarket
+  bankUsyc <- issue s.usycIssuer s.bank "USYC" 1000.0
+  result <- split s s.bank s.bankAccess s.rateCid [bankUsyc] 1000.0
+  PtSplitResult with splitCid = pt100; restCid = pt900 <- submit s.bank do
+    exerciseCmd result.ptCid PT_SplitOff with splitAmount = 100.0
+  _ <- ptTransfer s s.bank s.bankAccess s.alice s.aliceAccess pt100
+
+  -- Alice sees her 100 PT only: not Bank's 900 PT, not Bank's YT, and not the
+  -- Market or the price (they were only ever disclosed to commands).
+  alicePts <- ptAmounts s.alice
+  alicePts === [100.0]
+  None <- queryContractId s.alice pt900
+  aliceYts <- ytAmounts s.alice
+  aliceYts === []
+  aliceMarkets <- query @Market s.alice
+  aliceMarkets === []
+  aliceRates <- query @RateIndex s.alice
+  aliceRates === []
+
+  -- Bank used the Market but cannot see it. It sees its own tokens only,
+  -- and not the vault USYC (that belongs to the Operator now).
+  bankMarkets <- query @Market s.bank
+  bankMarkets === []
+  bankPts <- ptAmounts s.bank
+  bankPts === [900.0]
+  bankYts <- ytAmounts s.bank
+  bankYts === [1000.0]
+  bankHoldings <- query @Holding s.bank
+  bankHoldings === []
+
+  -- The Operator signs every token, so it sees all of them, and its vault.
+  operatorPts <- ptAmounts s.operator
+  operatorPts === [100.0, 900.0]
+  operatorYts <- ytAmounts s.operator
+  operatorYts === [1000.0]
+  vault <- ownedAmounts s.operator "USYC"
+  vault === [1000.0]
+
+  -- The issuers and the oracle see no market, PT or YT.
+  forA_ [s.usycIssuer, s.usdcIssuer, s.oracle] \party -> do
+    markets <- query @Market party
+    markets === []
+    pts <- ptAmounts party
+    pts === []
+    yts <- ytAmounts party
+    yts === []
+  pure ()
