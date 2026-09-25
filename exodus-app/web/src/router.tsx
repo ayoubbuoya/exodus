@@ -5,10 +5,11 @@
 //   navigation (before approval there is nowhere to go).
 // - Every other page uses AppLayout: the floating glass sidebar.
 //
-// Every page except the landing page is loaded lazily: its code is downloaded
-// only when someone opens it. The app pages pull in the ledger client, the
-// generated Daml types and the chart library, which a visitor reading the
-// landing page does not need, so the landing page stays small and fast.
+// Every page except the landing page is loaded lazily, and so are the two
+// app layouts: their code is downloaded only when someone opens them. The app
+// pages pull in the ledger client, the generated Daml types and the chart
+// library, which a visitor reading the landing page does not need, so the
+// landing page stays small and fast.
 // Example: a visitor on / downloads the landing code only; clicking
 // "Request access" then downloads the sign-up page (a few kB).
 //
@@ -17,8 +18,6 @@
 import type { ComponentType } from 'react'
 import { createBrowserRouter, type RouteObject } from 'react-router'
 import { RequireStage, type Stage } from '@/auth/RequireStage'
-import { AppLayout } from '@/components/layout/AppLayout'
-import { FocusLayout } from '@/components/layout/FocusLayout'
 import { MarketingLayout } from '@/components/layout/MarketingLayout'
 import { PageLoading } from '@/components/PageLoading'
 import { LandingPage } from '@/pages/LandingPage'
@@ -57,7 +56,10 @@ export const router = createBrowserRouter([
     children: [{ path: '/', element: <LandingPage /> }],
   },
   {
-    element: <FocusLayout />,
+    // The layouts load lazily too: a visitor reading the landing page needs
+    // neither the sidebar nor the account menu.
+    lazy: async () => ({ Component: (await import('@/components/layout/FocusLayout')).FocusLayout }),
+    HydrateFallback: PageLoading,
     children: [
       // Only for visitors: a logged-in user is sent to their home page.
       { path: '/signup', ...lazyPage(() => import('@/pages/SignupPage').then((module) => module.SignupPage), 'signed-out') },
@@ -70,7 +72,8 @@ export const router = createBrowserRouter([
     ],
   },
   {
-    element: <AppLayout />,
+    lazy: async () => ({ Component: (await import('@/components/layout/AppLayout')).AppLayout }),
+    HydrateFallback: PageLoading,
     children: [
       // Approved clients only (they have a wallet).
       { path: '/app', ...lazyPage(() => import('@/pages/AppPage').then((module) => module.AppPage), 'approved') },
