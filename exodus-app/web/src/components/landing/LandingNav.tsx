@@ -4,7 +4,7 @@ import { ArrowRightIcon, MenuIcon, XIcon } from 'lucide-react'
 import { cn } from 'cn'
 import { Logo } from '@/components/layout/Logo'
 import { Button } from '@/components/ui/button'
-import { DEMO_ENTRY, SPEC_URL } from './links.ts'
+import { LAB_PATH, LOGIN_PATH, SIGNUP_PATH, SPEC_URL } from './links.ts'
 
 // The landing page's top bar: one floating pill of thick glass.
 //
@@ -12,8 +12,9 @@ import { DEMO_ENTRY, SPEC_URL } from './links.ts'
 // - Centre: the page's chapters. The chapter you are reading gets a lighter
 //   pill of its own (scroll spy). A 3-column grid (1fr · auto · 1fr) keeps
 //   them exactly in the middle, whatever the widths of the two sides.
-// - Right: the design spec and "Open the demo".
-// - Below 900 px the chapters move into a menu behind a round button.
+// - Right: the design spec, "Log in" and "Request access" (sign-up).
+// - Below 900 px the chapters move into a menu behind a round button; on
+//   phones the menu also holds "Log in", "Request access" and the lab.
 // The band stays exactly 72 px tall (12 px gap + a 60 px bar): the split
 // story's sticky frame starts under it.
 
@@ -91,9 +92,15 @@ export function LandingNav() {
           >
             Spec
           </a>
+          <Link
+            to={LOGIN_PATH}
+            className="hidden px-4 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground sm:inline"
+          >
+            Log in
+          </Link>
           <Button asChild variant="bright" className="hidden h-11 rounded-full pr-1.5 pl-5 text-sm sm:inline-flex">
-            <Link to={DEMO_ENTRY}>
-              Open the demo
+            <Link to={SIGNUP_PATH}>
+              Request access
               <span className="grid size-8 place-items-center rounded-full bg-background text-foreground">
                 <ArrowRightIcon className="size-4" />
               </span>
@@ -129,10 +136,18 @@ export function LandingNav() {
             <a href={SPEC_URL} target="_blank" rel="noreferrer" className="border-b border-white/8 py-3 font-display text-[26px]">
               Spec
             </a>
+            <Link to={LAB_PATH} className="border-b border-white/8 py-3 font-display text-[26px]">
+              Developer lab
+            </Link>
           </nav>
-          <Button asChild variant="bright" size="cta" className="mt-5 w-full rounded-full">
-            <Link to={DEMO_ENTRY}>Open the demo</Link>
-          </Button>
+          <div className="mt-5 grid gap-2">
+            <Button asChild variant="bright" size="cta" className="w-full rounded-full">
+              <Link to={SIGNUP_PATH}>Request access</Link>
+            </Button>
+            <Button asChild variant="glass" size="cta" className="w-full rounded-full">
+              <Link to={LOGIN_PATH}>Log in</Link>
+            </Button>
+          </div>
           <p className="mt-4 text-xs text-faint">Canton test ledger · simulated USYC and USDC.</p>
         </div>
       )}

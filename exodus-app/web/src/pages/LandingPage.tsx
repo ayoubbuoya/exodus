@@ -2,7 +2,7 @@ import { Link } from 'react-router'
 import { ArrowRightIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Hero } from '@/components/landing/Hero'
-import { DEMO_ENTRY, SPEC_URL } from '@/components/landing/links'
+import { LAB_PATH, SIGNUP_PATH, SPEC_URL } from '@/components/landing/links'
 import { PrivacyLens } from '@/components/landing/PrivacyLens'
 import { ProductPreview } from '@/components/landing/ProductPreview'
 import { SoftLight } from '@/components/landing/SoftLight'
@@ -58,7 +58,8 @@ function PrivacySection() {
 }
 
 // A short, honest close: where to go next. One wide glass panel: the title
-// and the two buttons on the left, and on the right (large screens) the blue
+// and the ways in on the left ("Request access", the lab that needs no
+// account, and the spec as a quiet link), and on the right (large screens) the blue
 // glass wedge from the hero, so the page ends on the object it started with.
 // (It replaced a huge 7%-opacity logo that read as a hard-edged grey box.)
 function Closing() {
@@ -95,16 +96,23 @@ function Closing() {
           </h2>
           <div className="mt-8 flex flex-wrap items-center gap-3">
             <Button asChild variant="bright" size="cta" className="rounded-full">
-              <Link to={DEMO_ENTRY}>
-                Open the demo
+              <Link to={SIGNUP_PATH}>
+                Request access
                 <ArrowRightIcon data-icon="inline-end" />
               </Link>
             </Button>
+            {/* The lab needs no account: the quickest way to see who stores what. */}
             <Button asChild variant="glass" size="cta" className="rounded-full">
-              <a href={SPEC_URL} target="_blank" rel="noreferrer">
-                Read the design spec
-              </a>
+              <Link to={LAB_PATH}>Open the lab</Link>
             </Button>
+            <a
+              href={SPEC_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="px-2 text-sm font-medium text-muted-foreground underline-offset-4 transition-colors hover:text-foreground hover:underline"
+            >
+              Read the design spec
+            </a>
           </div>
         </div>
       </div>

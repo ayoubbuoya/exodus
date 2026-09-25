@@ -10,7 +10,7 @@ import { FIXED_APY_LABEL, MATURITY_DATE, QUOTE, SPLIT } from '@/landing/demo-num
 import { ANCHORS, GLASS_FRAME as F } from '@/landing/glass-geometry'
 import { GlassArtboard } from './GlassStage.tsx'
 import { SoftLight } from './SoftLight.tsx'
-import { DEMO_ENTRY } from './links.ts'
+import { SIGNUP_PATH } from './links.ts'
 
 // The top of the landing page, about one screen tall.
 //
@@ -102,8 +102,8 @@ export function Hero() {
           </p>
           <div className="mt-10 flex flex-wrap items-center gap-3" style={riseIn(300)}>
             <Button asChild variant="bright" size="cta" className="rounded-full pr-1.5">
-              <Link to={DEMO_ENTRY}>
-                Open the demo
+              <Link to={SIGNUP_PATH}>
+                Request access
                 {/* A round dark "go" button inside the pill, like a sign-in field's arrow. */}
                 <span className="ml-1 grid size-8 place-items-center rounded-full bg-background text-foreground">
                   <ArrowRightIcon className="size-4" />
