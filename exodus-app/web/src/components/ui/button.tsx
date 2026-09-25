@@ -18,11 +18,12 @@ const buttonVariants = cva(
         destructive:
           "bg-destructive/10 text-destructive hover:bg-destructive/20 focus-visible:border-destructive/40 focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:hover:bg-destructive/30 dark:focus-visible:ring-destructive/40",
         link: "text-primary underline-offset-4 hover:underline",
-        // Exodus (Glacier): the primary call to action, a bar of polished silver
-        // with a light streak on hover (see .btn-chrome in index.css).
-        chrome: "btn-chrome border-white/70 font-semibold",
+        // Exodus (Glacier): the primary call to action, a solid pale pill with dark
+        // text. The one bright object in a page of glass, so the eye finds it first.
+        bright:
+          "bg-[#eef2f8] font-semibold text-[#060a13] shadow-[inset_0_1px_0_#fff,0_10px_30px_-12px_rgb(180_200_255/0.5)] hover:bg-white",
         // Exodus (Glacier): a secondary action on glass (see .glass in index.css).
-        glass: "glass border-(--glass-edge) text-foreground hover:bg-white/10",
+        glass: "glass text-foreground hover:bg-white/10",
       },
       size: {
         default:

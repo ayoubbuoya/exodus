@@ -65,22 +65,18 @@ The faucet does **not** need the pass on-ledger: the backend mints as `UsdcIssue
 
 This also covers spec gap 9 (factory shared through an observer list) and most of gap 11 (no allowlist). Bootstrap gives Alice and Bank passes so `/lab` keeps working.
 
-### Theme "Meridian"
+### Theme "Glacier"
 
-The values live in `exodus-app/web/src/styles/tokens.css`. The idea: every Exodus position runs toward one date, the maturity (the "meridian").
+The values live in `exodus-app/web/src/styles/tokens.css` (dark "Glacier" is the default, light "Frost" also exists). The idea comes from the logo: a solid silver block (principal) with a blue glass wedge (yield) seated in it.
 
 | Token | Dark (default) | Light | Used for |
 |---|---|---|---|
-| background (bg-0) | `#0E1210` | `#F3F4F1` | page |
-| card (bg-1) | `#151A17` | `#FFFFFF` | panels |
-| secondary (bg-2) | `#1B211E` | `#ECEEEA` | hover, selected, inputs |
-| border / input | `#262D29` / `#353D38` | `#E1E4DE` / `#C9CEC6` | lines / input borders |
-| foreground / muted / faint | `#ECE8DF` / `#A9A59B` / `#8A867D` | `#111513` / `#4F5752` / `#666D67` | copy / secondary / labels |
-| pt (= foreground) | `#ECE8DF` | `#111513` | principal, par, the maturity line; primary buttons |
-| yt (copper) | `#D98A52` | `#A4561F` | **yield only**: YT, claimable yield, floating rates. Never buttons, borders, focus or decoration |
-| success / destructive / warning / info | `#86C79A` / `#E8735F` / `#E2BE5C` / `#8FB3D9` | `#2B6A3E` / `#B0392B` / `#8A6200` / `#3D6592` | status, always with a word or icon; info = settling |
+| background / card | `#060A13` / `#0B1220` | `#EEF2F8` / `#FFFFFF` | page / panels |
+| foreground (= pt) | `#E6ECF5` (silver) | `#0B1220` | copy, principal, par, the maturity line |
+| yt (electric blue) | `#4D8DFF` | `#1D5BD8` | **yield only**: YT, claimable yield, floating rates. Never buttons, borders, focus or decoration |
+| info | `#A99BFF` (violet) | `#5B4BD1` | pending / settling, so it never looks like yield |
 
-Fonts (bundled from npm): **Geist** for all interface text and numbers (tabular figures), **Geist Mono** only for identifiers (party and contract ids), **Archivo** (semi-condensed, 88% width, weight 600, tight tracking) for display: headlines, section titles, big figures and the wordmark. It replaced Instrument Serif on 2026-09-23 because the serif read as an editorial template. Radius: 3 px chips, 6 px controls, 8 px panels. The "Simulated tokens" note is neutral information, not a warning. The landing page is always dark (`MarketingLayout` puts `.dark` on its root); one section, "The maths adds up", uses `.theme-light` on purpose as an institutional term sheet.
+Surfaces are glass: `.glass` (thin fill, blur, a 1 px gradient rim), `.glass-strong` for floating things, `.glass-sheen` for large panels. Font: **Inter** everywhere (its display cut for big headlines), **Geist Mono** only for identifiers. No gradient text: hierarchy comes from white against dimmed white, and big amounts dim their decimals (`Amount`). Radius: 8 chips, 12 controls, 20 cards, 28 panels. The landing page is always dark and has five short sections (Hero, The split, Privacy, The app, Close).
 
 ## Build order and status
 
@@ -88,12 +84,12 @@ Fonts (bundled from npm): **Geist** for all interface text and numbers (tabular 
 |---|---|---|
 | 1 | Frontend foundation: Tailwind, shadcn/ui, router, theme, landing page; the old screens moved to `/lab` with no behaviour change | Done (2026-09-23). Own `ThemeProvider` instead of `next-themes` (its inline script makes React 19 log an error) |
 | 1b | Meridian design: tokens and fonts, the cut-plate mark and favicon, and the landing page: hero with the 3D instrument (`web/public/instrument/`), scroll-driven split story, "Two instruments. One date." maturity chart, "One trade. Four ledgers." privacy lens, the light "maths adds up" term sheet and a real product preview. `/lab` loads lazily so the landing page ships no ledger code | Done (2026-09-23). App shell and Portfolio screen next |
-| 1c | Privacy section rebuilt around a three-plate stack (`web/public/privacy/`, from the Codex renders in `assets/`): smoked glass = price and rate (Quote), silver = PT leg, gunmetal = cash leg. Picking a party fades the plates its node does not store and shows "N of 3 parts". The glass export was 4.5% too wide; its web file is corrected (95.5% scale, +35/+15 px, fitted to `privacy-stack-reference.png`) | Done (2026-09-24) |
-| 1d | Glacier theme (experiment, uncommitted): navy glass, silver = principal, electric blue `--yt` = yield only (replaces copper), violet `--info`. Glass utilities (`.glass`, `.glass-strong`, `.glass-glow`, `.text-chrome`, `.btn-chrome`, `.reveal`), ambient light layer, floating glass nav, `chrome`/`glass` button variants, seated-wedge mark and favicon. `GlassStage` draws the silver block + glass wedge as vector until the Codex renders land in `web/public/glass/` (`shell`, `wedge`, `shadow-*`, `glow-wedge`, `hero-joined`, plus `shell-front` cut by us), then switches to them; re-measure `landing/glass-geometry.ts` then | In progress |
+| 1c | Privacy section rebuilt around a three-plate stack (`web/public/privacy/`): glass = price and rate (Quote), silver = PT leg, dark metal = cash leg. Picking a party fades the plates its node does not store and shows "N of 3 parts" | Done (2026-09-24) |
+| 1d | Glacier redesign: glass surfaces, blue = yield only, Inter; the hero and split story show a rendered silver block and glass wedge (`web/public/glass/`); landing trimmed to five sections (about 1,060 → 400 words) | Done (2026-09-25) |
 | 2 | Contracts: `ClientAccess` template; `Subscribe` and the transfer factory take the pass; shared contracts read through disclosure; tests; bootstrap gives Alice and Bank passes; ledger client attaches disclosed contracts | To do |
 | 3 | Backend `exodus-app/api`: NestJS + Prisma + Postgres; auth, applications, admin approve (allocate party + user, create pass), faucet, index-history recorder, custodial command endpoints | To do |
 | 4 | Pages: landing, signup/login, onboarding form, admin | To do |
 | 5 | `/app` dashboard: price strip, chart, subscribe, faucet, holdings, activity | To do |
-| 6 | Update README, CLAUDE.md and the spec; typecheck, lint, tests | To do |
+| 6 | Update README and the spec; typecheck, lint, tests | To do |
 
 Update this table as steps land.

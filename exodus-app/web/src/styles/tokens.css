@@ -19,7 +19,8 @@
  *
  * Two scoping classes let one part of a page use a fixed theme:
  * - `.dark` on any element: the landing page is always dark.
- * - `.theme-light` on any element inside it: the one light "term sheet" section.
+ * - `.theme-light` on any element inside it: a light island in a dark page
+ *   (not used on the landing page today, kept for the app).
  * They work because CSS variables are inherited: the nearest ancestor wins.
  *
  * The shadcn/ui names (`--background`, `--card`, `--primary`, ...) are kept, so
@@ -79,23 +80,18 @@
   --elev-1: 0 1px 2px rgb(11 18 32 / 0.05);
   --elev-2: 0 18px 40px -16px rgb(11 18 32 / 0.25);
 
-  /* Glass (see the .glass utilities in index.css). On light, glass is frosted white. */
-  --glass-fill: rgb(255 255 255 / 0.62);
-  --glass-fill-strong: rgb(255 255 255 / 0.82);
-  --glass-edge: rgb(11 18 32 / 0.1); /* the 1 px rim */
-  --glass-rim-light: rgb(255 255 255 / 0.9); /* the bright top edge */
+  /* Glass (see .glass in index.css). On light, glass is frosted white.
+     The rim is a gradient: bright where the light hits (top left), faint elsewhere. */
+  --glass-fill: rgb(255 255 255 / 0.6);
+  --glass-fill-strong: rgb(255 255 255 / 0.85);
+  --glass-rim: linear-gradient(145deg, rgb(255 255 255 / 0.95), rgb(11 18 32 / 0.08) 40%, rgb(11 18 32 / 0.14));
   --glass-shadow: 0 24px 60px -28px rgb(29 60 120 / 0.35);
 
-  /* Silver chrome, for the big headline and the primary button. */
-  --chrome-1: #0b1220;
-  --chrome-2: #3a4863;
-  --chrome-3: #0b1220;
-
-  /* Radius: 6 chips, 10 controls, 16 panels. Glass reads as soft and machined. */
-  --radius: 0.625rem;
+  /* Radius: 8 chips, 12 controls, 20 cards, 28 panels. Glass reads as soft and machined. */
+  --radius: 0.75rem;
 }
 
-/* Dark theme ("Glacier"), the default: deep navy, like looking through thick glass. */
+/* Dark theme ("Glacier"), the default: deep navy, like looking through thick smoked glass. */
 .dark {
   color-scheme: dark;
   --background: #060a13; /* bg-0: page */
@@ -138,15 +134,16 @@
   --elev-1: inset 0 1px 0 rgb(255 255 255 / 0.04);
   --elev-2: 0 24px 60px -20px rgb(0 0 0 / 0.7);
 
-  /* Glass: a whisper of navy-white fill, a cool rim, a bright top edge. */
-  --glass-fill: rgb(140 170 230 / 0.055);
-  --glass-fill-strong: rgb(18 27 46 / 0.78);
-  --glass-edge: rgb(170 200 255 / 0.13);
-  --glass-rim-light: rgb(220 235 255 / 0.22);
-  --glass-shadow: 0 30px 80px -30px rgb(0 0 0 / 0.8);
-
-  /* Silver chrome: bright, then a cool dip, then bright again (like brushed metal). */
-  --chrome-1: #ffffff;
-  --chrome-2: #93a3bd;
-  --chrome-3: #e6ecf5;
+  /* Glass: a thin smoky fill, a rim that catches light at the top left and
+     bounces faintly at the bottom right, a deep soft shadow. */
+  --glass-fill: rgb(255 255 255 / 0.045);
+  --glass-fill-strong: rgb(16 22 36 / 0.72);
+  --glass-rim: linear-gradient(
+    145deg,
+    rgb(255 255 255 / 0.36),
+    rgb(255 255 255 / 0.08) 30%,
+    rgb(255 255 255 / 0.03) 62%,
+    rgb(255 255 255 / 0.16)
+  );
+  --glass-shadow: 0 30px 70px -30px rgb(0 0 0 / 0.75);
 }

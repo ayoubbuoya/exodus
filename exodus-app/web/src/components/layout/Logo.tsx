@@ -8,7 +8,7 @@ type LogoProps = {
   className?: string
 }
 
-// The Exodus lockup: the seated-wedge mark next to the wordmark set in the display face (Archivo).
+// The Exodus lockup: the seated-wedge mark next to the wordmark set in the display voice (Inter).
 // It always links home. The accessible name comes from the visible word "Exodus".
 export function Logo({ size = 'md', className }: LogoProps) {
   return (

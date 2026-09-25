@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react'
 import { cn } from 'cn'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
-import { MATURITY_DATE, SPLIT } from '@/landing/demo-numbers'
+import { OUTCOME, SPLIT } from '@/landing/demo-numbers'
 import { ANCHORS, GLASS_FRAME as F } from '@/landing/glass-geometry'
-import { artH, artRight, artSize, artX, artY } from '@/landing/instrument-geometry'
+import { artH, artRight, artSize, artX, artY } from '@/landing/artboard'
 import { GlassArtboard } from './GlassStage.tsx'
 
 // Signature B: USYC → PT + YT, told by scrolling (spec §9, step 1).
@@ -11,9 +11,10 @@ import { GlassArtboard } from './GlassStage.tsx'
 // On tall desktop screens the section is three screens tall and its frame is sticky, so the
 // instrument stays in view while you scroll through it:
 //   1. Deposit  one unified instrument: 1,000 USYC at index 1.000000,
-//   2. Cut      the outline of the glass wedge is traced in light: PT = YT = shares × index,
+//   2. Cut      a blue light gathers around the glass wedge: PT = YT = shares × index,
 //   3. Split    the blue glass wedge (yield) slides out of the silver block
-//               (principal) and lights up; the amounts appear.
+//               (principal) and lights up; the amounts appear, and one line
+//               shows where it all ends up at maturity.
 // The scroll position becomes one number, --p (0 → 1), written straight onto
 // the frame (no React re-render per frame). CSS turns --p into --seam, --slide
 // and --glow, so the object moves continuously with your scroll. The page scrolls
@@ -23,22 +24,11 @@ import { GlassArtboard } from './GlassStage.tsx'
 
 type Step = 1 | 2 | 3
 
+// One short line per step: the picture does the explaining.
 const STEPS: { step: Step; name: string; caption: string }[] = [
-  {
-    step: 1,
-    name: 'Deposit',
-    caption: `Bank deposits ${SPLIT.usyc} USYC, a tokenized T-bill fund. At index ${SPLIT.index} that is ${SPLIT.usdValue}. The number of tokens never changes; the index rises.`,
-  },
-  {
-    step: 2,
-    name: 'Cut',
-    caption: `The market cuts it at today's index: PT = YT = shares × index = ${SPLIT.usyc} × 1.00. One atomic transaction moves the USYC into the Operator's vault.`,
-  },
-  {
-    step: 3,
-    name: 'Split',
-    caption: `Two instruments, one date. ${SPLIT.pt} PT pays ${SPLIT.usdValue} of USYC on ${MATURITY_DATE}. ${SPLIT.yt} YT collects all the yield until then.`,
-  },
+  { step: 1, name: 'Deposit', caption: `${SPLIT.usyc} USYC of tokenized T-bills goes in.` },
+  { step: 2, name: 'Cut', caption: "It is cut at today's index." },
+  { step: 3, name: 'Split', caption: 'The principal stays. The yield slides out.' },
 ]
 
 // Where each step sits on the 0 → 1 progress scale, and the value a click sets.
@@ -142,7 +132,7 @@ export function SplitStory() {
         <div className="flex flex-wrap items-end justify-between gap-x-10 gap-y-6 short:col-start-1 short:row-start-1 short:self-end">
           <h2
             id="split-title"
-            className="text-chrome font-display text-[32px] leading-[1.02] sm:text-[40px] xl:text-[48px]"
+            className="font-display text-[32px] leading-[1.02] sm:text-[40px] xl:text-[48px]"
           >
             One instrument becomes two.
           </h2>
@@ -150,13 +140,13 @@ export function SplitStory() {
         </div>
 
         {/* The instrument and its amounts, as one scaled artboard (see
-            instrument-geometry.ts), as large as the space allows:
+            landing/artboard.ts), as large as the space allows:
             - tall screens: the middle row of the sticky frame is a CSS size
-              container, and the artboard fits it (width <= height x 1.373),
+              container, and the artboard fits it (width <= height x 1.267),
             - short desktop screens: the right column, capped to the screen height,
             - phones and tablets: the full width. */}
         <div className="flex min-h-0 items-center justify-center py-6 short:col-start-2 short:row-span-2 short:row-start-1 short:py-0 tall:py-2 tall:[container-type:size]">
-          <div className="w-full short:w-[min(100%,calc((100svh-150px)*1.373))] tall:w-[min(100cqw,calc(100cqh*1.373))]">
+          <div className="w-full short:w-[min(100%,calc((100svh-150px)*1.267))] tall:w-[min(100cqw,calc(100cqh*1.267))]">
             <GlassArtboard
               frame={F}
               label={
@@ -169,14 +159,10 @@ export function SplitStory() {
               <div
                 aria-hidden="true"
                 className="absolute leading-tight"
-                style={{ left: artX(F, 330), top: artY(F, 104), ...fadeOut(0.5, 0.08) }}
+                style={{ left: artX(F, 250), top: artY(F, 175), ...fadeOut(0.5, 0.08) }}
               >
-                <span className="num block font-semibold" style={{ fontSize: artSize(F, 40, 14) }}>
+                <span className="num block font-display" style={{ fontSize: artSize(F, 44, 16) }}>
                   {SPLIT.usyc} USYC
-                </span>
-                {/* Phones: first line only (the caption below carries the detail). */}
-                <span className="num hidden text-muted-foreground sm:inline" style={{ fontSize: DETAIL }}>
-                  index {SPLIT.index} · {SPLIT.usdValue}
                 </span>
               </div>
 
@@ -185,8 +171,8 @@ export function SplitStory() {
                 aria-hidden="true"
                 className="glass-strong absolute hidden rounded-xl sm:block"
                 style={{
-                  right: artRight(F, 1510),
-                  top: artY(F, 850),
+                  right: artRight(F, 1320),
+                  top: artY(F, 700),
                   padding: `${artSize(F, 12, 6)} ${artSize(F, 22, 10)}`,
                   fontSize: DETAIL,
                   opacity: 'clamp(0, min(calc((var(--p) - 0.28) / 0.1), calc(1 - (var(--p) - 0.5) / 0.06)), 1)',
@@ -203,21 +189,21 @@ export function SplitStory() {
                 className="absolute w-px bg-linear-to-b from-foreground/70 to-foreground/0"
                 style={{
                   left: artX(F, ANCHORS.shellBottom.x),
-                  top: artY(F, ANCHORS.shellBottom.y + 14),
-                  height: artH(F, 40),
+                  top: artY(F, ANCHORS.shellBottom.y + 8),
+                  height: artH(F, 22),
                   ...fade(0.76, 0.1),
                 }}
               />
               <div
                 aria-hidden="true"
                 className="absolute leading-tight"
-                style={{ left: artX(F, ANCHORS.shellBottom.x - 20), top: artY(F, 876), ...fade(0.78, 0.1) }}
+                style={{ left: artX(F, ANCHORS.shellBottom.x - 20), top: artY(F, 948), ...fade(0.78, 0.1) }}
               >
-                <span className="num block font-semibold tracking-[-0.015em]" style={{ fontSize: AMOUNT }}>
-                  {SPLIT.pt}.00 PT
-                </span>
                 <span className="text-muted-foreground" style={{ fontSize: DETAIL }}>
-                  Principal · {SPLIT.usdValue} at maturity
+                  Principal
+                </span>
+                <span className="num block font-display" style={{ fontSize: AMOUNT }}>
+                  {SPLIT.pt} PT
                 </span>
               </div>
               <div
@@ -225,34 +211,34 @@ export function SplitStory() {
                 className="absolute w-px bg-linear-to-t from-yt/80 to-yt/0"
                 style={{
                   left: artX(F, ANCHORS.wedgeTopSlid.x),
-                  top: artY(F, 232),
-                  height: artH(F, ANCHORS.wedgeTopSlid.y - 244),
+                  top: artY(F, 300),
+                  height: artH(F, ANCHORS.wedgeTopSlid.y - 310),
                   ...fade(0.76, 0.1),
                 }}
               />
               <div
                 aria-hidden="true"
                 className="absolute text-right leading-tight"
-                style={{ right: artRight(F, 1510), top: artY(F, 110), ...fade(0.78, 0.1) }}
+                style={{ right: artRight(F, 1320), top: artY(F, 180), ...fade(0.78, 0.1) }}
               >
-                <span className="num block font-semibold tracking-[-0.015em] text-yt" style={{ fontSize: AMOUNT }}>
-                  {SPLIT.yt}.00 YT
-                </span>
                 <span className="text-muted-foreground" style={{ fontSize: DETAIL }}>
-                  Yield · until {MATURITY_DATE}
+                  Yield
+                </span>
+                <span className="num block font-display text-yt" style={{ fontSize: AMOUNT }}>
+                  {SPLIT.yt} YT
                 </span>
               </div>
             </GlassArtboard>
           </div>
         </div>
 
-        {/* The caption of the current step, and the transaction behind it. */}
-        <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,560px)] lg:gap-12 short:col-start-1 short:row-start-2 short:grid-cols-1 short:gap-6 short:self-start">
-          <p aria-live="polite" className="max-w-[58ch] text-[15px] leading-6 text-muted-foreground">
+        {/* The caption of the current step, and where it all ends up at maturity. */}
+        <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:gap-12 short:col-start-1 short:row-start-2 short:grid-cols-1 short:gap-6 short:self-start">
+          <p aria-live="polite" className="text-[17px] leading-6 text-muted-foreground">
             <span className="font-semibold text-foreground">{STEPS[step - 1].name}. </span>
             {STEPS[step - 1].caption}
           </p>
-          <TransactionStrip />
+          <AtMaturity />
         </div>
       </div>
     </section>
@@ -319,29 +305,29 @@ function StepRail({ step, onChoose }: StepRailProps) {
   )
 }
 
-// The one transaction behind the split, and who can see it. It brightens when
-// the split has happened.
-function TransactionStrip() {
+// Where it all ends up, as one equation (the worked example, spec §9):
+// Alice's fixed return + Bank's floating return = the fund's whole yield,
+//   +$12.50 + $37.50 = $50.00.
+// The split creates nothing and loses nothing: it only moves risk.
+// It lights up once the split has happened.
+function AtMaturity() {
   return (
-    <div
-      aria-label="The split transaction"
-      className="glass grid rounded-xl px-4 text-[13px] sm:grid-cols-[1fr_1.45fr_1fr] short:grid-cols-1"
-      style={{ opacity: 'calc(0.45 + 0.55 * clamp(0, calc((var(--p) - 0.6) / 0.2), 1))' }}
+    <p
+      className="glass num flex flex-wrap items-baseline gap-x-3 gap-y-1 justify-self-start rounded-full px-5 py-2.5 text-[15px] lg:justify-self-end"
+      style={{ opacity: 'calc(0.35 + 0.65 * clamp(0, calc((var(--p) - 0.6) / 0.2), 1))' }}
     >
-      <div className="py-3 sm:pr-4">
-        <span className="label-caps block">Bank → vault</span>
-        <span className="num">−{SPLIT.usyc}.000000 USYC</span>
-      </div>
-      <div className="border-t border-border py-3 sm:border-t-0 sm:border-l sm:px-4 short:border-t short:border-l-0 short:px-0">
-        <span className="label-caps block">Minted to Bank</span>
-        <span className="num whitespace-nowrap">
-          +{SPLIT.pt}.00 PT · <span className="text-yt">+{SPLIT.yt}.00 YT</span>
-        </span>
-      </div>
-      <div className="border-t border-border py-3 sm:border-t-0 sm:border-l sm:pl-4 short:border-t short:border-l-0 short:pl-0">
-        <span className="label-caps block">Visible to</span>
-        <span>Bank · Operator · UsycIssuer</span>
-      </div>
-    </div>
+      <span className="text-muted-foreground">At maturity</span>
+      <span>
+        Alice <span className="font-medium">+${OUTCOME.alice.profit}</span>
+      </span>
+      <span className="text-faint">+</span>
+      <span>
+        Bank <span className="font-medium text-yt">+${OUTCOME.bank.profit}</span>
+      </span>
+      <span className="text-faint">=</span>
+      <span>
+        <span className="font-medium">${OUTCOME.fundYield}</span> <span className="text-muted-foreground">fund yield</span>
+      </span>
+    </p>
   )
 }

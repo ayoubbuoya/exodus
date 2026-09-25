@@ -9,7 +9,7 @@ import { Logo } from './Logo.tsx'
 //
 // The landing page is ALWAYS dark (the Glacier look), whatever theme the
 // visitor picked for the app: the `dark` class here re-applies the dark tokens
-// to everything inside. Only the "maths" section switches to light on purpose.
+// to everything inside.
 //
 // It is separate from SiteLayout (used by /lab) because the landing page is
 // editorial and cinematic, while the app screens are compact software.
@@ -24,21 +24,21 @@ export function MarketingLayout() {
         <Outlet />
       </main>
       <footer className="border-t border-white/6">
-        <div className="mx-auto grid max-w-[1280px] gap-8 px-4 py-12 sm:px-6 md:grid-cols-[auto_1fr] md:gap-16 lg:px-10">
+        {/* One line of small print: this is a demo and the tokens are simulated
+            (never issued by Circle or Hashnote). The spec has the full story. */}
+        <div className="mx-auto flex max-w-[1280px] flex-wrap items-center gap-x-10 gap-y-4 px-4 py-10 sm:px-6 lg:px-10">
           <Logo size="lg" />
-          <div className="grid gap-3 text-xs leading-5 text-faint">
-            <p className="max-w-[80ch]">
-              Exodus is a HackCanton Season 3 project running on a Canton test ledger. &ldquo;USYC&rdquo; and
-              &ldquo;USDC&rdquo; are simulated tokens issued by the UsycIssuer and UsdcIssuer demo parties. They are not
-              issued by, connected to, or endorsed by Circle or Hashnote. Nothing here is an offer of securities or
-              investment advice. Every figure on this page comes from the worked example in the design spec.
-            </p>
-            <p>
-              <a href={SPEC_URL} target="_blank" rel="noreferrer" className="underline-offset-4 hover:underline">
-                Read the design spec
-              </a>
-            </p>
-          </div>
+          <p className="text-xs leading-5 text-faint">
+            HackCanton S3 demo on a Canton test ledger. USYC and USDC are simulated, not issued by Circle.
+          </p>
+          <a
+            href={SPEC_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="text-xs text-muted-foreground underline-offset-4 hover:underline md:ml-auto"
+          >
+            Design spec
+          </a>
         </div>
       </footer>
       {/* Back/forward keep their scroll position; new pages start at the top. */}
@@ -60,41 +60,25 @@ function followPointer(event: PointerEvent<HTMLDivElement>) {
   panel.style.setProperty('--my', `${event.clientY - box.top}px`)
 }
 
-// The light behind the page: two slow pools of navy-blue light that drift
-// like light under water, a fine grid that fades out towards the bottom, and
-// film grain so the gradients never band. Fixed to the screen, so it stays put
-// while the content scrolls over it. Decoration only.
+// The light behind the page, fixed to the screen while the content scrolls
+// over it. Decoration only.
+//   1. The instrument itself, blown up and blurred beyond recognition, top
+//      right: its silver and blue become a soft pool of coloured light, the
+//      way a photo is blurred behind a glass dashboard. So every glass panel
+//      on the page picks up the object's own colours.
+//   2. A deeper pool of navy light, lower left, drifting slowly.
 function AmbientLight() {
   return (
     <div aria-hidden="true" className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
-      {/* Pool 1: top right, behind the hero object. */}
-      <div
-        className="absolute top-[-25vh] right-[-15vw] size-[90vmax] rounded-full bg-[radial-gradient(closest-side,rgb(45_95_230/0.2),transparent)]"
-        style={{ animation: 'drift-a 28s ease-in-out infinite' }}
+      <img
+        src="/glass/hero-joined-sm.webp"
+        alt=""
+        className="absolute top-[-18vh] right-[-12vw] w-[78vw] max-w-none opacity-55 blur-[90px] saturate-150"
+        style={{ animation: 'drift-a 30s ease-in-out infinite' }}
       />
-      {/* Pool 2: lower left, a deeper indigo. */}
       <div
-        className="absolute bottom-[-35vh] left-[-25vw] size-[80vmax] rounded-full bg-[radial-gradient(closest-side,rgb(70_60_190/0.14),transparent)]"
-        style={{ animation: 'drift-b 34s ease-in-out infinite' }}
-      />
-      {/* The grid: 64 px squares of hairlines, strongest at the top. */}
-      <div
-        className="absolute inset-0 opacity-60"
-        style={{
-          backgroundImage:
-            'linear-gradient(rgb(160 190 255 / 0.05) 1px, transparent 1px), linear-gradient(90deg, rgb(160 190 255 / 0.05) 1px, transparent 1px)',
-          backgroundSize: '64px 64px',
-          maskImage: 'radial-gradient(ellipse 80% 60% at 60% 0%, #000, transparent)',
-          WebkitMaskImage: 'radial-gradient(ellipse 80% 60% at 60% 0%, #000, transparent)',
-        }}
-      />
-      {/* Film grain: SVG noise, very faint, blended over everything. */}
-      <div
-        className="absolute inset-0 opacity-[0.07] mix-blend-overlay"
-        style={{
-          backgroundImage:
-            "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>\")",
-        }}
+        className="absolute bottom-[-35vh] left-[-25vw] size-[85vmax] rounded-full bg-[radial-gradient(closest-side,rgb(40_70_170/0.2),transparent)]"
+        style={{ animation: 'drift-b 36s ease-in-out infinite' }}
       />
     </div>
   )

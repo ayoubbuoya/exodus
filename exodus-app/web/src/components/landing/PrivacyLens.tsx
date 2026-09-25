@@ -1,20 +1,22 @@
 import { useRef, useState, type CSSProperties, type KeyboardEvent } from 'react'
 import { cn } from 'cn'
-import { artSize, artX, artY } from '@/landing/instrument-geometry'
-import { PARTS, SEAT_NOTES, SEATS, type Seat, type TradePart } from '@/landing/privacy-lens-data'
+import { artSize, artX, artY } from '@/landing/artboard'
+import { PARTS, SEATS, type Seat, type TradePart } from '@/landing/privacy-lens-data'
 import { LABEL_X, PLATE_EDGE, PRIVACY_FRAME as F, STACK_HEIGHT, STACK_WIDTH } from '@/landing/privacy-geometry'
 
 // Signature C: "One trade. Four ledgers." (the flagship).
 //
 // ONE transaction (Alice buys 500 PT from Bank at 0.9750, pays 487.50 USDC),
 // drawn as three stacked plates, one per part of the trade:
-//   smoked glass  = price and rate (the Quote),
+//   blue glass    = price and rate (the Quote),
 //   silver        = the PT leg,
-//   gunmetal      = the cash leg.
+//   dark metal    = the cash leg.
 // Pick a party and the plates its node does NOT store fade to a ghost, and
-// their labels say "Not on X's ledger". Next to the stack, one sentence says
-// how many parts that node holds, and why.
-// The yield blue is not used here: none of these parts is yield.
+// their labels say "Not on X's ledger". Next to the stack, one big count says
+// how many parts that node holds.
+// The blue of the glass plate is the render's material (glass = the private
+// part), not the yield ink: no text here uses the yield blue, since none of
+// these parts is yield.
 // The rules live in landing/privacy-lens-data.ts (from spec §10).
 
 const nameOf = (seat: Seat) => SEATS.find((entry) => entry.seat === seat)?.name ?? seat
@@ -41,13 +43,11 @@ export function PrivacyLens() {
         <PlateStack seat={seat} name={name} />
 
         <div>
-          <p className="label-caps">Stored on {name}&rsquo;s node</p>
-          <p className="mt-3 font-display text-[40px] leading-none xl:text-[56px]">
+          <p className="text-[15px] text-muted-foreground">On {name}&rsquo;s node</p>
+          {/* A live region, so screen readers hear the new count when the seat changes. */}
+          <p aria-live="polite" className="mt-3 font-display text-[40px] leading-none xl:text-[56px]">
             <span className="num">{stored.length} of 3</span>{' '}
             <span className="text-muted-foreground">parts</span>
-          </p>
-          <p aria-live="polite" className="mt-5 text-[15px] leading-6 text-muted-foreground">
-            <span className="font-semibold text-foreground">{name}.</span> {SEAT_NOTES[seat]}
           </p>
 
           {/* The parts as a list. Phones see it (the labels beside the plates
@@ -58,9 +58,6 @@ export function PrivacyLens() {
             ))}
           </ul>
 
-          <p className="mt-6 text-xs text-faint">
-            One transaction, the same id on every node: <span className="ident">1220…a41f</span> (example).
-          </p>
         </div>
       </div>
     </div>
@@ -114,7 +111,6 @@ function SeatTabs({ seat, onChange }: SeatTabsProps) {
             <span className={cn('text-lg font-semibold sm:text-xl', selected ? 'text-foreground' : 'text-muted-foreground')}>
               {entry.name}
             </span>
-            <span className="text-[13px]">{entry.role}</span>
             {/* One tick per part of the trade this party's node stores. */}
             <span className="mt-2 flex items-center gap-1" aria-hidden="true">
               {PARTS.map((part, tick) => (

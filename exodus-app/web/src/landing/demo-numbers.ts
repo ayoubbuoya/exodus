@@ -11,6 +11,12 @@ export const MATURITY_DATE = '01 Apr 2027'
 /** Days from 01 Oct 2026 to 01 Apr 2027. The spec rounds this term to 0.5 years. */
 export const TERM_DAYS = 182
 export const TERM_YEARS = 0.5
+/**
+ * 01 Jan 2027 as a day of the term: 92 days after the split (31 Oct + 30 Nov
+ * + 31 Dec). The app preview shows Bank's book on that day, when the index is
+ * 1.025 and 90 days are left.
+ */
+export const JAN_1 = 92
 
 /** The market name, as the app will show it. */
 export const MARKET = 'PT-USYC-APR2027'
@@ -46,24 +52,6 @@ export function fixedApy(price: number, years: number): number {
 
 /** "5.19%", computed from the quote above so the two can never disagree. */
 export const FIXED_APY_LABEL = `${(fixedApy(Number(QUOTE.price), TERM_YEARS) * 100).toFixed(2)}%`
-
-/**
- * Steps 3–7 of the example: what the vault pays out, from split to maturity.
- * Every payout rounds DOWN to 6 decimals, so the vault can never go negative.
- */
-export const VAULT = {
-  deposited: '1,000.000000',
-  payouts: [
-    { label: 'Bank claims yield, 01 Jan 2027', formula: '1,000 × (1 ÷ 1.00 − 1 ÷ 1.025)', amount: '24.390243' },
-    { label: 'Alice redeems 500 PT at maturity', formula: '500 ÷ 1.05', amount: '476.190476' },
-    { label: 'Bank claims the last yield', formula: '1,000 × (1 ÷ 1.025 − 1 ÷ 1.05)', amount: '23.228803' },
-    { label: 'Bank redeems its own 500 PT', formula: '500 ÷ 1.05', amount: '476.190476' },
-  ],
-  // 24.390243 + 476.190476 + 23.228803 + 476.190476
-  paidOut: '999.999998',
-  // 1,000 − 999.999998: rounding dust that stays in the vault.
-  dust: '0.000002',
-} as const
 
 /** Who earned what, valued at the maturity index 1.05 (spec §9, last table). */
 export const OUTCOME = {

@@ -60,13 +60,3 @@ export const PARTS: TradePart[] = [
     visibleTo: ['alice', 'bank', 'usdcIssuer'],
   },
 ]
-
-/** One sentence per seat, shown next to the stack. */
-export const SEAT_NOTES: Record<Seat, string> = {
-  alice: 'She asked for the quote and paid for it, so her node holds the whole trade.',
-  bank: 'It quoted the price and delivered the PT, so its node holds the whole trade.',
-  operator:
-    'It signs every PT, so its node stores the PT moving from Bank to Alice. The price, the rate and the cash never reach it.',
-  usdcIssuer:
-    'It signs every USDC holding, so its node stores 487.50 USDC moving from Alice to Bank. It never learns what the cash paid for.',
-}
