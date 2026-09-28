@@ -21,10 +21,12 @@ async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
   const config = app.get<ConfigService<EnvironmentVariables, true>>(ConfigService);
 
-  // Requests arrive through the local Vite proxy, which adds X-Forwarded-For.
-  // Trusting only loopback proxies gives us the real client IP for rate limits,
-  // without letting a remote caller fake their IP with that header.
-  app.set("trust proxy", "loopback");
+  // Requests arrive through a proxy that adds X-Forwarded-For: Vite on this
+  // machine, or `vite preview` / nginx in another container (a private address)
+  // with Docker. Trusting only those gives us the real client IP for rate limits,
+  // without letting a remote caller fake their IP with that header. The API port
+  // itself must never be public.
+  app.set("trust proxy", ["loopback", "uniquelocal"]);
   app.setGlobalPrefix("api");
 
   // Security headers (nosniff, frame deny, HSTS, CSP, ...).

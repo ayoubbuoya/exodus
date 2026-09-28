@@ -1,0 +1,22 @@
+#!/bin/sh
+# Picks the TLS certificate for exodus.conf.template. The nginx image sources
+# this file before it fills in the templates.
+#
+# Let's Encrypt's certificate once `docker compose run --rm certbot` got it
+# (docs/deploy.md); until then a self-signed one, so nginx can start anyway.
+
+live="/etc/letsencrypt/live/${EXODUS_DOMAIN}"
+if [ -f "$live/fullchain.pem" ] && [ -f "$live/privkey.pem" ]; then
+  export SSL_CERT="$live/fullchain.pem"
+  export SSL_KEY="$live/privkey.pem"
+else
+  selfsigned=/etc/nginx/selfsigned
+  if [ ! -f "$selfsigned/cert.pem" ]; then
+    mkdir -p "$selfsigned"
+    openssl req -x509 -nodes -newkey rsa:2048 -days 30 -subj "/CN=${EXODUS_DOMAIN}" \
+      -keyout "$selfsigned/key.pem" -out "$selfsigned/cert.pem" 2>/dev/null
+  fi
+  export SSL_CERT="$selfsigned/cert.pem"
+  export SSL_KEY="$selfsigned/key.pem"
+  echo "exodus: no Let's Encrypt certificate for ${EXODUS_DOMAIN} yet, serving a self-signed one"
+fi

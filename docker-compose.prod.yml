@@ -1,0 +1,138 @@
+# The public Exodus deployment: the same demo as docker-compose.yml, behind
+# nginx with HTTPS on one port (8443 by default), so it can share a server whose
+# ports 80 and 443 already belong to another project.
+#
+#   cp .env.prod.example .env          then set EXODUS_DOMAIN, ADMIN_PASSWORD, ...
+#   docker compose -f docker-compose.prod.yml build
+#   docker compose -f docker-compose.prod.yml run --rm certbot    # once, see docs/deploy.md
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# Full steps (DNS record, certificate, renewal, reset): docs/deploy.md.
+#
+# Differences from docker-compose.yml:
+#   nginx    replaces `vite preview`: serves the built web app over HTTPS and
+#            forwards /api and /v2. The only published port.
+#   certbot  gets the Let's Encrypt certificate with a DNS challenge (a TXT
+#            record), because port 80 is not ours. Runs only when asked for.
+#   The admin password comes from .env and the session cookie is Secure.
+#
+# The ledger is in memory: after a reboot, or to reset the demo, run
+# `docker compose -f docker-compose.prod.yml down` then `up -d` (the certificate
+# stays, it is in a volume).
+#
+# "USYC" and "USDC" are SIMULATED tokens issued by demo parties, not by Circle.
+name: exodus-prod
+
+x-app: &app
+  build:
+    context: .
+    dockerfile: docker/Dockerfile
+    target: app
+  image: exodus-prod-app
+  environment: &app-env
+    # The database is only reachable inside this compose network.
+    DATABASE_URL: postgresql://exodus:exodus@db:5432/exodus
+    LEDGER_URL: http://ledger:7575
+    ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@exodus.local}
+    ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env (at least 10 characters)}
+    FAUCET_AMOUNT: "1000.0"
+    COOKIE_SECURE: "true"
+
+services:
+  db:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: exodus
+      POSTGRES_PASSWORD: exodus
+      POSTGRES_DB: exodus
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U exodus -d exodus"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  ledger:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: ledger
+    image: exodus-prod-ledger
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:7575/v2/state/ledger-end >/dev/null"]
+      interval: 3s
+      timeout: 3s
+      retries: 60
+
+  setup:
+    <<: *app
+    working_dir: /exodus/exodus-app
+    command:
+      - sh
+      - -c
+      - >-
+        cd api && npx prisma migrate deploy && node dist/scripts/seed-admin.js &&
+        cd .. && npm run bootstrap
+    depends_on:
+      db:
+        condition: service_healthy
+      ledger:
+        condition: service_healthy
+
+  oracle:
+    <<: *app
+    working_dir: /exodus/exodus-app
+    command: ["node", "oracle-bot/src/main.ts", "--hold"]
+    restart: unless-stopped
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+
+  api:
+    <<: *app
+    working_dir: /exodus/exodus-app/api
+    environment:
+      <<: *app-env
+      PORT: "3000"
+    command: ["node", "--enable-source-maps", "dist/main.js"]
+    restart: unless-stopped
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+
+  nginx:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: proxy
+    image: exodus-prod-proxy
+    environment:
+      EXODUS_DOMAIN: ${EXODUS_DOMAIN:?Set EXODUS_DOMAIN in .env, for example exodus.buoya.space}
+      EXODUS_HTTPS_PORT: ${EXODUS_HTTPS_PORT:-8443}
+      # Fill in only our variables, never nginx's own ($host, $uri, ...).
+      NGINX_ENVSUBST_FILTER: "^(EXODUS_|SSL_)"
+    ports:
+      - "${EXODUS_HTTPS_PORT:-8443}:443"
+    volumes:
+      - letsencrypt:/etc/letsencrypt:ro
+    restart: unless-stopped
+    depends_on:
+      - api
+
+  # One-shot and interactive: `docker compose -f docker-compose.prod.yml run --rm certbot`.
+  # It prints a TXT record to add at the DNS provider, then waits for Enter.
+  certbot:
+    image: certbot/certbot
+    profiles: ["certbot"]
+    volumes:
+      - letsencrypt:/etc/letsencrypt
+    command:
+      - certonly
+      - --manual
+      - --preferred-challenges=dns
+      - --domain=${EXODUS_DOMAIN:?Set EXODUS_DOMAIN in .env}
+      - --email=${LETSENCRYPT_EMAIL:?Set LETSENCRYPT_EMAIL in .env}
+      - --agree-tos
+      - --no-eff-email
+
+volumes:
+  letsencrypt:
