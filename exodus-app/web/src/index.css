@@ -154,6 +154,9 @@
        right. A plain 1 px border looks flat; this is what makes it read as glass,
      - a deep, soft shadow underneath.
      Example: <div class="glass rounded-2xl p-6">…</div> */
+  /* No -webkit- lines here: the build (lightningcss) adds them. Written by hand
+     after the standard property, they made it drop the standard one, so the
+     deployed site lost the blur and the rim filled the whole panel. */
   .glass,
   .glass-strong {
     position: relative;
@@ -161,14 +164,12 @@
     background-color: var(--glass-fill);
     box-shadow: var(--glass-shadow);
     backdrop-filter: blur(24px) saturate(170%);
-    -webkit-backdrop-filter: blur(24px) saturate(170%);
   }
   /* Thicker glass for floating things (the chapter bar, the quote card):
      more fill, so text stays readable over anything that passes behind. */
   .glass-strong {
     background-color: var(--glass-fill-strong);
     backdrop-filter: blur(32px) saturate(180%);
-    -webkit-backdrop-filter: blur(32px) saturate(180%);
   }
   /* The thickest glass, for the landing page's nav bar only. Every section
      scrolls under it, and with .glass-strong big text (like "1,000 PT") was
@@ -178,7 +179,6 @@
   .glass-bar {
     background-color: var(--glass-fill-bar);
     backdrop-filter: blur(40px) saturate(180%);
-    -webkit-backdrop-filter: blur(40px) saturate(180%);
   }
   /* The rim. The mask keeps only a 1 px ring: it shows the whole box, minus
      its content box (the box shrunk by the 1 px padding). */
@@ -195,10 +195,6 @@
       linear-gradient(#000 0 0) content-box,
       linear-gradient(#000 0 0);
     mask-composite: exclude;
-    -webkit-mask:
-      linear-gradient(#000 0 0) content-box,
-      linear-gradient(#000 0 0);
-    -webkit-mask-composite: xor;
     pointer-events: none;
   }
   /* A soft highlight in the top left corner and a faint diagonal streak, like
