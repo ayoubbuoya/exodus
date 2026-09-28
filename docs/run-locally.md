@@ -100,7 +100,7 @@ npm run oracle      # keeps running: publishes a new price every 5 s
 
 - Run `bootstrap` **after every ledger start**: the sandbox keeps everything in memory, so it starts empty each time. If you run it too early, it retries by itself ("attempt 2/10…").
 - The price only stays valid for 30 seconds, so **keep the oracle running**. Otherwise the demo clock in the sidebar shows "Paused" and Subscribe is blocked.
-- Prefer to move time by hand? Use `npm run oracle:hold` instead: it keeps the price valid but does not move the demo clock. Then use the "Next step" button on `/lab`.
+- Prefer to move time by hand? Use `npm run oracle:hold` instead: it keeps the price valid but does not move the demo clock. Then use the "Next step" button on `/lab` (admins only).
 
 **Terminal 3: the API**
 
@@ -134,13 +134,13 @@ Use two browser windows. A private/incognito window gives a second login.
    - **Price:** watch the demo clock in the sidebar, the **Fund yield** card and the chart. With `npm run oracle` running, the demo date jumps 7 days every 5 seconds and the USYC price grows (1.00 on Oct 1 2026 → 1.025 on Jan 1 2027 → 1.05 on Apr 1 2027). Your USYC balance stays the same, but its USD value grows. That growth is the yield.
    - **Redeem:** open the **Redeem** tab, enter `20` USYC and check the estimate ("You get about 20.2 USDC"), then click **Redeem**. Your USYC is burned at once and the request shows under **Pending redeems**. Within about 2 seconds the fund pays you at the price of that moment and the request disappears. Activity shows "Redeem requested −20 USYC", then "Redeemed +20.2… USDC". Click **Cancel** on a pending request (for example while the oracle is stopped) to get the USYC back.
    - **Send:** sign up and approve a second client, copy their party id (their Wallet page, under Holdings), then click **Send** next to USYC in your Holdings. Sending to a party without an access pass is refused.
-7. Want the privacy story? Open **`/lab`**. You can act as any demo party (Alice, Bank, the issuers, the Operator) and see which contracts each one can see.
+7. Want the privacy story? **Admin (window A)**: open **Developer lab** (`/lab`, admins only). You can act as any demo party (Alice, Bank, the issuers, the Operator) and see which contracts each one can see.
 
 ---
 
 ### 3.1 The markets (spec section 13 demo)
 
-Tip: use `npm run oracle:hold` for this demo and move the clock by hand with **Next step** on `/lab` (as the Oracle), so the dates wait for you.
+Tip: use `npm run oracle:hold` for this demo and move the clock by hand with **Next step** on `/lab` (admin window, act as the Oracle), so the dates wait for you.
 
 1. **Client (window B)**, after subscribing some USDC to USYC on the Wallet: open **Markets** → **USYC · Apr 1, 2027** (`PT-USYC-APR2027`), button **Fixed yield**. On Oct 1 it shows a fixed APY of 5.10 % (buy PT at 0.975503).
 2. **Fixed Yield (PT)**: enter `20`, **Get firm quote**. Within about 2 seconds the house dealer's quote appears with a countdown. **Accept**: your USDC and the PT change hands in one transaction.

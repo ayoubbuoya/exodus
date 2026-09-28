@@ -6,7 +6,6 @@ import {
   ChartColumnIcon,
   ChartPieIcon,
   ChevronsUpDownIcon,
-  ScanEyeIcon,
   ShieldCheckIcon,
   SparklesIcon,
   SplitIcon,
@@ -105,10 +104,6 @@ function PreviewSidebar() {
           </NavItem>
         ))}
       </ul>
-      <div className="grid gap-1">
-        <p className="px-3.5 pb-1 text-[11px] text-faint">Tools</p>
-        <NavItem icon={ScanEyeIcon}>Developer lab</NavItem>
-      </div>
       <div className="mt-auto grid gap-2">
         {/* The demo clock, like DemoClock in the real sidebar. */}
         <div className="num grid gap-1 rounded-2xl bg-foreground/4 p-3 text-xs">

@@ -13,7 +13,7 @@ import { Logo } from './Logo.tsx'
 // visitor picked for the app: the `dark` class here re-applies the dark tokens
 // to everything inside.
 //
-// It is separate from AppLayout (the app screens and /lab) because the landing
+// It is separate from AppLayout (the app screens and the admins' /lab) because the landing
 // page is editorial and cinematic, while the app screens are compact software.
 export function MarketingLayout() {
   // The `dark` class below keeps the page itself dark. <html> must follow too

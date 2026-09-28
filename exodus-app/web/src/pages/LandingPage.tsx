@@ -2,7 +2,7 @@ import { Link } from 'react-router'
 import { ArrowRightIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Hero } from '@/components/landing/Hero'
-import { LAB_PATH, SIGNUP_PATH, SPEC_URL } from '@/components/landing/links'
+import { SIGNUP_PATH, SPEC_URL } from '@/components/landing/links'
 import { PrivacyLens } from '@/components/landing/PrivacyLens'
 import { ProductPreview } from '@/components/landing/ProductPreview'
 import { SoftLight } from '@/components/landing/SoftLight'
@@ -100,10 +100,6 @@ function Closing() {
                 Request access
                 <ArrowRightIcon data-icon="inline-end" />
               </Link>
-            </Button>
-            {/* The lab needs no account: the quickest way to see who stores what. */}
-            <Button asChild variant="glass" size="cta" className="rounded-full">
-              <Link to={LAB_PATH}>Open the lab</Link>
             </Button>
             <a
               href={SPEC_URL}

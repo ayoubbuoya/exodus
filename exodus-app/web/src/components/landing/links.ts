@@ -11,9 +11,5 @@ export const SIGNUP_PATH = '/signup'
 
 export const LOGIN_PATH = '/login'
 
-// The developer lab: act as any demo party and see what each ledger stores.
-// No account needed, so it is the quickest way to see the privacy model.
-export const LAB_PATH = '/lab'
-
 // The design spec, readable on GitHub.
 export const SPEC_URL = 'https://github.com/ayoubbuoya/exodus/blob/main/docs/exodus.md'

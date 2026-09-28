@@ -4,7 +4,7 @@ import { ArrowRightIcon, MenuIcon, XIcon } from 'lucide-react'
 import { cn } from 'cn'
 import { Logo } from '@/components/layout/Logo'
 import { Button } from '@/components/ui/button'
-import { LAB_PATH, LOGIN_PATH, SIGNUP_PATH, SPEC_URL } from './links.ts'
+import { LOGIN_PATH, SIGNUP_PATH, SPEC_URL } from './links.ts'
 
 // The landing page's top bar: one floating pill of thick glass.
 //
@@ -14,7 +14,7 @@ import { LAB_PATH, LOGIN_PATH, SIGNUP_PATH, SPEC_URL } from './links.ts'
 //   them exactly in the middle, whatever the widths of the two sides.
 // - Right: the design spec, "Log in" and "Request access" (sign-up).
 // - Below 900 px the chapters move into a menu behind a round button; on
-//   phones the menu also holds "Log in", "Request access" and the lab.
+//   phones the menu also holds "Log in" and "Request access".
 // The band stays exactly 72 px tall (12 px gap + a 60 px bar): the split
 // story's sticky frame starts under it.
 
@@ -136,9 +136,6 @@ export function LandingNav() {
             <a href={SPEC_URL} target="_blank" rel="noreferrer" className="border-b border-white/8 py-3 font-display text-[26px]">
               Spec
             </a>
-            <Link to={LAB_PATH} className="border-b border-white/8 py-3 font-display text-[26px]">
-              Developer lab
-            </Link>
           </nav>
           <div className="mt-5 grid gap-2">
             <Button asChild variant="bright" size="cta" className="w-full rounded-full">

@@ -1,10 +1,11 @@
 // The app's navigation, used by the sidebar (desktop) and the menu (phones).
 //
 // Who sees what:
-//   visitor            Developer lab
-//   signed up, waiting Access request · Markets · Developer lab
-//   approved client    Wallet · Markets · Portfolio · Developer lab
+//   visitor            (nothing: every app page needs a login)
+//   signed up, waiting Access request · Markets
+//   approved client    Wallet · Markets · Portfolio
 //   admin              Markets · Dealer desk · Applications · Developer lab
+// The developer lab acts as any demo party, so it is for admins only.
 // "Wallet" is the simulated USYC fund (the on-ramp: faucet, subscribe,
 // redeem, send); Markets and Portfolio are the Pendle part built on top.
 import type { ReactNode } from 'react'
@@ -38,12 +39,11 @@ type NavSection = {
   items: NavItem[]
 }
 
-const LAB: NavItem = { to: '/lab', label: 'Developer lab', icon: ScanEyeIcon }
-
 function navSectionsFor(profile: Profile | null | undefined): NavSection[] {
-  // Nobody logged in (or the API is not reachable): the lab is open to everyone.
+  // Nobody logged in (or the API is not reachable): no links (this only
+  // happens on the "page not found" screen).
   if (profile === null || profile === undefined) {
-    return [{ items: [LAB] }]
+    return []
   }
   if (profile.role === 'ADMIN') {
     return [
@@ -55,7 +55,7 @@ function navSectionsFor(profile: Profile | null | undefined): NavSection[] {
           { to: '/admin', label: 'Applications', icon: InboxIcon, extra: <PendingApplicationsCount /> },
         ],
       },
-      { title: 'Tools', items: [LAB] },
+      { title: 'Tools', items: [{ to: '/lab', label: 'Developer lab', icon: ScanEyeIcon }] },
     ]
   }
   if (profile.wallet !== null) {
@@ -67,7 +67,6 @@ function navSectionsFor(profile: Profile | null | undefined): NavSection[] {
           { to: '/portfolio', label: 'Portfolio', icon: ChartPieIcon },
         ],
       },
-      { title: 'Tools', items: [LAB] },
     ]
   }
   // Signed up but not approved yet: they may look at the markets meanwhile.
@@ -78,7 +77,6 @@ function navSectionsFor(profile: Profile | null | undefined): NavSection[] {
         { to: '/markets', label: 'Markets', icon: ChartColumnIcon },
       ],
     },
-    { title: 'Tools', items: [LAB] },
   ]
 }
 
