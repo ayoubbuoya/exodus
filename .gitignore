@@ -10,6 +10,18 @@ exodus-app/web/dist/
 # Canton sandbox logs (written in the folder where `dpm sandbox` runs)
 log/
 
+# Local only (Farouk's laptop, never pushed): AI assistant files, frontend
+# notes, render sources and the asset pipeline. The site only needs the built
+# images in exodus-app/web/public/, which stay tracked.
+CLAUDE.md
+AGENTS.md
+internals/
+assets/
+scripts/
+
+# Python bytecode caches
+__pycache__/
+
 # exodus-app/api: local settings, build output and the generated Prisma client
 .env
 exodus-app/api/dist/

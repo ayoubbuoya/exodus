@@ -3,7 +3,8 @@
 // within 2 seconds, so this list is mostly empty; it matters when the oracle
 // is paused (no price to pay a claim or a redeem with).
 //
-// Example row: "Merge · 10 PT + 10 YT · about 10 USYC · waiting for the Operator"
+// Example row: "Redeem PT + YT (merge) · 10 PT + 10 YT · about 10 USYC"
+import { HourglassIcon } from 'lucide-react'
 import { formatAmount } from '@exodus/ledger'
 import { toast } from 'sonner'
 import { useCancelMarketRequest, usePortfolio } from '@/api/market-hooks'
@@ -44,13 +45,16 @@ export function OpenRequests({ marketId }: { marketId?: string }) {
   }
 
   return (
-    <section aria-labelledby="open-market-requests" className="flex flex-col gap-2">
-      <h3 id="open-market-requests" className="text-sm font-medium">
+    <section aria-labelledby="open-market-requests" className="grid gap-2">
+      <h3 id="open-market-requests" className="label-caps">
         Waiting for the Operator
       </h3>
-      <ul className="flex flex-col divide-y rounded-md border">
+      <ul className="grid gap-2">
         {requests.map((request) => (
-          <li key={request.requestId} className="flex items-center gap-3 px-3 py-2">
+          <li key={request.requestId} className="flex items-center gap-3 rounded-2xl bg-foreground/4 px-3 py-2.5">
+            <span className="grid size-8 shrink-0 place-items-center rounded-full bg-info/15 text-info">
+              <HourglassIcon className="size-4" aria-hidden />
+            </span>
             <div className="flex min-w-0 flex-1 flex-col">
               <span className="text-sm">
                 {KIND_LABEL[request.kind]} · <span className="num">{describeAmount(request)}</span>

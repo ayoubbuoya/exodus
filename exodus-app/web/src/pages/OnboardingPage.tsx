@@ -1,16 +1,15 @@
 // /onboarding: request access, then follow the review.
 //
 // What Alice sees depends on her application (from GET /api/auth/me):
-//   none      -> the access form
+//   none      -> the access form                       (journey step 2)
 //   PENDING   -> "under review" (the page re-checks every 10 s, see useProfile)
 //   REJECTED  -> the reason, and the form pre-filled to apply again
-//   approved  -> "You are approved" with a button to her wallet
-import type { ReactNode } from 'react'
+//   approved  -> "You're approved" with her party id and the way to her wallet
 import { useProfile } from '@/api/hooks'
 import type { Profile } from '@/api/types'
+import { AuthCard } from '@/components/auth/AuthCard'
 import { ApplicationForm } from '@/components/onboarding/ApplicationForm'
-import { ApprovedCard, PendingCard, RejectedNotice } from '@/components/onboarding/StatusCards'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { ApprovedDetails, PendingDetails, RejectedNotice } from '@/components/onboarding/StatusCards'
 
 export function OnboardingPage() {
   const { data: profile } = useProfile({ pollWhilePending: true })
@@ -19,50 +18,46 @@ export function OnboardingPage() {
   if (profile === undefined || profile === null) {
     return null
   }
-  return (
-    <div className="mx-auto flex max-w-xl flex-col gap-6 px-4 py-12">
-      <OnboardingStep profile={profile} />
-    </div>
-  )
+  return <OnboardingStep profile={profile} />
 }
 
 function OnboardingStep({ profile }: { profile: Profile }) {
   const application = profile.application
   if (profile.wallet !== null) {
-    return <ApprovedCard partyId={profile.wallet.partyId} />
+    return (
+      <AuthCard
+        step="done"
+        width="lg"
+        title="You're approved"
+        description="Your Canton wallet and access pass are ready. Claim test USDC to start."
+      >
+        <ApprovedDetails partyId={profile.wallet.partyId} />
+      </AuthCard>
+    )
   }
   if (application === null) {
     return (
-      <FormCard title="Request access" description="Three quick questions. An admin reviews every request.">
-        <ApplicationForm submitLabel="Send request" />
-      </FormCard>
+      <AuthCard step="request" width="lg" title="Request access" description="Three quick questions. An admin reviews every request.">
+        <ApplicationForm submitLabel="Send request" pendingLabel="Sending…" />
+      </AuthCard>
     )
   }
   if (application.status === 'REJECTED') {
     return (
-      <>
+      <AuthCard step="request" width="lg" title="Apply again" description="Check your details and send the request again.">
         <RejectedNotice application={application} />
-        <FormCard title="Apply again" description="Check your details and send the request again.">
-          <ApplicationForm
-            initialValues={{ fullName: application.fullName, country: application.country }}
-            submitLabel="Send again"
-          />
-        </FormCard>
-      </>
+        <ApplicationForm
+          initialValues={{ fullName: application.fullName, country: application.country }}
+          submitLabel="Send again"
+          pendingLabel="Sending…"
+        />
+      </AuthCard>
     )
   }
   // PENDING (APPROVED always comes with a wallet, handled above).
-  return <PendingCard application={application} />
-}
-
-function FormCard({ title, description, children }: { title: string; description: string; children: ReactNode }) {
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-xl">{title}</CardTitle>
-        <CardDescription>{description}</CardDescription>
-      </CardHeader>
-      <CardContent>{children}</CardContent>
-    </Card>
+    <AuthCard step="review" width="lg" title="Under review" description="An Exodus admin checks every request.">
+      <PendingDetails application={application} />
+    </AuthCard>
   )
 }

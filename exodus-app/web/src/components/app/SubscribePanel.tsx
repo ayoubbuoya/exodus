@@ -7,7 +7,8 @@
 // redeems 100 USYC. Her USYC is burned at once and the request shows as
 // "Pending". A few seconds later the fund pays her at the price of that
 // moment: at 1.03 she gets 103 USDC. While it is pending she can cancel it.
-import { useState, type FormEvent } from 'react'
+import { useState, type FormEvent, type ReactNode } from 'react'
+import { ArrowDownIcon, HourglassIcon, TriangleAlertIcon } from 'lucide-react'
 import { formatAmount } from '@exodus/ledger'
 import { toast } from 'sonner'
 import { fieldErrorOf } from '@/api/client'
@@ -19,11 +20,12 @@ import {
   useSubscribe,
   useWallet,
 } from '@/api/hooks'
+import { AmountInput } from '@/components/finance/AmountInput'
 import { FormError } from '@/components/FormError'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field'
-import { Input } from '@/components/ui/input'
+import { FieldError } from '@/components/ui/field'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { isPositiveAmount, isUsycAmount, previewUsdc, previewUsyc, trimZeros } from '@/lib/amount'
 
@@ -42,7 +44,7 @@ export function SubscribePanel() {
           <TabsContent value="subscribe">
             <SubscribeForm />
           </TabsContent>
-          <TabsContent value="redeem" className="flex flex-col gap-6">
+          <TabsContent value="redeem" className="grid gap-6">
             <RedeemForm />
             <PendingRedemptions />
           </TabsContent>
@@ -76,52 +78,35 @@ function SubscribeForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit}>
-      <FieldGroup>
-        <Field data-invalid={amountError !== undefined}>
-          <div className="flex items-center justify-between">
-            <FieldLabel htmlFor="subscribe-amount">You pay (USDC)</FieldLabel>
-            <button
-              type="button"
-              className="text-xs text-primary hover:underline"
-              onClick={() => setUsdcAmount(Number(usdcBalance) > 0 ? trimZeros(usdcBalance) : '')}
-            >
-              Max: <span className="num">{formatAmount(usdcBalance)}</span>
-            </button>
-          </div>
-          <Input
-            id="subscribe-amount"
-            className="num text-lg"
-            inputMode="decimal"
-            placeholder="0.00"
-            autoComplete="off"
-            value={usdcAmount}
-            onChange={(event) => setUsdcAmount(event.target.value.trim())}
-            aria-invalid={amountError !== undefined}
-          />
-          <FieldDescription>
-            {preview !== null && index !== null ? (
-              <>
-                You get about <span className="num text-foreground">{formatAmount(preview)} USYC</span> at{' '}
-                <span className="num">${formatAmount(index, 4)}</span>. The exact amount uses the price when the
-                ledger runs your order, rounded down to 6 decimals.
-              </>
-            ) : (
-              'USYC received = USDC paid ÷ USYC price.'
-            )}
-          </FieldDescription>
-          {amountError !== undefined && <FieldError>{amountError}</FieldError>}
-        </Field>
-
-        <FormError error={subscribe.error} />
-        {price.data !== undefined && !isPriceLive && (
-          <p className="text-sm text-warning">The price feed is paused (the oracle bot is not running). Try again soon.</p>
-        )}
-
-        <Button type="submit" size="lg" disabled={!isPositiveAmount(usdcAmount) || !isPriceLive || subscribe.isPending}>
-          {subscribe.isPending ? 'Subscribing…' : 'Subscribe'}
-        </Button>
-      </FieldGroup>
+    <form onSubmit={handleSubmit} className="grid gap-3">
+      <AmountInput
+        id="subscribe-amount"
+        label="You pay"
+        unit="USDC"
+        value={usdcAmount}
+        onChange={setUsdcAmount}
+        balance={usdcBalance}
+        onMax={() => setUsdcAmount(Number(usdcBalance) > 0 ? trimZeros(usdcBalance) : '')}
+        invalid={amountError !== undefined}
+      />
+      {amountError !== undefined && <FieldError>{amountError}</FieldError>}
+      <YouGet
+        amount={preview === null ? null : `${formatAmount(preview)} USYC`}
+        note={index === null ? 'USYC received = USDC paid ÷ USYC price' : `1 USYC = $${formatAmount(index, 4)}`}
+      />
+      <FormError error={subscribe.error} />
+      {price.data !== undefined && !isPriceLive && <PausedNotice>Subscribing waits for a fresh price.</PausedNotice>}
+      <Button
+        type="submit"
+        variant="bright"
+        size="lg"
+        disabled={!isPositiveAmount(usdcAmount) || !isPriceLive || subscribe.isPending}
+      >
+        {subscribe.isPending ? 'Subscribing…' : 'Subscribe'}
+      </Button>
+      <p className="text-xs leading-5 text-muted-foreground">
+        One ledger transaction at the price when it runs, rounded down to 6 decimals.
+      </p>
     </form>
   )
 }
@@ -152,55 +137,55 @@ function RedeemForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit}>
-      <FieldGroup>
-        <Field data-invalid={amountError !== undefined}>
-          <div className="flex items-center justify-between">
-            <FieldLabel htmlFor="redeem-amount">You redeem (USYC)</FieldLabel>
-            <button
-              type="button"
-              className="text-xs text-primary hover:underline"
-              onClick={() => setUsycAmount(Number(usycBalance) > 0 ? trimZeros(usycBalance) : '')}
-            >
-              Max: <span className="num">{formatAmount(usycBalance)}</span>
-            </button>
-          </div>
-          <Input
-            id="redeem-amount"
-            className="num text-lg"
-            inputMode="decimal"
-            placeholder="0.00"
-            autoComplete="off"
-            value={usycAmount}
-            onChange={(event) => setUsycAmount(event.target.value.trim())}
-            aria-invalid={amountError !== undefined}
-          />
-          <FieldDescription>
-            {preview !== null && index !== null ? (
-              <>
-                You get about <span className="num text-foreground">{formatAmount(preview)} USDC</span> at{' '}
-                <span className="num">${formatAmount(index, 4)}</span>. Your USYC is burned now; the fund pays at the
-                price when it settles your request (a few seconds later), rounded down to 6 decimals.
-              </>
-            ) : (
-              'USDC received = USYC redeemed × USYC price. At most 6 decimals.'
-            )}
-          </FieldDescription>
-          {amountError !== undefined && <FieldError>{amountError}</FieldError>}
-        </Field>
-
-        <FormError error={redeem.error} />
-        {price.data !== undefined && !isPriceLive && (
-          <p className="text-sm text-warning">
-            The price feed is paused (the oracle bot is not running). Your request will wait until it is back.
-          </p>
-        )}
-
-        <Button type="submit" size="lg" disabled={!isUsycAmount(usycAmount) || redeem.isPending}>
-          {redeem.isPending ? 'Requesting…' : 'Redeem'}
-        </Button>
-      </FieldGroup>
+    <form onSubmit={handleSubmit} className="grid gap-3">
+      <AmountInput
+        id="redeem-amount"
+        label="You redeem"
+        unit="USYC"
+        value={usycAmount}
+        onChange={setUsycAmount}
+        balance={usycBalance}
+        onMax={() => setUsycAmount(Number(usycBalance) > 0 ? trimZeros(usycBalance) : '')}
+        invalid={amountError !== undefined}
+      />
+      {amountError !== undefined && <FieldError>{amountError}</FieldError>}
+      <YouGet
+        amount={preview === null ? null : `${formatAmount(preview)} USDC`}
+        note={index === null ? 'USDC received = USYC × USYC price' : `1 USYC = $${formatAmount(index, 4)}`}
+      />
+      <FormError error={redeem.error} />
+      {price.data !== undefined && !isPriceLive && <PausedNotice>Your request will wait until it is back.</PausedNotice>}
+      <Button type="submit" variant="bright" size="lg" disabled={!isUsycAmount(usycAmount) || redeem.isPending}>
+        {redeem.isPending ? 'Requesting…' : 'Redeem'}
+      </Button>
+      <p className="text-xs leading-5 text-muted-foreground">
+        Your USYC is burned now; the fund pays at its price a few seconds later, rounded down to 6 decimals.
+      </p>
     </form>
+  )
+}
+
+// "You get about 49.382716 USYC" under the amount box, with the price used.
+function YouGet({ amount, note }: { amount: string | null; note: string }) {
+  return (
+    <div className="grid gap-1 px-1">
+      <div className="flex items-center gap-2 text-sm">
+        <ArrowDownIcon className="size-4 text-muted-foreground" aria-hidden />
+        <span className="text-muted-foreground">You get about</span>
+        <span className="num ml-auto font-medium">{amount ?? '—'}</span>
+      </div>
+      <p className="num pl-6 text-xs text-faint">{note}</p>
+    </div>
+  )
+}
+
+// The oracle bot is stopped, so the last price expired (30 s).
+function PausedNotice({ children }: { children: ReactNode }) {
+  return (
+    <Alert variant="warning">
+      <TriangleAlertIcon />
+      <AlertDescription>The price feed is paused (the oracle bot is not running). {children}</AlertDescription>
+    </Alert>
   )
 }
 
@@ -221,13 +206,16 @@ function PendingRedemptions() {
   }
 
   return (
-    <section aria-labelledby="pending-redeems" className="flex flex-col gap-2">
-      <h3 id="pending-redeems" className="text-sm font-medium">
+    <section aria-labelledby="pending-redeems" className="grid gap-2">
+      <h3 id="pending-redeems" className="label-caps">
         Pending redeems
       </h3>
-      <ul className="flex flex-col divide-y rounded-md border">
+      <ul className="grid gap-2">
         {items.map((item) => (
-          <li key={item.requestId} className="flex items-center gap-3 px-3 py-2">
+          <li key={item.requestId} className="flex items-center gap-3 rounded-2xl bg-foreground/4 px-3 py-2.5">
+            <span className="grid size-8 shrink-0 place-items-center rounded-full bg-info/15 text-info">
+              <HourglassIcon className="size-4" aria-hidden />
+            </span>
             <div className="flex min-w-0 flex-1 flex-col">
               <span className="num text-sm">{formatAmount(item.usycAmount)} USYC</span>
               <span className="text-xs text-muted-foreground">

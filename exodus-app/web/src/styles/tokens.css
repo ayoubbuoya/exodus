@@ -1,0 +1,191 @@
+/*
+ * Glacier design tokens (experiment: replaces the earlier "Meridian" look).
+ * Every colour, radius, shadow and glass value in the app comes from here.
+ *
+ * The idea comes from the Exodus mark: a solid SILVER block (principal) with a
+ * blue GLASS wedge (yield) seated in it. So the page is deep navy glass, the
+ * text is silver, and one electric blue carries the yield.
+ *
+ * Two rules to keep in mind when you use them:
+ * - Electric blue (`--yt`) means YIELD and nothing else: YT tokens, claimable
+ *   yield, floating rates, the YT path in diagrams, the glass wedge's light.
+ *   Never use it for buttons, borders, focus rings or decoration. (The faint
+ *   navy tint of glass panels is ambience, not this blue.)
+ * - Silver (`--pt`, same value as `--foreground`) means PRINCIPAL: PT, par and
+ *   the maturity line.
+ *
+ * `:root` holds the light theme ("Frost") and `.dark` the dark theme
+ * ("Glacier", the default). index.html and the ThemeProvider put the `dark`
+ * class on <html> unless the user picked "Light" in the account menu. The
+ * landing page is always dark (MarketingLayout adds `.dark`).
+ *
+ * Frost is still glass, not white cards: a thin white fill that blurs the soft
+ * blue light pools behind it (--ambient-*), a bright white rim, a blue-grey
+ * shadow, and a faint blue light that follows the pointer. The blue here is
+ * ambience (like the navy of the dark glass), never the yield ink `--yt`.
+ *
+ * Two scoping classes let one part of a page use a fixed theme:
+ * - `.dark` on any element: the landing page is always dark.
+ * - `.theme-light` on any element inside it: a light island in a dark page
+ *   (not used on the landing page today, kept for the app).
+ * They work because CSS variables are inherited: the nearest ancestor wins.
+ *
+ * The shadcn/ui names (`--background`, `--card`, `--primary`, ...) are kept, so
+ * every existing shadcn component follows the new palette without changes.
+ */
+
+/* Light theme ("Frost"): frosted white glass on a cool, pale sky. */
+:root,
+.theme-light {
+  color-scheme: light;
+  /* Surfaces, from the page up to floating layers. */
+  --background: #eef2f8; /* bg-0: page */
+  --card: #ffffff; /* bg-1: panels, rail */
+  --secondary: #e6ecf5; /* bg-2: hover, selected, inputs */
+  --popover: #ffffff; /* bg-3: sheets, popovers (plus shadow e2) */
+  --muted: #e6ecf5;
+  --accent: #e6ecf5;
+
+  /* Lines. */
+  --border: #d9e0ec; /* line-1: row dividers */
+  --input: #c3cddd; /* line-2: inputs, frames */
+
+  /* Text. */
+  --foreground: #0b1220; /* text-1 */
+  --card-foreground: #0b1220;
+  --popover-foreground: #0b1220;
+  --secondary-foreground: #0b1220;
+  --accent-foreground: #0b1220;
+  --muted-foreground: #46526a; /* text-2 */
+  --faint: #5d6880; /* text-3: labels and axes only (4.9:1 on bg-0) */
+
+  /* The two brand inks. */
+  --pt: #0b1220; /* principal = the text colour */
+  --yt: #1d5bd8; /* electric blue = yield (5.3:1 on bg-0) */
+  --yt-tint: rgb(29 91 216 / 0.1);
+
+  /* Actions and focus: never the yield blue. */
+  --primary: #0b1220;
+  --primary-foreground: #eef2f8;
+  --ring: #0b1220;
+
+  /* Status: always paired with a word or an icon. Info is violet, so
+     "pending" never looks like yield. */
+  --success: #1f7a4d;
+  --destructive: #c0392b;
+  --warning: #8a6200;
+  --info: #5b4bd1;
+
+  /* Hairline hatch for data that is "not on this ledger". */
+  --hatch: #d3dbe8;
+
+  /* Charts (kept for shadcn compatibility). */
+  --chart-1: #0b1220;
+  --chart-2: #1d5bd8;
+
+  /* Elevation: e1 = subtle panel lift, e2 = floating layers. */
+  --elev-1: 0 1px 2px rgb(11 18 32 / 0.05);
+  --elev-2: 0 18px 40px -16px rgb(11 18 32 / 0.25);
+
+  /* Glass (see .glass in index.css). On light, glass is frosted white: a thin
+     fill, so the blue light pools behind it (--ambient-*) tint it through the
+     blur. The rim is a gradient: pure white where the light hits (top left),
+     a faint blue-grey edge at the bottom right. */
+  --glass-fill: rgb(255 255 255 / 0.52);
+  /* Floating glass (menus, popovers, the quote card) sits over dark text, which
+     shows through white glass far more than through dark glass: thicker fill. */
+  --glass-fill-strong: rgb(255 255 255 / 0.9);
+  /* The nav bar: every section scrolls under it, so it is the most opaque glass. */
+  --glass-fill-bar: rgb(255 255 255 / 0.92);
+  --glass-rim: linear-gradient(
+    145deg,
+    rgb(255 255 255 / 1),
+    rgb(255 255 255 / 0.55) 30%,
+    rgb(40 70 140 / 0.1) 62%,
+    rgb(40 70 140 / 0.2)
+  );
+  /* A 1 px white top edge (light caught by the glass) and a soft blue-grey shadow. */
+  --glass-shadow: inset 0 1px 0 rgb(255 255 255 / 0.8), 0 18px 44px -22px rgb(30 60 140 / 0.35);
+  /* .glass-sheen: the corner highlight and the diagonal streak. */
+  --glass-sheen: rgb(255 255 255 / 0.75);
+  --glass-streak: rgb(255 255 255 / 0.4);
+  /* .glass-glow: the light that follows the pointer, a faint cool blue. */
+  --glass-glow: rgb(90 130 230 / 0.12);
+  /* The still light pools behind the app (AppBackdrop): the glass blurs them. */
+  --ambient-a: rgb(96 140 255 / 0.3);
+  --ambient-b: rgb(130 190 255 / 0.26);
+  /* A third, softer pool behind the middle of the page (centred panels such as login). */
+  --ambient-c: rgb(150 175 255 / 0.2);
+  /* Behind a dialog. */
+  --overlay: rgb(11 18 32 / 0.25);
+
+  /* Radius: 8 chips, 12 controls, 20 cards, 28 panels. Glass reads as soft and machined. */
+  --radius: 0.75rem;
+}
+
+/* Dark theme ("Glacier"), the default: deep navy, like looking through thick smoked glass. */
+.dark {
+  color-scheme: dark;
+  --background: #060a13; /* bg-0: page */
+  --card: #0b1220; /* bg-1: surfaces */
+  --secondary: #111a2b; /* bg-2: hover, selected, inputs */
+  --popover: #121b2e; /* bg-3: floating layers */
+  --muted: #111a2b;
+  --accent: #111a2b;
+
+  --border: #1a2438; /* line-1 */
+  --input: #2a3856; /* line-2 */
+
+  --foreground: #e6ecf5; /* silver, 16.9:1 on bg-0 */
+  --card-foreground: #e6ecf5;
+  --popover-foreground: #e6ecf5;
+  --secondary-foreground: #e6ecf5;
+  --accent-foreground: #e6ecf5;
+  --muted-foreground: #9aa8bf;
+  --faint: #7887a0;
+
+  --pt: #e6ecf5;
+  --yt: #4d8dff; /* 6.1:1 on bg-0 */
+  --yt-tint: rgb(77 141 255 / 0.14);
+
+  --primary: #e6ecf5;
+  --primary-foreground: #060a13;
+  --ring: #e6ecf5;
+
+  --success: #6fd6a0;
+  --destructive: #ff7a6b;
+  --warning: #f0c75e;
+  --info: #a99bff;
+
+  --hatch: #1e2a40;
+
+  --chart-1: #e6ecf5;
+  --chart-2: #4d8dff;
+
+  /* On dark, a panel is lifted by a faint top highlight, not a shadow. */
+  --elev-1: inset 0 1px 0 rgb(255 255 255 / 0.04);
+  --elev-2: 0 24px 60px -20px rgb(0 0 0 / 0.7);
+
+  /* Glass: a thin smoky fill, a rim that catches light at the top left and
+     bounces faintly at the bottom right, a deep soft shadow. */
+  --glass-fill: rgb(255 255 255 / 0.045);
+  --glass-fill-strong: rgb(16 22 36 / 0.72);
+  --glass-fill-bar: rgb(12 17 29 / 0.86);
+  --glass-rim: linear-gradient(
+    145deg,
+    rgb(255 255 255 / 0.36),
+    rgb(255 255 255 / 0.08) 30%,
+    rgb(255 255 255 / 0.03) 62%,
+    rgb(255 255 255 / 0.16)
+  );
+  --glass-shadow: 0 30px 70px -30px rgb(0 0 0 / 0.75);
+  --glass-sheen: rgb(255 255 255 / 0.09);
+  --glass-streak: rgb(255 255 255 / 0.035);
+  --glass-glow: rgb(255 255 255 / 0.06);
+  /* A faint silver light at the top left and a deep navy one at the bottom right. */
+  --ambient-a: rgb(190 205 235 / 0.07);
+  --ambient-b: rgb(45 80 170 / 0.13);
+  /* No middle pool on dark: the navy page already gives the glass depth. */
+  --ambient-c: transparent;
+  --overlay: rgb(0 0 0 / 0.45);
+}

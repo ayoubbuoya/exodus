@@ -1,17 +1,25 @@
 import { Link } from 'react-router'
+import { cn } from 'cn'
+import { Mark } from '@/components/brand/Mark'
 
-// The Exodus word mark. The icon is two stacked bars: one asset split in two
-// (PT on top, YT below), which is what Exodus does.
-export function Logo() {
+type LogoProps = {
+  /** "lg" for the landing page's top bar and footer, "md" for app screens. */
+  size?: 'md' | 'lg'
+  className?: string
+}
+
+// The Exodus lockup: the seated-wedge mark next to the wordmark set in the display voice (Inter).
+// It always links home. The accessible name comes from the visible word "Exodus".
+export function Logo({ size = 'md', className }: LogoProps) {
   return (
-    <Link to="/" className="flex items-center gap-2 font-semibold tracking-tight">
-      <span aria-hidden className="grid size-7 place-items-center rounded-lg bg-primary/15">
-        <svg viewBox="0 0 16 16" className="size-4 fill-primary">
-          <rect x="2" y="3" width="12" height="4" rx="1.5" />
-          <rect x="2" y="9" width="8" height="4" rx="1.5" className="fill-gold" />
-        </svg>
+    <Link
+      to="/"
+      className={cn('flex items-center text-foreground', size === 'lg' ? 'gap-3' : 'gap-2.5', className)}
+    >
+      <Mark className={size === 'lg' ? 'h-7 w-auto' : 'h-5 w-auto'} />
+      <span className={cn('font-display leading-none', size === 'lg' ? 'text-[26px]' : 'text-xl')}>
+        Exodus
       </span>
-      Exodus
     </Link>
   )
 }

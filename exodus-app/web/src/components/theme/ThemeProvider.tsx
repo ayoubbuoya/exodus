@@ -1,40 +1,38 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { ThemeContext, type Theme } from './theme-context.ts'
+import { THEME_STORAGE_KEY, themeFromSaved, type Theme } from '@/lib/theme'
+import { ThemeContext } from './theme-context.ts'
+import { paintTheme, readSavedTheme, saveTheme, withoutTransitions } from './theme-dom.ts'
 
-// Light or dark look for the whole app (decision G in docs/client-app.md: dark is the default).
+// The app's appearance: dark ("Glacier", the default) or light ("Frost", frosted
+// blue glass), chosen in the account menu (decision G in docs/client-app.md).
+// The rules (dark by default, the landing page always dark) are in lib/theme.ts.
 //
 // Why our own provider instead of the `next-themes` package: next-themes renders
 // an inline <script> (made for server rendering), and React 19 logs an error for
-// that on every page. We render in the browser only, so 30 plain lines are enough.
-//
-// How it works: we put the class "dark" on <html> or remove it. Tailwind's
-// `dark:` classes and the colour variables in index.css react to that class.
-// index.html sets the class before React starts, so the page never flashes white.
-
-// Also read by the small script in index.html. Keep both in sync.
-const STORAGE_KEY = 'exodus-theme'
-
-// The saved theme, or dark if nothing is saved (or storage is blocked, for example in a private window).
-function readSavedTheme(): Theme {
-  try {
-    return localStorage.getItem(STORAGE_KEY) === 'light' ? 'light' : 'dark'
-  } catch {
-    return 'dark'
-  }
-}
-
+// that on every page. We render in the browser only, so a few lines are enough.
+// index.html already painted the saved choice before React started, so the
+// page never flashes.
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setTheme] = useState<Theme>(readSavedTheme)
+  const [theme, setThemeState] = useState<Theme>(readSavedTheme)
 
-  // Apply the theme to <html> and remember it for the next visit.
+  // A choice made in another tab of the same browser applies here too.
   useEffect(() => {
-    document.documentElement.classList.toggle('dark', theme === 'dark')
-    try {
-      localStorage.setItem(STORAGE_KEY, theme)
-    } catch {
-      // Storage blocked: the theme still works, it just won't be remembered.
+    function onStorage(event: StorageEvent) {
+      if (event.key === THEME_STORAGE_KEY) {
+        const next = themeFromSaved(event.newValue)
+        setThemeState(next)
+        withoutTransitions(() => paintTheme(next))
+      }
     }
-  }, [theme])
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [])
+
+  function setTheme(next: Theme) {
+    setThemeState(next)
+    saveTheme(next)
+    withoutTransitions(() => paintTheme(next))
+  }
 
   return <ThemeContext.Provider value={{ theme, setTheme }}>{children}</ThemeContext.Provider>
 }

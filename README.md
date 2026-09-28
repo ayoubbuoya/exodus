@@ -31,7 +31,7 @@ PTs trade through **private RFQ** with **atomic delivery versus payment**: only 
 
 The **Wallet**, the simulated USYC on-ramp (faucet, subscribe, redeem, send):
 
-![The /app wallet: USYC price, 30-day APY, demo date, price chart, subscribe panel, faucet, holdings, send form and activity](docs/images/dashboard.png)
+![The /app wallet: wallet value, USYC, USDC and the fund's 30-day APY, the USYC price chart, Subscribe / Redeem, holdings with a Send button per token, the test USDC faucet and the activity read from the ledger](docs/images/dashboard.png)
 
 ## Why Canton
 

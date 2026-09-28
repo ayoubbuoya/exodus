@@ -1,30 +1,47 @@
 /*
- * Global styles and the "Exodus Night" theme (see docs/client-app.md, decision G).
+ * Global styles for the Glacier theme (smoky glass, silver principal, blue yield).
  *
  * How theming works:
- * - Tailwind v4 reads the `@theme inline` block below and creates utility
- *   classes from it. For example `--color-primary` gives us `bg-primary`,
- *   `text-primary`, `border-primary`, ...
- * - Those point at plain CSS variables (`--primary`, ...). `:root` holds the
- *   light values and `.dark` the dark values. The ThemeProvider in main.tsx
- *   puts the `dark` class on <html>, so switching theme only swaps variables.
- * - shadcn/ui components use the same variable names, so they follow the theme.
+ * - The colour values live in `styles/tokens.css` (light on `:root`, dark on `.dark`).
+ * - Tailwind v4 reads the `@theme inline` block below and turns each entry into
+ *   utility classes. For example `--color-yt` gives us `text-yt`, `bg-yt`, ...
+ * - The `dark` class on <html> picks the dark tokens (the default); without it
+ *   the light "Frost" tokens apply (the app's Light appearance, see
+ *   src/lib/theme.ts). shadcn/ui components use the same variable names and
+ *   follow along.
  */
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
-/* Fonts are bundled from npm (no request to Google): Inter for text,
-   JetBrains Mono for numbers so amounts line up in columns. */
-@import "@fontsource-variable/inter";
-@import "@fontsource-variable/jetbrains-mono";
+@import "./styles/tokens.css";
+/* Fonts are bundled from npm (no request to Google):
+   - Inter for everything: interface text, headlines and every number (it has
+     tabular figures). The "opsz" file carries Inter's optical sizes, so big
+     headlines automatically use the tighter Display cut and small labels the
+     more open Text cut. Clean and quiet, like the glass it sits on.
+   - Geist Mono only for identifiers (party ids, contract ids, UTC times). */
+@import "@fontsource-variable/inter/opsz.css";
+@import "@fontsource-variable/geist-mono";
 
 /* `dark:` classes apply when an ancestor has the `dark` class. */
 @custom-variant dark (&:is(.dark *));
 
+/* Desktop screens split by height, for the split story (SplitStory.tsx):
+   `scrolly:` = at least 1024 × 560: the story is sticky and scroll-driven.
+   `tall:`    = at least 1024 × 760: stacked layout (title, picture, caption).
+   `short:`   = a desktop width, 560–759 px tall (for example a 1920 × 1080
+                laptop at 125% zoom with browser bars, about 1536 × 700): side
+                by side (text left, picture right), still scroll-driven.
+   Below 560 px tall the story falls back to the step buttons. */
+@custom-variant scrolly (@media (min-width: 1024px) and (min-height: 560px));
+@custom-variant tall (@media (min-width: 1024px) and (min-height: 760px));
+@custom-variant short (@media (min-width: 1024px) and (min-height: 560px) and (max-height: 759.98px));
+
 @theme inline {
-  --font-sans: "Inter Variable", system-ui, sans-serif;
+  --font-sans: "Inter Variable", "Helvetica Neue", Arial, sans-serif;
   --font-heading: var(--font-sans);
-  --font-mono: "JetBrains Mono Variable", ui-monospace, monospace;
+  --font-display: var(--font-sans);
+  --font-mono: "Geist Mono Variable", ui-monospace, Menlo, monospace;
 
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -47,75 +64,30 @@
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);
 
-  /* Our own extra colours (not part of shadcn):
-     gold = yield / APY highlights, warning = "Simulated" badge, success = confirmations. */
-  --color-gold: var(--gold);
-  --color-warning: var(--warning);
+  /* Exodus colours (not part of shadcn). */
+  --color-faint: var(--faint);
+  --color-pt: var(--pt);
+  --color-yt: var(--yt);
+  --color-yt-tint: var(--yt-tint);
+  --color-hatch: var(--hatch);
   --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
 
-  --radius-sm: calc(var(--radius) * 0.6);
-  --radius-md: calc(var(--radius) * 0.8);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.4);
-  --radius-2xl: calc(var(--radius) * 1.8);
-}
+  /* Radius scale: chips 8, controls 12, cards 20, panels 28.
+     Glass reads as soft, machined edges (like the rounded silver block of the mark). */
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 12px;
+  --radius-xl: 20px;
+  --radius-2xl: 28px;
 
-/* Light mode. */
-:root {
-  --radius: 0.625rem;
+  --shadow-e1: var(--elev-1);
+  --shadow-e2: var(--elev-2);
 
-  --background: #f7f8fa;
-  --foreground: #0f1720;
-  --card: #ffffff;
-  --card-foreground: #0f1720;
-  --popover: #ffffff;
-  --popover-foreground: #0f1720;
-  --primary: #0f9e8c; /* teal */
-  --primary-foreground: #ffffff;
-  --secondary: #eef1f5;
-  --secondary-foreground: #0f1720;
-  --muted: #eef1f5;
-  --muted-foreground: #5b6675;
-  --accent: #e6f6f3;
-  --accent-foreground: #0b6f63;
-  --destructive: #dc2626;
-  --border: #e3e7ed;
-  --input: #d5dbe3;
-  --ring: #0f9e8c;
-  --chart-1: #0f9e8c;
-  --chart-2: #b7862b;
-
-  --gold: #b7862b;
-  --warning: #b45309;
-  --success: #15803d;
-}
-
-/* Dark mode (the default). */
-.dark {
-  --background: #0a0e14;
-  --foreground: #e7ecf3;
-  --card: #111722;
-  --card-foreground: #e7ecf3;
-  --popover: #111722;
-  --popover-foreground: #e7ecf3;
-  --primary: #2dd4bf; /* teal */
-  --primary-foreground: #042f2a;
-  --secondary: #1a2230;
-  --secondary-foreground: #e7ecf3;
-  --muted: #161e2a;
-  --muted-foreground: #8b97a8;
-  --accent: #13302f;
-  --accent-foreground: #5eead4;
-  --destructive: #f87171;
-  --border: #1f2733;
-  --input: #263041;
-  --ring: #2dd4bf;
-  --chart-1: #2dd4bf;
-  --chart-2: #e8b75a;
-
-  --gold: #e8b75a;
-  --warning: #fbbf24;
-  --success: #34d399;
+  /* Motion: standard easing in, accelerate out. */
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
 }
 
 @layer base {
@@ -132,11 +104,261 @@
   [role="button"]:not(:disabled) {
     cursor: pointer;
   }
+  /* A visible, text-coloured focus ring everywhere (never the yield blue). */
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  ::selection {
+    background: color-mix(in oklab, var(--foreground) 18%, transparent);
+  }
+}
+
+/* The display voice: Inter (its Display cut at these sizes), medium weight,
+   tight tracking, plain colour. Hierarchy comes from size and from white
+   against dimmed white, never from gradients.
+   It lives in the components layer, so a utility in the markup (for example
+   font-semibold) can still override it. */
+@layer components {
+  .font-display {
+    font-weight: 500;
+    letter-spacing: -0.035em;
+  }
 }
 
 @layer utilities {
-  /* Numbers in the same column line up (1,000.00 above 25.50). */
+  /* Amounts, prices, rates and dates: digits line up in columns
+     (1,000.00 above 25.50). Uses the UI font, not a monospace font. */
   .num {
-    @apply font-mono tabular-nums;
+    font-variant-numeric: tabular-nums;
+  }
+  /* Identifiers only: party ids, contract ids, UTC times. Never amounts. */
+  .ident {
+    @apply font-mono text-[0.92em];
+  }
+  /* Small uppercase column heads and field labels. */
+  .label-caps {
+    @apply text-[11px] leading-4 font-medium tracking-[0.06em] text-faint uppercase;
+  }
+}
+
+/* ==========================================================================
+   Glass: the material every panel, chip and control on the landing page is made of.
+   ========================================================================== */
+
+@layer components {
+  /* A glass panel ("liquid glass"):
+     - a thin smoky fill, with the page blurred and a little more saturated behind it,
+     - a 1 px RIM drawn with a gradient (::before): bright at the top left where
+       the light hits, almost gone along the sides, a faint bounce at the bottom
+       right. A plain 1 px border looks flat; this is what makes it read as glass,
+     - a deep, soft shadow underneath.
+     Example: <div class="glass rounded-2xl p-6">…</div> */
+  .glass,
+  .glass-strong {
+    position: relative;
+    isolation: isolate;
+    background-color: var(--glass-fill);
+    box-shadow: var(--glass-shadow);
+    backdrop-filter: blur(24px) saturate(170%);
+    -webkit-backdrop-filter: blur(24px) saturate(170%);
+  }
+  /* Thicker glass for floating things (the chapter bar, the quote card):
+     more fill, so text stays readable over anything that passes behind. */
+  .glass-strong {
+    background-color: var(--glass-fill-strong);
+    backdrop-filter: blur(32px) saturate(180%);
+    -webkit-backdrop-filter: blur(32px) saturate(180%);
+  }
+  /* The thickest glass, for the landing page's nav bar only. Every section
+     scrolls under it, and with .glass-strong big text (like "1,000 PT") was
+     still readable through it. Use it together with .glass-strong:
+     <div class="glass-strong glass-bar">…</div> (it only changes the fill
+     and the blur, so it must come after .glass-strong in this file). */
+  .glass-bar {
+    background-color: var(--glass-fill-bar);
+    backdrop-filter: blur(40px) saturate(180%);
+    -webkit-backdrop-filter: blur(40px) saturate(180%);
+  }
+  /* The rim. The mask keeps only a 1 px ring: it shows the whole box, minus
+     its content box (the box shrunk by the 1 px padding). */
+  .glass::before,
+  .glass-strong::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    padding: 1px;
+    background: var(--glass-rim);
+    mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    mask-composite: exclude;
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    pointer-events: none;
+  }
+  /* A soft highlight in the top left corner and a faint diagonal streak, like
+     light caught inside a thick pane. For large panels only. */
+  .glass-sheen::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    background:
+      radial-gradient(70% 55% at 0% 0%, var(--glass-sheen), transparent 70%),
+      linear-gradient(118deg, transparent 38%, var(--glass-streak) 46%, transparent 56%);
+    pointer-events: none;
+  }
+  /* Glass that answers the pointer: a soft light follows the cursor.
+     MarketingLayout writes the pointer position into --mx / --my (in px,
+     relative to the panel), so this is plain CSS, with no React re-render. */
+  .glass-glow {
+    background-image: radial-gradient(
+      380px circle at var(--mx, 50%) var(--my, -40%),
+      var(--glass-glow),
+      transparent 60%
+    );
+  }
+}
+
+@layer utilities {
+  /* Sections scroll into place: they rise out of a slight blur as they enter
+     the screen. Pure CSS (scroll-driven animation), so browsers without it
+     simply show the section. */
+  @supports (animation-timeline: view()) {
+    .reveal {
+      animation: rise-in linear both;
+      animation-timeline: view();
+      animation-range: entry 0% entry 55%;
+    }
+  }
+}
+
+/* ==========================================================================
+   Motion
+   ========================================================================== */
+
+/* The glass instrument is driven by numbers from 0 to 1 (see GlassStage.tsx):
+   --p      progress through the split story (set from scroll or a click),
+   --rise   the intro: the object comes out of the dark,
+   --seam   the "cut": a blue light gathers around the glass wedge,
+   --slide  how far the wedge has left the slot,
+   --glow   how bright the blue light from the glass is.
+   Registering them with @property makes them animatable: CSS can transition or
+   keyframe them smoothly instead of jumping. The initial values are the
+   resting state for any place that does not animate them (for example
+   --rise = 1: the object is simply there). */
+@property --p {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0;
+}
+@property --rise {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 1;
+}
+@property --seam {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0;
+}
+@property --slide {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0;
+}
+@property --glow {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0.5;
+}
+
+/* The hero intro, played once:
+   0–34%   the instrument rises out of the dark,
+   34–52%  the cut: blue light gathers around the glass wedge,
+   56–100% the wedge slides out of the silver block and lights up. */
+@keyframes glass-hero {
+  0% {
+    --rise: 0;
+    --seam: 0;
+    --slide: 0;
+    --glow: 0.2;
+  }
+  34% {
+    --rise: 1;
+    --seam: 0;
+    --slide: 0;
+    --glow: 0.3;
+  }
+  52% {
+    --rise: 1;
+    --seam: 1;
+    --slide: 0;
+    --glow: 0.45;
+  }
+  56% {
+    --rise: 1;
+    --seam: 1;
+    --slide: 0;
+    --glow: 0.45;
+  }
+  100% {
+    --rise: 1;
+    --seam: 1;
+    --slide: 1;
+    --glow: 1;
+  }
+}
+/* Ambient light: soft pools that drift like light under water. */
+@keyframes drift-a {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(-5vw, 4vh, 0) scale(1.08);
+  }
+}
+@keyframes drift-b {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1.04);
+  }
+  50% {
+    transform: translate3d(6vw, -3vh, 0) scale(0.96);
+  }
+}
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+    filter: blur(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+}
+
+/* Users who ask for less motion get the final state straight away. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+  /* Scroll reveals would still move with the scroll: switch them off. */
+  .reveal {
+    animation: none !important;
   }
 }

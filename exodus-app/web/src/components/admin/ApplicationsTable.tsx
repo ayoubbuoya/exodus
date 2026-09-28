@@ -3,7 +3,7 @@
 import { CheckIcon, XIcon } from 'lucide-react'
 import type { ApplicationForReview, ApplicationStatus } from '@/api/types'
 import { countryName } from '@/lib/countries'
-import { Badge } from '@/components/ui/badge'
+import { StatusChip, type StatusTone } from '@/components/StatusChip'
 import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 
@@ -15,7 +15,7 @@ type ApplicationsTableProps = {
 
 export function ApplicationsTable({ applications, onApprove, onReject }: ApplicationsTableProps) {
   if (applications.length === 0) {
-    return <p className="py-10 text-center text-sm text-muted-foreground">No applications here.</p>
+    return <p className="rounded-2xl bg-foreground/3 py-10 text-center text-sm text-muted-foreground">No applications here.</p>
   }
   return (
     <Table>
@@ -58,7 +58,7 @@ function RowAction({ application, onApprove, onReject }: { application: Applicat
           <XIcon data-icon="inline-start" />
           Reject
         </Button>
-        <Button size="sm" onClick={() => onApprove(application)}>
+        <Button size="sm" variant="bright" onClick={() => onApprove(application)}>
           <CheckIcon data-icon="inline-start" />
           Approve
         </Button>
@@ -69,7 +69,7 @@ function RowAction({ application, onApprove, onReject }: { application: Applicat
     // The full id is long ("client-bea33f0558af::1220<64 hex>"): show the start, full id on hover.
     const partyId = application.user.wallet.partyId
     return (
-      <span className="font-mono text-xs text-muted-foreground" title={partyId}>
+      <span className="ident text-xs text-muted-foreground" title={partyId}>
         {partyId.slice(0, 26)}…
       </span>
     )
@@ -77,17 +77,14 @@ function RowAction({ application, onApprove, onReject }: { application: Applicat
   return <span className="text-xs text-muted-foreground">{application.rejectionReason ?? '—'}</span>
 }
 
-const STATUS_STYLE: Record<ApplicationStatus, { label: string; className: string }> = {
-  PENDING: { label: 'Pending', className: 'border-warning/40 text-warning' },
-  APPROVED: { label: 'Approved', className: 'border-primary/40 text-primary' },
-  REJECTED: { label: 'Rejected', className: 'border-destructive/40 text-destructive' },
+// Pending = violet (waiting for someone), approved = green, rejected = red.
+const STATUS_STYLE: Record<ApplicationStatus, { label: string; tone: StatusTone }> = {
+  PENDING: { label: 'Pending', tone: 'info' },
+  APPROVED: { label: 'Approved', tone: 'success' },
+  REJECTED: { label: 'Rejected', tone: 'destructive' },
 }
 
 function StatusBadge({ status }: { status: ApplicationStatus }) {
   const style = STATUS_STYLE[status]
-  return (
-    <Badge variant="outline" className={style.className}>
-      {style.label}
-    </Badge>
-  )
+  return <StatusChip tone={style.tone}>{style.label}</StatusChip>
 }

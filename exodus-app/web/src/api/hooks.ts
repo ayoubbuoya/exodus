@@ -90,7 +90,7 @@ export function useSignup() {
   })
 }
 
-// Ends the session on the server. The caller then reloads the page (see UserMenu),
+// Ends the session on the server. The caller then reloads the page (see useSignOut),
 // which also throws away everything cached for this user.
 export function useLogout() {
   return useMutation({

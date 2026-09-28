@@ -11,12 +11,13 @@ export function SignupPage() {
 
   return (
     <AuthCard
+      step="account"
       title="Create your account"
-      description="Then tell us a little about yourself to request access to simulated USYC."
+      description="Then request access to simulated USYC and the markets."
       footer={
         <span>
           Already have an account?{' '}
-          <Link to="/login" className="text-primary underline-offset-4 hover:underline">
+          <Link to="/login" className="font-medium text-foreground underline-offset-4 hover:underline">
             Log in
           </Link>
         </span>
@@ -24,6 +25,7 @@ export function SignupPage() {
     >
       <CredentialsForm
         submitLabel="Create account"
+        pendingLabel="Creating account…"
         passwordAutoComplete="new-password"
         passwordHint="At least 10 characters. A few random words make a strong, easy-to-remember password."
         isSubmitting={signup.isPending}

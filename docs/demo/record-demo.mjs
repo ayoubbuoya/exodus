@@ -17,6 +17,7 @@
 // Clips may start or end with a few still seconds (waiting for a bot): trim
 // them when you edit. "USYC" and "USDC" are simulated tokens, not Circle's.
 import { mkdirSync, renameSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright-core'
 
 const WEB = process.env.WEB_URL ?? 'http://localhost:8080'
@@ -32,6 +33,9 @@ const SIZE = { width: 1280, height: 720 }
 const RECORDINGS = new URL('./recordings/', import.meta.url)
 const IMAGES = new URL('../images/', import.meta.url)
 mkdirSync(RECORDINGS, { recursive: true })
+// A file URL as a path for this OS. (URL.pathname gives "/C:/…" on Windows,
+// which Node reads as "C:\C:\…".)
+const pathOf = (url) => fileURLToPath(url)
 
 const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH, slowMo: 120 })
 const pause = (page, ms = 1500) => page.waitForTimeout(ms)
@@ -46,7 +50,7 @@ async function session(scene, who) {
   const context = await browser.newContext({
     viewport: SIZE,
     storageState: who === undefined ? undefined : logins[who],
-    recordVideo: scene === undefined ? undefined : { dir: RECORDINGS.pathname, size: SIZE },
+    recordVideo: scene === undefined ? undefined : { dir: pathOf(RECORDINGS), size: SIZE },
   })
   const page = await context.newPage()
   return { context, page, scene }
@@ -57,7 +61,7 @@ async function finish(recorded) {
   const video = recorded.page.video()
   await recorded.context.close()
   if (video !== null && recorded.scene !== undefined) {
-    renameSync(await video.path(), new URL(`${recorded.scene}.webm`, RECORDINGS).pathname)
+    renameSync(await video.path(), pathOf(new URL(`${recorded.scene}.webm`, RECORDINGS)))
     console.log(`recorded ${recorded.scene}.webm`)
   }
 }
@@ -72,7 +76,7 @@ async function api(page, method, path, body) {
   return json.data
 }
 
-const screenshot = (page, name) => page.screenshot({ path: new URL(`${name}.png`, IMAGES).pathname })
+const screenshot = (page, name) => page.screenshot({ path: pathOf(new URL(`${name}.png`, IMAGES)) })
 
 // Publishes a price as the Oracle on /lab (the demo clock jumps to that date).
 async function publishPrice(page, index, date) {
@@ -127,10 +131,14 @@ await finish(desk)
 // 04: Alice asks for a firm quote on 500 PT (this clip also holds the accept, scene 06).
 const trade = await session('04-quote-and-accept', 'alice')
 await trade.page.goto(`${WEB}/markets/${MARKET}`)
-await trade.page.getByLabel('PT to buy').pressSequentially('500', { delay: 150 })
+await trade.page.getByLabel('You buy').pressSequentially('500', { delay: 150 })
 await pause(trade.page, 2000)
 await trade.page.getByRole('button', { name: 'Get firm quote' }).click()
-await trade.page.getByText('Firm quote from the house dealer').waitFor({ timeout: 20000 })
+// The firm quote is a <section aria-label="Firm quote">; bring it into view
+// (the trade widget is taller than the 720 px window).
+const quoteCard = trade.page.getByRole('region', { name: 'Firm quote' })
+await quoteCard.waitFor({ timeout: 20000 })
+await quoteCard.scrollIntoViewIfNeeded()
 await pause(trade.page, 3000)
 await screenshot(trade.page, 'quote')
 

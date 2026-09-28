@@ -1,5 +1,6 @@
 // /admin: the operator's review queue for access applications.
-// Tabs filter by status (Pending first, oldest at the top); Approve / Reject open a confirm dialog.
+// Pill filters by status (Pending first, oldest at the top); Approve / Reject
+// open a confirm dialog. New applications appear by themselves (15 s refresh).
 import { useState } from 'react'
 import { ChevronLeftIcon, ChevronRightIcon } from 'lucide-react'
 import { useAdminApplications } from '@/api/hooks'
@@ -7,8 +8,9 @@ import type { ApplicationForReview, ApplicationStatus } from '@/api/types'
 import { ApplicationsTable } from '@/components/admin/ApplicationsTable'
 import { ApproveDialog, RejectDialog } from '@/components/admin/ReviewDialogs'
 import { FormError } from '@/components/FormError'
+import { Page, PageHeader } from '@/components/layout/Page'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
@@ -35,17 +37,12 @@ export function AdminPage() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-10">
+    <Page>
+      <PageHeader title="Applications" description="Approving creates the client's Canton wallet and access pass." />
       <Card>
-        <CardHeader>
-          <CardTitle className="text-xl">Access applications</CardTitle>
-          <CardDescription>
-            Approving creates the client's custodial Canton wallet and their on-ledger access pass.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
+        <CardContent className="grid gap-4">
           <Tabs value={filter} onValueChange={changeFilter}>
-            <TabsList>
+            <TabsList aria-label="Filter by status">
               {FILTERS.map((option) => (
                 <TabsTrigger key={option.value} value={option.value}>
                   {option.label}
@@ -58,11 +55,10 @@ export function AdminPage() {
           {applications.isError && <FormError error={applications.error} />}
           {applications.data !== undefined && (
             <>
-              <ApplicationsTable
-                applications={applications.data.items}
-                onApprove={setToApprove}
-                onReject={setToReject}
-              />
+              {/* A wide table: on a phone it scrolls sideways inside the card. */}
+              <div className="-mx-2 overflow-x-auto px-2">
+                <ApplicationsTable applications={applications.data.items} onApprove={setToApprove} onReject={setToReject} />
+              </div>
               <Pager
                 page={applications.data.page}
                 totalPages={applications.data.totalPages}
@@ -76,7 +72,7 @@ export function AdminPage() {
 
       <ApproveDialog application={toApprove} onClose={() => setToApprove(null)} />
       <RejectDialog application={toReject} onClose={() => setToReject(null)} />
-    </div>
+    </Page>
   )
 }
 
@@ -93,22 +89,16 @@ function Pager({ page, totalPages, total, onPageChange }: PagerProps) {
   const lastPage = Math.max(totalPages, 1)
   return (
     <div className="flex items-center justify-between text-sm text-muted-foreground">
-      <span>
+      <span className="num">
         {total} application{total === 1 ? '' : 's'} · Page {page} of {lastPage}
       </span>
       <div className="flex gap-2">
-        <Button
-          variant="outline"
-          size="icon"
-          aria-label="Previous page"
-          disabled={page <= 1}
-          onClick={() => onPageChange(page - 1)}
-        >
+        <Button variant="outline" size="icon-sm" aria-label="Previous page" disabled={page <= 1} onClick={() => onPageChange(page - 1)}>
           <ChevronLeftIcon />
         </Button>
         <Button
           variant="outline"
-          size="icon"
+          size="icon-sm"
           aria-label="Next page"
           disabled={page >= lastPage}
           onClick={() => onPageChange(page + 1)}

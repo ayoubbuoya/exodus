@@ -22,7 +22,7 @@ export function DealerSettingsCard() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Dealer bot settings</CardTitle>
+        <CardTitle>Bot settings</CardTitle>
         <CardDescription>How the house dealer prices PT. The Markets page shows these prices as indicative.</CardDescription>
       </CardHeader>
       <CardContent>
@@ -99,7 +99,8 @@ function SettingsForm({ saved }: { saved: DealerSettings }) {
   return (
     <form onSubmit={handleSubmit}>
       <FieldGroup>
-        <Field orientation="horizontal">
+        {/* The one switch that changes who answers clients: in its own quiet box. */}
+        <Field orientation="horizontal" className="rounded-2xl bg-foreground/3 p-4 ring-1 ring-foreground/8 ring-inset">
           <Checkbox
             id="dealer-autoQuote"
             checked={values.autoQuote}
@@ -115,7 +116,7 @@ function SettingsForm({ saved }: { saved: DealerSettings }) {
           {numberField('quoteValidSeconds', 'Quote lifetime (seconds)', 'How long a quote is firm (10 to 600).')}
         </div>
         <FormError error={save.error} />
-        <Button type="submit" disabled={save.isPending} className="self-start">
+        <Button type="submit" variant="bright" disabled={save.isPending} className="self-start">
           {save.isPending ? 'Saving…' : 'Save settings'}
         </Button>
       </FieldGroup>

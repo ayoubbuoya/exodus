@@ -99,7 +99,7 @@ npm run oracle      # keeps running: publishes a new price every 5 s
 ```
 
 - Run `bootstrap` **after every ledger start**: the sandbox keeps everything in memory, so it starts empty each time. If you run it too early, it retries by itself ("attempt 2/10…").
-- The price only stays valid for 30 seconds, so **keep the oracle running**. Otherwise the dashboard shows "Paused" and Subscribe is blocked.
+- The price only stays valid for 30 seconds, so **keep the oracle running**. Otherwise the demo clock in the sidebar shows "Paused" and Subscribe is blocked.
 - Prefer to move time by hand? Use `npm run oracle:hold` instead: it keeps the price valid but does not move the demo clock. Then use the "Next step" button on `/lab`.
 
 **Terminal 3: the API**
@@ -127,13 +127,13 @@ Use two browser windows. A private/incognito window gives a second login.
 2. **Client (window B).** On the home page, click **Request access** and sign up (for example `carol@example.com` and a 10+ character password).
 3. Fill in the form: name, country (type "fra" to find France), tick the "simulated tokens" box, then **Send request**. You now see "under review".
 4. **Admin (window A).** Carol appears within 15 seconds. Click **Approve**, then **Approve** again in the dialog. This creates her Canton party, her ledger user and her access pass.
-5. **Client (window B).** Within 10 seconds the page switches to **"You are approved"**. Click **Open my wallet**.
-6. On the dashboard:
-   - **Faucet:** click **Claim 100 test USDC**. Holdings shows 100 USDC and Activity shows "Received +100 USDC".
+5. **Client (window B).** Within 10 seconds the page switches to **"You're approved"**. Click **Open my wallet**.
+6. On the Wallet page (a **Get started** checklist leads the way):
+   - **Faucet:** click **Claim 100 test USDC** in the checklist. Holdings shows 100 USDC and Activity shows "Received +100 USDC".
    - **Subscribe:** enter `50` and check the preview ("You get about 49.5 USYC"), then click **Subscribe**. Activity shows "Subscribed −50 USDC · +49.5 USYC".
-   - **Price:** watch the price strip and chart. With `npm run oracle` running, the demo date jumps 7 days every 5 seconds and the USYC price grows (1.00 on Oct 1 2026 → 1.025 on Jan 1 2027 → 1.05 on Apr 1 2027). Your USYC balance stays the same, but its USD value grows. That growth is the yield.
+   - **Price:** watch the demo clock in the sidebar, the **Fund yield** card and the chart. With `npm run oracle` running, the demo date jumps 7 days every 5 seconds and the USYC price grows (1.00 on Oct 1 2026 → 1.025 on Jan 1 2027 → 1.05 on Apr 1 2027). Your USYC balance stays the same, but its USD value grows. That growth is the yield.
    - **Redeem:** open the **Redeem** tab, enter `20` USYC and check the estimate ("You get about 20.2 USDC"), then click **Redeem**. Your USYC is burned at once and the request shows under **Pending redeems**. Within about 2 seconds the fund pays you at the price of that moment and the request disappears. Activity shows "Redeem requested −20 USYC", then "Redeemed +20.2… USDC". Click **Cancel** on a pending request (for example while the oracle is stopped) to get the USYC back.
-   - **Send:** sign up and approve a second client, copy their party id from their Holdings card, and send them some USYC. Sending to a party without an access pass is refused.
+   - **Send:** sign up and approve a second client, copy their party id (their Wallet page, under Holdings), then click **Send** next to USYC in your Holdings. Sending to a party without an access pass is refused.
 7. Want the privacy story? Open **`/lab`**. You can act as any demo party (Alice, Bank, the issuers, the Operator) and see which contracts each one can see.
 
 ---
@@ -142,13 +142,13 @@ Use two browser windows. A private/incognito window gives a second login.
 
 Tip: use `npm run oracle:hold` for this demo and move the clock by hand with **Next step** on `/lab` (as the Oracle), so the dates wait for you.
 
-1. **Client (window B)**, after subscribing some USDC to USYC on the Wallet: open **Markets** → `PT-USYC-APR2027`. On Oct 1 it shows a fixed APY of 5.10 % (buy PT at 0.975503).
+1. **Client (window B)**, after subscribing some USDC to USYC on the Wallet: open **Markets** → **USYC · Apr 1, 2027** (`PT-USYC-APR2027`), button **Fixed yield**. On Oct 1 it shows a fixed APY of 5.10 % (buy PT at 0.975503).
 2. **Fixed Yield (PT)**: enter `20`, **Get firm quote**. Within about 2 seconds the house dealer's quote appears with a countdown. **Accept**: your USDC and the PT change hands in one transaction.
 3. **Privacy (window A, admin)**: open `/lab`, act as **Operator**: its "Markets" line shows `0 Quote` (it never sees the price); as **Bank** it shows the quote.
 4. **Mint / Redeem**: mint PT + YT from USYC; redeem PT + YT together (the USYC arrives in about 2 seconds).
-5. Move the clock to Jan 1 2027. **Dealer** page (admin): **Claim Bank's yield** → 24.390243 USYC for Bank's 1000 YT. The client's **Yield (YT)** tab shows its own claimable yield.
+5. Move the clock to Jan 1 2027. **Dealer desk** (admin): **Claim Bank's yield** → 24.390243 USYC for Bank's 1000 YT. The client's **Yield (YT)** tab shows its own claimable yield.
 6. Move the clock to Apr 1 2027: the Operator bot matures the market by itself (the market shows **Matured**).
-7. **At maturity**: **Redeem PT** (1 USD of USYC per PT), then the final claim in **Yield (YT)**. **Portfolio** and the Wallet's activity show every step.
+7. **At maturity**: **Redeem PT** (1 USD of USYC per PT), then the final claim in **Yield (YT)**. **Portfolio** (its **Redeem** and **Claim** buttons open these tabs) and the Wallet's activity show every step.
 
 Everything is also in Swagger (**http://localhost:3000/api/docs**): `/markets`, `/quote-requests`, `/quotes`, `/portfolio`, `/dealer/*`.
 

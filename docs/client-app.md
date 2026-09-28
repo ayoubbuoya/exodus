@@ -29,11 +29,11 @@ Example with Alice:
 | `/` | Everyone | Landing: what Exodus is, how simulated USYC works, "Request access" |
 | `/login`, `/signup` | Everyone | Email + password |
 | `/onboarding` | Signed-in, not approved | Access form, then "pending review" / "rejected" status |
-| `/app` | Approved clients | Dashboard: price strip (USYC price, APY from index growth, demo date, live dot), price chart, Subscribe/Redeem panel (Redeem shows pending requests with a Cancel button), faucet card, holdings, activity |
-| `/markets` | Signed in | Market cards: maturity, underlying APY, fixed APY, the house dealer's PT price (markets-plan Phase 7) |
+| `/app` | Approved clients | Wallet (the USYC fund): "Get started" checklist for a new wallet, summary cards (wallet value, USYC, USDC, fund APY), price chart, Subscribe/Redeem (pending redeems with Cancel), holdings with a Send dialog per token, faucet, activity |
+| `/markets` | Signed in | One row per market ("USYC · Apr 1, 2027"): fixed APY, underlying APY, the house dealer's PT price, days left; buttons that open a tab (`?tab=fixed`, `?tab=mint`) |
 | `/markets/:id` | Signed in (actions: approved clients) | Tabs Fixed Yield (PT) (private RFQ: quote, countdown, Accept/Reject), Mint / Redeem (split / merge), Yield (YT) (claim), At maturity (redeem PT); "Your position" card |
-| `/portfolio` | Approved clients | PT/YT per market with USD value, open payout requests with Cancel, market activity |
-| `/dealer` | Admins | House dealer desk: open RFQs (manual quote / decline), Bank's position and its claim / PT redeem, live quotes, bot settings |
+| `/portfolio` | Approved clients | Summary cards (value, claimable yield, principal at maturity, next maturity), one row per PT and per YT with Sell / Redeem / Claim, open payout requests with Cancel, market activity |
+| `/dealer` | Admins | House dealer desk: Bot/Manual quoting chip, summary cards, open RFQs (manual quote / decline), live quotes, Bank's inventory with its claim / PT redeem, bot settings |
 | `/admin` | Operator admins | Applications list, Approve / Reject |
 | `/lab` | Developers | The original walking skeleton: party switcher, oracle card and controls, CIP-56 wallet, subscribe, send, "what can this party see?" privacy table. Kept on purpose as the privacy demo for judges |
 
@@ -47,7 +47,7 @@ Example with Alice:
 | D | Wallet | **Custodial**: the backend allocates a party + ledger user per client and submits commands for them after checking the session | Easy for users, like Hashnote. Self-custody (Canton external party with browser-held key) is a later step |
 | E | On-ledger whitelist | **E2: one `ClientAccess` pass per client** + **explicit disclosure** of shared contracts | See below |
 | F | Frontend stack | **Tailwind CSS 4** (`@tailwindcss/vite`) + **shadcn/ui** (Radix, code copied into `src/components/ui`) + **React Router** + **Recharts** + **lucide-react** | Accessible dialogs/tabs/toasts, readable code we own |
-| G | Theme | **"Exodus Night"**: dark first, light mode too, teal primary, gold for yield | See the palette below |
+| G | Theme | **"Glacier"** (replaced "Meridian" on 2026-09-24): dark smoky glass by default, the same look as the landing page. The app has an opt-in **Light** appearance ("Frost": frosted white glass over soft blue light) in the account menu; the landing page is always dark. Silver for principal (PT), electric blue for yield (YT) only, in both | Dark matches the landing page; Light stays glass, not white cards. Rules in `web/src/lib/theme.ts`, colours in `web/src/styles/tokens.css`. The choice is saved as `exodus-theme-v2` (a new key reset every browser to dark once on 2026-09-25) |
 | H | Session | **DB session**: random token in the httpOnly cookie, only its SHA-256 in `sessions` (agreed 2026-09-23) | Logout and revoking work at once; a JWT stays valid until it expires |
 | I | Sandbox restarts | **Auto re-provision**: every `WALLET_CHECK_SECONDS` the API re-creates wallets whose party is gone | The sandbox is in-memory; clients keep their account, balances restart at 0 and the faucet cooldown resets |
 | J | First admin | **Seed script** `npm run db:seed` from `ADMIN_EMAIL` / `ADMIN_PASSWORD` | Explicit; nobody can sign up as admin through the API |
@@ -93,32 +93,34 @@ This fixes spec gap 9 (factory shared through an observer list) and most of gap 
 | receiver's `ClientAccess` | the issuer | the sender |
 | own `ClientAccess` | the client itself | (not needed) |
 
-### Theme "Exodus Night"
+### Theme "Glacier"
 
-| Token | Dark | Light | Used for |
+The values live in `exodus-app/web/src/styles/tokens.css` (dark "Glacier" is the default, light "Frost" also exists). The idea comes from the logo: a solid silver block (principal) with a blue glass wedge (yield) seated in it.
+
+| Token | Dark (default) | Light | Used for |
 |---|---|---|---|
-| background | `#0A0E14` | `#F7F8FA` | page |
-| surface (card) | `#111722` | `#FFFFFF` | cards |
-| border | `#1F2733` | `#E3E7ED` | lines |
-| text / muted | `#E7ECF3` / `#8B97A8` | `#0F1720` / `#5B6675` | copy |
-| primary (teal) | `#2DD4BF` | `#0F9E8C` | buttons, chart line, "live" dot |
-| gold | `#E8B75A` | `#B7862B` | yield / APY highlights |
-| destructive / warning | `#F87171` / `#FBBF24` | `#DC2626` / `#B45309` | errors / "Simulated" badge |
+| background / card | `#060A13` / `#0B1220` | `#EEF2F8` / `#FFFFFF` | page / panels |
+| foreground (= pt) | `#E6ECF5` (silver) | `#0B1220` | copy, principal, par, the maturity line |
+| yt (electric blue) | `#4D8DFF` | `#1D5BD8` | **yield only**: YT, claimable yield, floating rates. Never buttons, borders, focus or decoration |
+| info | `#A99BFF` (violet) | `#5B4BD1` | pending / settling, so it never looks like yield |
 
-Fonts: **Inter** for text, **JetBrains Mono** for numbers (tabular figures so amounts line up).
+Surfaces are glass: `.glass` (thin fill, blur, a 1 px gradient rim), `.glass-strong` for floating things, `.glass-sheen` for large panels. Font: **Inter** everywhere (its display cut for big headlines), **Geist Mono** only for identifiers. No gradient text: hierarchy comes from white against dimmed white, and big amounts dim their decimals (`Amount`). Radius: 8 chips, 12 controls, 20 cards, 28 panels. The landing page is always dark and has five short sections (Hero, The split, Privacy, The app, Close).
 
 ## Build order and status
 
 | Step | What | Status |
 |---|---|---|
 | 1 | Frontend foundation: Tailwind, shadcn/ui, router, theme, landing page; the old screens moved to `/lab` with no behaviour change | Done (2026-09-23). Own `ThemeProvider` instead of `next-themes` (its inline script makes React 19 log an error) |
+| 1b | Meridian design: tokens and fonts, the cut-plate mark and favicon, and the landing page: hero with the 3D instrument (`web/public/instrument/`), scroll-driven split story, "Two instruments. One date." maturity chart, "One trade. Four ledgers." privacy lens, the light "maths adds up" term sheet and a real product preview. `/lab` loads lazily so the landing page ships no ledger code | Done (2026-09-23). App shell and Portfolio screen next |
+| 1c | Privacy section rebuilt around a three-plate stack (`web/public/privacy/`): glass = price and rate (Quote), silver = PT leg, dark metal = cash leg. Picking a party fades the plates its node does not store and shows "N of 3 parts" | Done (2026-09-24) |
+| 1d | Glacier redesign: glass surfaces, blue = yield only, Inter; the hero and split story show a rendered silver block and glass wedge (`web/public/glass/`); landing trimmed to five sections (about 1,060 → 400 words) | Done (2026-09-25) |
 | 2 | Contracts: `ClientAccess` template; `Subscribe` and the transfer factory take the pass; shared contracts read through disclosure; tests; bootstrap gives Alice and Bank passes; ledger client attaches disclosed contracts | Done (2026-09-23). Option B: transfers check sender and receiver passes. 24 Daml tests pass; checked in the browser on a fresh sandbox. Bootstrap now retries the DAR upload while the sandbox is still connecting to its synchronizer |
 | 3 | Backend `exodus-app/api`: NestJS + Prisma + Postgres; auth, applications, admin approve (allocate party + user, create pass), faucet, index-history recorder, custodial command endpoints | Done (2026-09-23). NestJS 12, Prisma 7.10 (the npm `latest` tag of the CLI is an 8.0 RC, so we pinned the stable 7.10), Postgres 18 in Docker. Built with plain `tsc` (TS 7 emits decorator metadata). Checked end to end through the Vite proxy: sign-up, apply, approve, faucet (+ 429 cooldown), subscribe, send to Bank, send to Operator refused, re-provisioning, price recording |
 | 4 | Pages: landing, signup/login, onboarding form, admin | Done (2026-09-23). Plain `useState` forms + React Query mutations, with API field errors under each input; `RequireStage` guard component (redirects by profile); searchable country combobox (`i18n-iso-countries` + shadcn Command). `/app` is a placeholder (party id + copy) until step 5. Checked in headless Chromium: sign-up → form → pending → admin approve → "You are approved" appears by itself → `/app` → log out |
 | 5 | `/app` dashboard: price strip, chart, subscribe, faucet, holdings, activity | Done (2026-09-23). Price strip (price, 30-day APY, demo date, days to maturity, Live/Paused), Recharts area chart with crosshair tooltip and a screen-reader table, Subscribe/Redeem panel (Redeem explained as spec gap 13), faucet with countdown, holdings with USD value and party id, send form, activity from the ledger history. Checked in headless Chromium (dark, light, 390 px): faucet, subscribe 40 USDC, send to Operator refused, send 5 USYC to Bank, activity rows |
 | 6 | Update README, CLAUDE.md and the spec; typecheck, lint, tests | Done (2026-09-23). Unit tests with `node:test` (43: ledger 19, API 15, web 9; `npm test` in `exodus-app`), root `README.md` with screenshots (`docs/images/`), spec updated (architecture, trust in the custodial backend, gaps 15–17), `run-locally.md`. The API test found and fixed a bug: `COOKIE_SECURE=false` was read as `true`. Final run: 24 Daml tests, 43 unit tests, typecheck, lint, web build, migrations on an empty database, full browser flow |
-
 | 7 | USYC redeem (spec gap 13): contract, tests, `@exodus/ledger` `redeem.ts`, API endpoints + settlement loop, Redeem tab with pending list, activity labels | Done (2026-09-25). 31 Daml tests (7 new in `RedeemTest`), unit tests for `multiplyRoundDown6`, `hasAtMost6Decimals`, `previewUsdc` and the redeem activity rows. Checked on a fresh sandbox with the oracle running: redeem 100 USYC, price moved before settle, paid 101.331521 USDC at 1.0133152174; cancel gave the USYC back; other parties saw no requests |
+| 8 | Glacier integration of the app screens (Farouk): lazy app pages, landing → sign-up, Glacier primitives, glass sidebar shell, then every screen restyled or rebuilt on the same hooks | Done (2026-09-25), one commit per step. 8.1: every page except the landing loads lazily (`lazyPage` in `router.tsx`); the landing downloads no ledger, app or chart code (entry file 1.28 MB → 458 kB). 8.2: the landing's buttons lead into the app ("Request access" → /signup, "Log in", "Open the lab"); the landing itself never calls the API. 8.3: the shadcn primitives follow Glacier (glass cards, pill tabs and buttons, glass menus and dialogs, quiet tables) and the colours mean one thing each: yield blue for yield only (the old `text-gold` did not exist), success green for live and approved, violet for pending. 8.4: the app shell (decision B1) is a floating glass sidebar (`AppLayout`: navigation by role, the demo clock with Live/Paused, the account menu; a glass top bar with a menu on phones); sign-up, login and onboarding use `FocusLayout` (one centred column). 8.5: sign-up, login and onboarding restyled on the same hooks, with a 4-step journey line (Account, Access request, Review, Wallet), show/hide password, a real h1 on each screen, and "Browse the markets" while an application waits. 8.6: the Wallet rebuilt on the same hooks: a "Get started" checklist for a new wallet (faucet → subscribe → markets), summary cards (value, USYC, USDC, fund APY), big amount boxes with Max and a "You get about" preview, the price chart with its growth since the first point, holdings with a Send dialog per token, glass activity rows. 8.7: Markets list (Pendle-style names, fixed APY in silver, underlying APY in yield blue, deep links `?tab=`) and the market page (stat cards, trade widget with an "at maturity" line, a firm-quote card with a draining countdown, token-row previews for mint/redeem/payouts). Fixed: asking again right after a quote expired picked the old quote up again (it shows "Expired" 2 s early), so the new quote never appeared. 8.8: Portfolio like the landing's app preview: summary cards (value, claimable yield summed exactly, principal at maturity, next maturity), one row per PT and per YT with its next action (Sell / Redeem / Claim, linking to the right tab), payout requests, market activity, and an empty state. 8.9: Dealer desk (summary cards, RFQ inbox, live quotes, inventory with Bank's payouts, bot settings, a Bot/Manual quoting chip) and Applications (status chips, bright Approve) restyled on the same hooks; checked manual quoting end to end. 8.10: the landing page's app preview is redrawn as the real Portfolio page (same sidebar, cards and rows, built with the app's StatCard and TokenIcon), still with the spec §9 numbers. 8.11: QA on a live stack (every route and guard, sign-up to approval, wallet, trading incl. declined and expired quotes, mint/redeem, claims, a market run to maturity, light theme, phones), the app layouts made lazy too (landing entry 447 kB), README screenshots |
 
 Update this table as steps land.
 
@@ -126,6 +128,9 @@ Update this table as steps land.
 
 - `web/src/api/`: `client.ts` (`apiRequest`, `ApiError` with `fieldErrors`), `types.ts` (response shapes, written by hand to match the API), `hooks.ts` (one React Query hook per call), `query-client.ts` (any 401 clears the cached profile, so guards send the user to `/login`).
 - `web/src/auth/`: `RequireStage` (`signed-out` for /login and /signup, `signed-in` for /onboarding, `approved` for /app, `admin` for /admin) and `homePathFor` (admin → /admin, wallet → /app, else /onboarding).
+- `web/src/components/layout/`: `AppLayout` (sidebar shell: `AppNav` decides the links by role, `DemoClock`, `AccountCard`), `FocusLayout` (sign-up, login, onboarding), `MarketingLayout` (landing).
+- Shared Glacier building blocks: `layout/Page.tsx` (`Page`, `PageHeader`), `finance/` (`StatCard`, `AmountInput`, `SummaryRows`, `TokenIcon`, `Amount`), `StatusChip`, `markets/` (`MarketBadge`, `TokenOutput`, `TradeAccessNote`). Pure helpers with tests in `lib/` (`tokens.ts`, `portfolio.ts`, and `marketName` / `marketTabFrom` / `quoteTimeLeftShare` in `markets.ts`). The shadcn primitives in `components/ui` are restyled for Glacier (glass cards, pill tabs and buttons).
+- `web/src/router.tsx`: every page except the landing is a `lazyPage(...)`: its code downloads when it is opened, with `PageLoading` shown meanwhile on a first visit. Add new pages the same way, so the landing page never ships app code.
 - Logging out reloads `/` with `window.location.assign`. A router navigation would lose the race against the guard of the current page, which would jump to /login.
 
 ## Backend API (step 3)

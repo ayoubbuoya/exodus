@@ -2,7 +2,16 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import type { ActivityRow, QuoteView } from '../api/types.ts'
-import { findAnsweringQuote, formatSecondsLeft, isMarketActivity, mergeLastIndex, quoteFlowStatus } from './markets.ts'
+import {
+  findAnsweringQuote,
+  formatSecondsLeft,
+  isMarketActivity,
+  marketName,
+  marketTabFrom,
+  mergeLastIndex,
+  quoteFlowStatus,
+  quoteTimeLeftShare,
+} from './markets.ts'
 
 const ASKED = Date.parse('2026-09-25T10:00:00Z')
 const VALID_UNTIL = '2026-09-25T10:01:00Z'
@@ -80,5 +89,38 @@ describe('isMarketActivity', () => {
 
   it('is false for the fund on-ramp', () => {
     assert.equal(isMarketActivity(row('SUBSCRIBED', { USDC: '-60', USYC: '60' })), false)
+  })
+})
+
+describe('marketName', () => {
+  it('reads like Pendle: asset and maturity', () => {
+    assert.equal(marketName({ instrument: 'USYC', maturity: '2027-04-01T00:00:00Z' }), 'USYC · Apr 1, 2027')
+  })
+})
+
+describe('marketTabFrom', () => {
+  it('opens the tab named in the address', () => {
+    assert.equal(marketTabFrom('yield', false), 'yield')
+    assert.equal(marketTabFrom('mint', true), 'mint')
+  })
+
+  it('falls back to trading before maturity and to redeeming after', () => {
+    assert.equal(marketTabFrom(null, false), 'fixed')
+    assert.equal(marketTabFrom('nonsense', false), 'fixed')
+    assert.equal(marketTabFrom(null, true), 'maturity')
+  })
+})
+
+describe('quoteTimeLeftShare', () => {
+  const seenAt = Date.parse('2026-09-25T10:00:00Z')
+
+  it('goes from 1 to 0 over the quote life', () => {
+    assert.equal(quoteTimeLeftShare(VALID_UNTIL, seenAt, seenAt), 1)
+    assert.equal(quoteTimeLeftShare(VALID_UNTIL, seenAt, seenAt + 45_000), 0.25)
+    assert.equal(quoteTimeLeftShare(VALID_UNTIL, seenAt, seenAt + 90_000), 0)
+  })
+
+  it('is 0 for a quote seen after it expired', () => {
+    assert.equal(quoteTimeLeftShare(VALID_UNTIL, seenAt + 120_000, seenAt + 120_000), 0)
   })
 })
