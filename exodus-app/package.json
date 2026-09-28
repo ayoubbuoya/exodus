@@ -8,7 +8,8 @@
     "ledger",
     "oracle-bot",
     "web",
-    "api"
+    "api",
+    "video"
   ],
   "scripts": {
     "codegen:daml": "cd ../exodus-contract && dpm build --all && rm -rf ../exodus-app/generated/daml.js && dpm codegen-js main/.daml/dist/exodus-contract-main-0.0.1.dar -o ../exodus-app/generated/daml.js",
@@ -19,13 +20,16 @@
     "oracle:once": "npm run once --workspace=@exodus/oracle-bot",
     "oracle:hold": "npm run hold --workspace=@exodus/oracle-bot",
     "web": "npm run dev --workspace=@exodus/web",
-    "typecheck": "npm run typecheck --workspace=@exodus/ledger --workspace=@exodus/oracle-bot --workspace=@exodus/web --workspace=@exodus/api",
+    "typecheck": "npm run typecheck --workspace=@exodus/ledger --workspace=@exodus/oracle-bot --workspace=@exodus/web --workspace=@exodus/api --workspace=@exodus/video",
     "api": "npm run start --workspace=@exodus/api",
     "db:up": "npm run db:up --workspace=@exodus/api",
     "db:migrate": "npm run db:migrate --workspace=@exodus/api",
     "db:seed": "npm run db:seed --workspace=@exodus/api",
-    "test": "npm run test --workspace=@exodus/ledger --workspace=@exodus/api --workspace=@exodus/web",
-    "demo:markets": "npm run demo:markets --workspace=@exodus/ledger"
+    "test": "npm run test --workspace=@exodus/ledger --workspace=@exodus/api --workspace=@exodus/web --workspace=@exodus/video",
+    "demo:markets": "npm run demo:markets --workspace=@exodus/ledger",
+    "video:voice": "npm run voice --workspace=@exodus/video",
+    "video:studio": "npm run studio --workspace=@exodus/video",
+    "video:render": "npm run render --workspace=@exodus/video"
   },
   "devDependencies": {
     "@types/node": "^24.13.6",

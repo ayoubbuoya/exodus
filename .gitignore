@@ -30,3 +30,20 @@ exodus-app/api/src/generated/
 # Demo recordings (large; regenerate with docs/demo/record-demo.mjs)
 docs/demo/recordings/
 docs/demo/package*.json
+
+# Media files: never commit audio or video. They are generated (voice-over by
+# `npm run video:voice`, renders by `npm run video:render`, clips by
+# record-demo.mjs) and would bloat the repository.
+*.mp3
+*.wav
+*.m4a
+*.mp4
+*.webm
+*.mov
+exodus-app/video/out/
+# The voice manifest only makes sense next to its MP3s, so it stays local too.
+exodus-app/video/public/voice/
+
+# The "scripts/" rule above is for local-only folders; the video's scripts
+# (voice generation and its tests) are real code and must be tracked.
+!exodus-app/video/scripts/
