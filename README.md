@@ -49,6 +49,8 @@ docker compose up --build     # first build: 10-20 min (downloads the Daml SDK)
 
 Open **http://localhost:8080**. Admin login: `admin@exodus.local` / `exodus-demo-admin` (demo only). The demo clock stays on Oct 1 2026 until you move it on `/lab` as the Oracle. `docker compose down` then `up` gives a fresh demo. The [demo script](docs/demo/script.md) walks through the 3-minute story.
 
+**On a public server** (HTTPS with nginx on port 8443): follow **[docs/deploy.md](docs/deploy.md)**.
+
 **By hand (for development):** follow **[docs/run-locally.md](docs/run-locally.md)**. Short version, from `exodus-app/`:
 
 ```bash
@@ -69,9 +71,11 @@ npm run web                           # terminal 4 -> http://localhost:5173
 | [`docs/exodus.md`](docs/exodus.md) | The design spec: parties, contracts, flows, the maths with a worked example, the privacy model, known gaps |
 | [`docs/client-app.md`](docs/client-app.md) | The client app's decisions, pages, API endpoints and build log |
 | [`docs/run-locally.md`](docs/run-locally.md) | How to run everything on your machine |
+| [`docs/deploy.md`](docs/deploy.md) | How to put the demo online with `docker-compose.prod.yml` (nginx, HTTPS, certbot) |
 | [`docs/markets-plan.md`](docs/markets-plan.md) | The markets (Pendle part) tracker: every decision, the phases and the session log |
 | [`docs/demo/`](docs/demo/) | The 3-minute demo script and the screen recorder (`record-demo.mjs`) |
 | `docker-compose.yml`, `docker/` | The one-command demo: sandbox, PostgreSQL, bootstrap, oracle, API, web |
+| `docker-compose.prod.yml`, `.env.prod.example` | The same demo online, behind nginx with HTTPS |
 | `exodus-contract/` | Daml smart contracts (`main`) and Daml Script tests (`test`), SDK 3.5.11 |
 | `exodus-app/ledger` | Typed client for the Canton JSON Ledger API v2, shared by everything below |
 | `exodus-app/api` | NestJS + Prisma + PostgreSQL backend: accounts, approvals, custodial wallets, faucet, price history, markets, the Operator and house dealer bots |

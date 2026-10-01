@@ -1,5 +1,6 @@
-# One image recipe for the whole Exodus demo, with three stages.
-# `docker compose up` (docker-compose.yml at the repo root) builds and runs it.
+# One image recipe for the whole Exodus demo, with four stages.
+# `docker compose up` (docker-compose.yml at the repo root) builds and runs it;
+# docker-compose.prod.yml (the public deployment) also uses the proxy stage.
 #
 #   daml    installs dpm (the Daml SDK tool), builds the contracts (the DAR) and
 #           the TypeScript codegen. There is no official Docker image for
@@ -9,6 +10,8 @@
 #   app     Node.js 24 with the ledger client, the oracle bot, the API and the
 #           built web app. Compose runs it several times with different commands
 #           (setup, oracle, api, web).
+#   proxy   nginx with the built web app, for docker-compose.prod.yml: HTTPS,
+#           and /api and /v2 forwarded like `vite preview` does in the demo.
 #
 # "USYC" and "USDC" in Exodus are SIMULATED tokens, not issued by Circle.
 
@@ -66,3 +69,14 @@ RUN npm ci
 # so a placeholder is enough at build time; the real URL comes from compose.
 RUN DATABASE_URL=postgresql://build:build@localhost:5432/build npm run build -w @exodus/api \
   && npm run build -w @exodus/web
+
+# ---------------------------------------------------------------------------
+# Stage 4: nginx for the public deployment (docker-compose.prod.yml)
+# ---------------------------------------------------------------------------
+FROM nginx:1.29-alpine AS proxy
+
+# openssl makes the self-signed placeholder certificate (15-exodus-cert.envsh).
+RUN apk add --no-cache openssl && rm /etc/nginx/conf.d/default.conf
+COPY docker/nginx/exodus.conf.template /etc/nginx/templates/exodus.conf.template
+COPY --chmod=755 docker/nginx/15-exodus-cert.envsh /docker-entrypoint.d/15-exodus-cert.envsh
+COPY --from=app /exodus/exodus-app/web/dist /usr/share/nginx/html

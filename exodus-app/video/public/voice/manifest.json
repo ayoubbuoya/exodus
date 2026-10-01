@@ -1,0 +1,352 @@
+{
+  "voiceId": "cjVigY5qzO86Huf0OWal",
+  "modelId": "eleven_multilingual_v2",
+  "scenes": {
+    "intro": {
+      "hash": "551102254399d096",
+      "file": "voice/intro.mp3",
+      "durationSeconds": 10.217,
+      "captions": [
+        {
+          "text": "This is Exodus: private, fixed-rate yield markets on Canton.",
+          "startSeconds": 0,
+          "endSeconds": 3.483
+        },
+        {
+          "text": "The USYC and USDC in this video are simulated test tokens, issued by our own demo parties.",
+          "startSeconds": 4.18,
+          "endSeconds": 10.217
+        }
+      ]
+    },
+    "problem": {
+      "hash": "9129092479cd22fa",
+      "file": "voice/problem.mp3",
+      "durationSeconds": 21.502,
+      "captions": [
+        {
+          "text": "Institutions hold tokenized Treasury funds like USYC, and the yield floats with interest rates.",
+          "startSeconds": 0,
+          "endSeconds": 6.06
+        },
+        {
+          "text": "A treasury desk wants a fixed, known return.",
+          "startSeconds": 6.385,
+          "endSeconds": 9.067
+        },
+        {
+          "text": "A trading desk wants to bet on rates.",
+          "startSeconds": 9.346,
+          "endSeconds": 11.413
+        },
+        {
+          "text": "Pendle solved this on Ethereum, but there every trade is public: the price, the size and the wallet.",
+          "startSeconds": 12.225,
+          "endSeconds": 18.553
+        },
+        {
+          "text": "Institutions cannot trade like that.",
+          "startSeconds": 19.249,
+          "endSeconds": 21.502
+        }
+      ]
+    },
+    "usyc": {
+      "hash": "4cb7c13906d2d8ac",
+      "file": "voice/usyc.mp3",
+      "durationSeconds": 14.35,
+      "captions": [
+        {
+          "text": "Start with USYC, a token that grows.",
+          "startSeconds": 0,
+          "endSeconds": 2.763
+        },
+        {
+          "text": "On October first, one USYC is worth one dollar.",
+          "startSeconds": 3.204,
+          "endSeconds": 6.641
+        },
+        {
+          "text": "On April first, it is worth one dollar and five cents.",
+          "startSeconds": 7.024,
+          "endSeconds": 10.275
+        },
+        {
+          "text": "That growth is the yield, and nobody knows it in advance.",
+          "startSeconds": 10.971,
+          "endSeconds": 14.35
+        }
+      ]
+    },
+    "split": {
+      "hash": "835d7527e6a957a7",
+      "file": "voice/split.mp3",
+      "durationSeconds": 15.697,
+      "captions": [
+        {
+          "text": "Exodus splits it in two, like Pendle.",
+          "startSeconds": 0,
+          "endSeconds": 2.31
+        },
+        {
+          "text": "Deposit one thousand USYC and you get one thousand PT and one thousand YT.",
+          "startSeconds": 2.589,
+          "endSeconds": 7.802
+        },
+        {
+          "text": "PT, the principal token, pays one dollar at maturity.",
+          "startSeconds": 8.081,
+          "endSeconds": 11.111
+        },
+        {
+          "text": "YT, the yield token, collects all the floating yield until then.",
+          "startSeconds": 11.807,
+          "endSeconds": 15.697
+        }
+      ]
+    },
+    "fixed": {
+      "hash": "2521f06f9e3450bb",
+      "file": "voice/fixed.mp3",
+      "durationSeconds": 16.022,
+      "captions": [
+        {
+          "text": "Why buy PT?",
+          "startSeconds": 0,
+          "endSeconds": 1.289
+        },
+        {
+          "text": "Because it trades below one dollar.",
+          "startSeconds": 1.382,
+          "endSeconds": 3.262
+        },
+        {
+          "text": "Alice pays about ninety-seven and a half cents for each PT.",
+          "startSeconds": 3.704,
+          "endSeconds": 6.722
+        },
+        {
+          "text": "At maturity, each one pays a full dollar.",
+          "startSeconds": 7.047,
+          "endSeconds": 9.404
+        },
+        {
+          "text": "That gap is her fixed rate: 5.1 percent a year, locked in today, whatever rates do next.",
+          "startSeconds": 9.845,
+          "endSeconds": 16.022
+        }
+      ]
+    },
+    "rfq": {
+      "hash": "fb7813cc80dab0e7",
+      "file": "voice/rfq.mp3",
+      "durationSeconds": 18.669,
+      "captions": [
+        {
+          "text": "There is no public pool.",
+          "startSeconds": 0,
+          "endSeconds": 1.265
+        },
+        {
+          "text": "Alice asks one dealer for a private quote for 500 PT.",
+          "startSeconds": 1.591,
+          "endSeconds": 5.283
+        },
+        {
+          "text": "The dealer answers in two seconds with a firm price, valid for one minute, and locks its PT so they cannot be sold twice.",
+          "startSeconds": 5.608,
+          "endSeconds": 12.539
+        },
+        {
+          "text": "Only Alice and the dealer see that price.",
+          "startSeconds": 12.98,
+          "endSeconds": 14.93
+        },
+        {
+          "text": "The market operator signs every PT, yet it sees zero quotes.",
+          "startSeconds": 15.209,
+          "endSeconds": 18.669
+        }
+      ]
+    },
+    "dvp": {
+      "hash": "b0388a3eb6c9b15f",
+      "file": "voice/dvp.mp3",
+      "durationSeconds": 12.864,
+      "captions": [
+        {
+          "text": "Alice accepts.",
+          "startSeconds": 0,
+          "endSeconds": 0.998
+        },
+        {
+          "text": "Her 487.75 USDC and the 500 PT swap in one atomic Canton transaction.",
+          "startSeconds": 1.149,
+          "endSeconds": 7.094
+        },
+        {
+          "text": "Both legs settle, or nothing does.",
+          "startSeconds": 7.605,
+          "endSeconds": 9.834
+        },
+        {
+          "text": "No settlement risk, and nothing to reconcile.",
+          "startSeconds": 10.275,
+          "endSeconds": 12.864
+        }
+      ]
+    },
+    "yield": {
+      "hash": "ec4b55c6c81e3c21",
+      "file": "voice/yield.mp3",
+      "durationSeconds": 11.703,
+      "captions": [
+        {
+          "text": "Three months later, the fund has grown from 1.00 to 1.025.",
+          "startSeconds": 0,
+          "endSeconds": 3.796
+        },
+        {
+          "text": "The dealer holds the YT, so it claims 24.39 USYC of yield, and the operator pays it from the vault.",
+          "startSeconds": 4.122,
+          "endSeconds": 11.703
+        }
+      ]
+    },
+    "maturity": {
+      "hash": "b7bfc48c1adb2c7d",
+      "file": "voice/maturity.mp3",
+      "durationSeconds": 15.836,
+      "captions": [
+        {
+          "text": "On April first, the market matures.",
+          "startSeconds": 0,
+          "endSeconds": 2.171
+        },
+        {
+          "text": "Alice redeems her 500 PT for 476.19 USYC, worth exactly 500 dollars.",
+          "startSeconds": 2.45,
+          "endSeconds": 9.102
+        },
+        {
+          "text": "She paid 487.75 and got 500 back.",
+          "startSeconds": 9.346,
+          "endSeconds": 12.574
+        },
+        {
+          "text": "A fixed return, and her price stayed private.",
+          "startSeconds": 12.899,
+          "endSeconds": 15.836
+        }
+      ]
+    },
+    "canton": {
+      "hash": "81a528b31ed17b5b",
+      "file": "voice/canton.mp3",
+      "durationSeconds": 18.622,
+      "captions": [
+        {
+          "text": "Would this lose anything without Canton?",
+          "startSeconds": 0,
+          "endSeconds": 2.078
+        },
+        {
+          "text": "Yes.",
+          "startSeconds": 2.775,
+          "endSeconds": 3.367
+        },
+        {
+          "text": "Sub-transaction privacy hides every price.",
+          "startSeconds": 3.46,
+          "endSeconds": 6.153
+        },
+        {
+          "text": "Atomic transactions remove settlement risk.",
+          "startSeconds": 6.362,
+          "endSeconds": 8.998
+        },
+        {
+          "text": "Access passes keep the market permissioned.",
+          "startSeconds": 9.323,
+          "endSeconds": 11.482
+        },
+        {
+          "text": "And our tokens follow the Canton Token Standard, CIP-56, so any Canton wallet can hold them.",
+          "startSeconds": 11.865,
+          "endSeconds": 18.622
+        }
+      ]
+    },
+    "stack": {
+      "hash": "e1da93f9175c6384",
+      "file": "voice/stack.mp3",
+      "durationSeconds": 20.526,
+      "captions": [
+        {
+          "text": "Under the hood: Daml contracts for the fund, the market, the tokens and the private quotes.",
+          "startSeconds": 0,
+          "endSeconds": 5.341
+        },
+        {
+          "text": "Every payout rounds down, so the vault can never go negative, and our Daml tests check every payout in this story to six decimals.",
+          "startSeconds": 5.666,
+          "endSeconds": 13.827
+        },
+        {
+          "text": "A NestJS backend runs the operator and dealer bots, and a React app puts it all in the browser.",
+          "startSeconds": 14.64,
+          "endSeconds": 20.526
+        }
+      ]
+    },
+    "app": {
+      "hash": "88d02639931642f2",
+      "file": "voice/app.mp3",
+      "durationSeconds": 22.105,
+      "captions": [
+        {
+          "text": "Here is the real app.",
+          "startSeconds": 0,
+          "endSeconds": 1.138
+        },
+        {
+          "text": "On the Markets page, Alice sees the fixed rate: 5.1 percent until April.",
+          "startSeconds": 1.834,
+          "endSeconds": 7.268
+        },
+        {
+          "text": "She types 500 PT and asks for a firm quote.",
+          "startSeconds": 7.779,
+          "endSeconds": 11.947
+        },
+        {
+          "text": "The dealer's price arrives in two seconds, and she accepts it.",
+          "startSeconds": 12.759,
+          "endSeconds": 16.382
+        },
+        {
+          "text": "Her portfolio now shows 500 PT, worth 500 dollars at maturity.",
+          "startSeconds": 17.078,
+          "endSeconds": 22.105
+        }
+      ]
+    },
+    "outro": {
+      "hash": "64fc0d7d7e206705",
+      "file": "voice/outro.mp3",
+      "durationSeconds": 9.195,
+      "captions": [
+        {
+          "text": "Next, we plug into the real USYC on Canton and deploy to DevNet.",
+          "startSeconds": 0,
+          "endSeconds": 4.307
+        },
+        {
+          "text": "Exodus: fixed rates for tokenized Treasuries, private by design, on Canton.",
+          "startSeconds": 4.632,
+          "endSeconds": 9.195
+        }
+      ]
+    }
+  }
+}
