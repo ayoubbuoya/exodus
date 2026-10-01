@@ -1,4 +1,0 @@
-# Rendered videos and stills (re-create with `npm run render`)
-out/
-# The ElevenLabs API key (see README.md)
-.env

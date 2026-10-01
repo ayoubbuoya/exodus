@@ -21,7 +21,7 @@ PTs trade through **private RFQ** with **atomic delivery versus payment**: only 
 | **Markets app** (`exodus-app/web` + `exodus-app/api`) | Markets list, a market page (*Fixed Yield (PT)* with a firm quote in about 2 seconds, *Mint / Redeem*, *Yield (YT)*, *At maturity*), a portfolio with Pendle-style USD value, and a dealer desk for admins. An **Operator bot** matures markets and pays every payout; a **house dealer bot** quotes with Pendle's formula. |
 | **Wallet** (the simulated USYC on-ramp) | Sign up → access form → admin approval (custodial Canton party + access pass) → faucet, subscribe USDC → USYC, redeem, send, activity read from the ledger, price chart. |
 | **Developer lab** (`/lab`) | Act as any demo party, move the demo clock, and see which contracts each party can see: the Operator sees **0 quotes**. |
-| **Demo** | `docker compose up` runs everything; a 3-minute [demo script](docs/demo/script.md); a ~3:40 [explainer video](exodus-app/video/README.md) made in code (Remotion + ElevenLabs); `npm run demo:markets` replays the worked example through the ledger client (47 checks). |
+| **Demo** | `docker compose up` runs everything; a 3-minute [demo script](docs/demo/script.md); `npm run demo:markets` replays the worked example through the ledger client (47 checks). |
 
 | Markets | Portfolio |
 |---|---|
@@ -74,7 +74,6 @@ npm run web                           # terminal 4 -> http://localhost:5173
 | [`docs/deploy.md`](docs/deploy.md) | How to put the demo online with `docker-compose.prod.yml` (nginx, HTTPS, certbot) |
 | [`docs/markets-plan.md`](docs/markets-plan.md) | The markets (Pendle part) tracker: every decision, the phases and the session log |
 | [`docs/demo/`](docs/demo/) | The 3-minute demo script and the screen recorder (`record-demo.mjs`) |
-| [`exodus-app/video/`](exodus-app/video/) | The explainer video for the judges: Remotion scenes, ElevenLabs voice-over, captions |
 | `docker-compose.yml`, `docker/` | The one-command demo: sandbox, PostgreSQL, bootstrap, oracle, API, web |
 | `docker-compose.prod.yml`, `.env.prod.example` | The same demo online, behind nginx with HTTPS |
 | `exodus-contract/` | Daml smart contracts (`main`) and Daml Script tests (`test`), SDK 3.5.11 |
