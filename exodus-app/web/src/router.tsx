@@ -92,8 +92,10 @@ export const router = createBrowserRouter([
       { path: '/dealer', ...lazyPage(() => import('@/pages/DealerPage').then((module) => module.DealerPage), 'admin') },
       // Admins only. The API checks the role again on every admin call.
       { path: '/admin', ...lazyPage(() => import('@/pages/AdminPage').then((module) => module.AdminPage), 'admin') },
-      // The original walking skeleton: act as any demo party and check privacy. Open to everyone.
-      { path: '/lab', ...lazyPage(() => import('@/pages/LabPage').then((module) => module.LabPage)) },
+      // The original walking skeleton: act as any demo party, move the demo
+      // clock and check privacy. Admins only: a client who opens /lab is sent
+      // to their wallet, a visitor to /login.
+      { path: '/lab', ...lazyPage(() => import('@/pages/LabPage').then((module) => module.LabPage), 'admin') },
       { path: '*', element: <NotFoundPage /> },
     ],
   },

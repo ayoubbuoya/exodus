@@ -20,7 +20,7 @@ PTs trade through **private RFQ** with **atomic delivery versus payment**: only 
 | **Daml contracts** (`exodus-contract/`) | USYC/USDC holdings with the Canton Token Standard (CIP-56), the oracle price feed, the USYC fund (subscribe and redeem), `ClientAccess` passes, and the markets: **split** USYC into PT + YT, **private RFQ** with firm locked quotes and **atomic DvP**, YT **claims**, Pendle-style **maturity**, PT **redeem** and **merge**. **55 Daml Script tests**, including the full worked example (`DemoTest`). |
 | **Markets app** (`exodus-app/web` + `exodus-app/api`) | Markets list, a market page (*Fixed Yield (PT)* with a firm quote in about 2 seconds, *Mint / Redeem*, *Yield (YT)*, *At maturity*), a portfolio with Pendle-style USD value, and a dealer desk for admins. An **Operator bot** matures markets and pays every payout; a **house dealer bot** quotes with Pendle's formula. |
 | **Wallet** (the simulated USYC on-ramp) | Sign up → access form → admin approval (custodial Canton party + access pass) → faucet, subscribe USDC → USYC, redeem, send, activity read from the ledger, price chart. |
-| **Developer lab** (`/lab`) | Act as any demo party, move the demo clock, and see which contracts each party can see: the Operator sees **0 quotes**. |
+| **Developer lab** (`/lab`, admins) | Act as any demo party, move the demo clock, and see which contracts each party can see: the Operator sees **0 quotes**. |
 | **Demo** | `docker compose up` runs everything; a 3-minute [demo script](docs/demo/script.md); `npm run demo:markets` replays the worked example through the ledger client (47 checks). |
 
 | Markets | Portfolio |
@@ -47,7 +47,7 @@ The **Wallet**, the simulated USYC on-ramp (faucet, subscribe, redeem, send):
 docker compose up --build     # first build: 10-20 min (downloads the Daml SDK)
 ```
 
-Open **http://localhost:8080**. Admin login: `admin@exodus.local` / `exodus-demo-admin` (demo only). The demo clock stays on Oct 1 2026 until you move it on `/lab` as the Oracle. `docker compose down` then `up` gives a fresh demo. The [demo script](docs/demo/script.md) walks through the 3-minute story.
+Open **http://localhost:8080**. Admin login: `admin@exodus.local` / `exodus-demo-admin` (demo only). The demo clock stays on Oct 1 2026 until you move it on `/lab` (logged in as the admin) as the Oracle. `docker compose down` then `up` gives a fresh demo. The [demo script](docs/demo/script.md) walks through the 3-minute story.
 
 **On a public server** (HTTPS with nginx on port 8443): follow **[docs/deploy.md](docs/deploy.md)**.
 
