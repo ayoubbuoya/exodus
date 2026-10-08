@@ -57,6 +57,20 @@ services:
       dockerfile: docker/Dockerfile
       target: ledger
     image: exodus-prod-ledger
+    # The server is shared with another project, so the sandbox (a Java process)
+    # gets a hard RAM ceiling. Without one, the JVM sizes its heap from the WHOLE
+    # server's RAM, keeps growing (the in-memory ledger keeps every transaction),
+    # and the kernel's OOM killer ends up killing the sandbox, or the other
+    # project. Example: with the default 3g, the heap may use at most 1.5 GB and
+    # the rest (about 1.5 GB) is left for Java's own non-heap memory.
+    # Change it with LEDGER_MEM_LIMIT in .env (for example 4g on an 8 GB server).
+    mem_limit: ${LEDGER_MEM_LIMIT:-3g}
+    environment:
+      # Every JVM reads JAVA_TOOL_OPTIONS, also the one `dpm sandbox` starts.
+      # MaxRAMPercentage=50: heap = half of mem_limit (Canton warns above half).
+      # ExitOnOutOfMemoryError: if the heap is ever full, stop cleanly with a clear
+      # "OutOfMemoryError" in `logs ledger`, instead of hanging in garbage collection.
+      JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=50 -XX:+ExitOnOutOfMemoryError"
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:7575/v2/state/ledger-end >/dev/null"]
       interval: 3s

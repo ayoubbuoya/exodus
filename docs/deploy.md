@@ -85,6 +85,16 @@ All commands run from the repository root, after `alias dc='docker compose -f do
 
 **The ledger is in memory.** After a reboot, a ledger crash or `down`, every account and trade is gone and the demo starts fresh. That is also how you reset it. Don't use `down -v`: it also deletes the certificate volume.
 
+**The ledger has a RAM ceiling.** The sandbox container may use at most `LEDGER_MEM_LIMIT` (default `3g`, set in `.env`), and the Java heap gets half of that. This keeps it from eating the RAM of the other project on this server. To see how close it is to the ceiling, and why it stopped if it did:
+
+```bash
+docker stats --no-stream exodus-prod-ledger-1      # MEM USAGE / LIMIT
+docker inspect exodus-prod-ledger-1 --format 'exit={{.State.ExitCode}} oomKilled={{.State.OOMKilled}}'
+dc logs --tail=100 ledger | grep -i outofmemory
+```
+
+`OutOfMemoryError` in the logs means the heap filled up: raise `LEDGER_MEM_LIMIT`, then `dc down && dc up -d`.
+
 ## Renew the certificate
 
 A Let's Encrypt certificate lasts **90 days**. Certbot can't renew this one on its own, because each renewal needs a new TXT record. Before it expires, run step 4 again (answer *Renew* if certbot asks), then `dc restart nginx`.

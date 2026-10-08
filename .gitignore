@@ -39,3 +39,5 @@ docs/demo/package*.json
 *.mp4
 *.webm
 *.mov
+# DevNet Keycloak tokens (the refresh token is as good as the password)
+tokens.json
