@@ -10,8 +10,8 @@
 #   app     Node.js 24 with the ledger client, the oracle bot, the API and the
 #           built web app. Compose runs it several times with different commands
 #           (setup, oracle, api, web).
-#   proxy   nginx with the built web app, for docker-compose.prod.yml: HTTPS,
-#           and /api and /v2 forwarded like `vite preview` does in the demo.
+#   proxy   nginx with the built web app, for docker-compose.prod.yml: HTTPS on
+#           80/443, and /api and /v2 forwarded like `vite preview` does in the demo.
 #
 # "USYC" and "USDC" in Exodus are SIMULATED tokens, not issued by Circle.
 

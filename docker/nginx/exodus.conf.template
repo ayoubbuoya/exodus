@@ -4,13 +4,52 @@
 # nginx does the job of `vite preview` in the demo compose: it serves the built
 # web app and forwards /api to the NestJS backend and /v2 to the Canton JSON
 # Ledger API (used by /lab), so the browser sees one origin.
+#
+# Three server blocks:
+#   port 80                       Let's Encrypt's HTTP check, everything else -> https://
+#   port 443, www.<domain>        -> https://<domain> (one public name)
+#   port 443, <domain>            the app
 
 # Docker's DNS. Looking the containers up per request (not once at start) keeps
 # nginx working when the api container restarts with a new IP.
 resolver 127.0.0.11 valid=10s ipv6=off;
 
+# Plain HTTP. Only used for two things:
+#  1. Let's Encrypt's HTTP-01 check: certbot (the certbot and certbot-renew
+#     services) writes a token file into the shared `certbot-www` volume, and
+#     Let's Encrypt downloads it from http://<domain>/.well-known/acme-challenge/<token>.
+#     This is how the certificate is issued and renewed without a DNS record.
+#  2. Sending visitors who type http://exodus.markets to the https:// site.
+server {
+    listen 80;
+    server_name ${EXODUS_DOMAIN} www.${EXODUS_DOMAIN};
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://${EXODUS_DOMAIN}$request_uri;
+    }
+}
+
+# https://www.exodus.markets/... -> https://exodus.markets/... so the site has
+# one name (and one session cookie). The certificate covers both names.
 server {
     listen 443 ssl;
+    http2 on;
+    server_name www.${EXODUS_DOMAIN};
+
+    ssl_certificate     ${SSL_CERT};
+    ssl_certificate_key ${SSL_KEY};
+    ssl_protocols       TLSv1.2 TLSv1.3;
+
+    return 301 https://${EXODUS_DOMAIN}$request_uri;
+}
+
+server {
+    # `default_server`: a visitor who opens https://<server IP> also lands here.
+    listen 443 ssl default_server;
     http2 on;
     server_name ${EXODUS_DOMAIN};
 
@@ -19,8 +58,8 @@ server {
     ssl_protocols       TLSv1.2 TLSv1.3;
     ssl_session_cache   shared:SSL:10m;
 
-    # http:// on this HTTPS port: send the browser to https:// on the public port.
-    error_page 497 =301 https://$host:${EXODUS_HTTPS_PORT}$request_uri;
+    # http:// sent to port 443 by mistake: send the browser to https://.
+    error_page 497 =301 https://$host$request_uri;
 
     gzip on;
     gzip_types text/css application/javascript application/json image/svg+xml;

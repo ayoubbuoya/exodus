@@ -1,19 +1,22 @@
 # The public Exodus deployment: the same demo as docker-compose.yml, behind
-# nginx with HTTPS on one port (8443 by default), so it can share a server whose
-# ports 80 and 443 already belong to another project.
+# nginx with HTTPS on the normal ports (80 and 443), at https://<EXODUS_DOMAIN>
+# (for example https://exodus.markets). It expects a server of its own.
 #
 #   cp .env.prod.example .env          then set EXODUS_DOMAIN, ADMIN_PASSWORD, ...
 #   docker compose -f docker-compose.prod.yml build
-#   docker compose -f docker-compose.prod.yml run --rm certbot    # once, see docs/deploy.md
-#   docker compose -f docker-compose.prod.yml up -d
+#   docker compose -f docker-compose.prod.yml up -d                # nginx starts with a self-signed cert
+#   docker compose -f docker-compose.prod.yml run --rm certbot     # once: the real certificate
+#   docker compose -f docker-compose.prod.yml restart nginx        # once: pick it up
 #
-# Full steps (DNS record, certificate, renewal, reset): docs/deploy.md.
+# Full steps (server, DNS records, certificate, reset): docs/deploy.md.
 #
 # Differences from docker-compose.yml:
-#   nginx    replaces `vite preview`: serves the built web app over HTTPS and
-#            forwards /api and /v2. The only published port.
-#   certbot  gets the Let's Encrypt certificate with a DNS challenge (a TXT
-#            record), because port 80 is not ours. Runs only when asked for.
+#   nginx          replaces `vite preview`: serves the built web app over HTTPS
+#                  and forwards /api and /v2. The only published ports (80, 443).
+#   certbot        gets the Let's Encrypt certificate with an HTTP-01 check (a
+#                  file served by nginx on port 80). Runs only when asked for.
+#   certbot-renew  renews it on its own before it expires (every 12 hours it
+#                  asks; certbot only renews in the last 30 days).
 #   The admin password comes from .env and the session cookie is Secure.
 #
 # The ledger is in memory: after a reboot, or to reset the demo, run
@@ -57,11 +60,10 @@ services:
       dockerfile: docker/Dockerfile
       target: ledger
     image: exodus-prod-ledger
-    # The server is shared with another project, so the sandbox (a Java process)
-    # gets a hard RAM ceiling. Without one, the JVM sizes its heap from the WHOLE
-    # server's RAM, keeps growing (the in-memory ledger keeps every transaction),
-    # and the kernel's OOM killer ends up killing the sandbox, or the other
-    # project. Example: with the default 3g, the heap may use at most 1.5 GB and
+    # The sandbox (a Java process) gets a hard RAM ceiling. Without one, the JVM
+    # sizes its heap from the WHOLE server's RAM, keeps growing (the in-memory
+    # ledger keeps every transaction), and the kernel's OOM killer ends up
+    # killing the sandbox, or PostgreSQL, or anything else on the server. Example: with the default 3g, the heap may use at most 1.5 GB and
     # the rest (about 1.5 GB) is left for Java's own non-heap memory.
     # Change it with LEDGER_MEM_LIMIT in .env (for example 4g on an 8 GB server).
     mem_limit: ${LEDGER_MEM_LIMIT:-3g}
@@ -120,33 +122,72 @@ services:
       target: proxy
     image: exodus-prod-proxy
     environment:
-      EXODUS_DOMAIN: ${EXODUS_DOMAIN:?Set EXODUS_DOMAIN in .env, for example exodus.buoya.space}
-      EXODUS_HTTPS_PORT: ${EXODUS_HTTPS_PORT:-8443}
+      EXODUS_DOMAIN: ${EXODUS_DOMAIN:?Set EXODUS_DOMAIN in .env, for example exodus.markets}
       # Fill in only our variables, never nginx's own ($host, $uri, ...).
       NGINX_ENVSUBST_FILTER: "^(EXODUS_|SSL_)"
+    # Reload nginx every 6 hours, so a certificate that certbot-renew just
+    # renewed is picked up without anyone restarting it. Then hand over to the
+    # image's normal start (fill in the template, run nginx in the foreground).
+    command:
+      - /bin/sh
+      - -c
+      - >-
+        (while :; do sleep 6h; nginx -s reload; done) &
+        exec /docker-entrypoint.sh nginx -g 'daemon off;'
     ports:
-      - "${EXODUS_HTTPS_PORT:-8443}:443"
+      - "80:80"
+      - "443:443"
     volumes:
       - letsencrypt:/etc/letsencrypt:ro
+      # certbot writes the HTTP-01 token files here; nginx serves them on port 80.
+      - certbot-www:/var/www/certbot:ro
     restart: unless-stopped
     depends_on:
       - api
 
-  # One-shot and interactive: `docker compose -f docker-compose.prod.yml run --rm certbot`.
-  # It prints a TXT record to add at the DNS provider, then waits for Enter.
+  # One-shot: `docker compose -f docker-compose.prod.yml run --rm certbot`.
+  # Gets the first certificate, for EXODUS_DOMAIN and www.EXODUS_DOMAIN (both
+  # need an A record). nginx must already be running: Let's Encrypt checks the
+  # token file it serves on port 80. The certificate is saved under the name
+  # EXODUS_DOMAIN, which is where 15-exodus-cert.envsh looks for it.
   certbot:
     image: certbot/certbot
     profiles: ["certbot"]
     volumes:
       - letsencrypt:/etc/letsencrypt
+      - certbot-www:/var/www/certbot
     command:
       - certonly
-      - --manual
-      - --preferred-challenges=dns
+      - --webroot
+      - --webroot-path=/var/www/certbot
+      - --cert-name=${EXODUS_DOMAIN:?Set EXODUS_DOMAIN in .env}
       - --domain=${EXODUS_DOMAIN:?Set EXODUS_DOMAIN in .env}
+      - --domain=www.${EXODUS_DOMAIN:?Set EXODUS_DOMAIN in .env}
       - --email=${LETSENCRYPT_EMAIL:?Set LETSENCRYPT_EMAIL in .env}
       - --agree-tos
       - --no-eff-email
+      - --non-interactive
+
+  # Always on: asks certbot to renew every 12 hours. certbot does nothing until
+  # the certificate has less than 30 days left (it lasts 90), then renews it with
+  # the same HTTP-01 check. nginx reloads itself every 6 hours (see above).
+  # Before the first certificate exists there is nothing to renew: it just waits.
+  certbot-renew:
+    image: certbot/certbot
+    volumes:
+      - letsencrypt:/etc/letsencrypt
+      - certbot-www:/var/www/certbot
+    entrypoint:
+      - /bin/sh
+      - -c
+      # `sleep & wait` (not a plain sleep) so `docker compose down` stops it at once.
+      - >-
+        trap exit TERM;
+        while :; do certbot renew --webroot --webroot-path=/var/www/certbot --quiet; sleep 12h & wait $${!}; done
+    restart: unless-stopped
+    depends_on:
+      - nginx
 
 volumes:
   letsencrypt:
+  certbot-www:

@@ -4,6 +4,12 @@
 #
 # Let's Encrypt's certificate once `docker compose run --rm certbot` got it
 # (docs/deploy.md); until then a self-signed one, so nginx can start anyway.
+# nginx MUST be running before the first certificate exists: Let's Encrypt's
+# HTTP-01 check downloads a file from it on port 80.
+#
+# This runs only when the container starts, so after the FIRST certificate,
+# restart nginx once. Renewals keep the same path, so a reload is enough then
+# (docker-compose.prod.yml reloads nginx every 6 hours).
 
 live="/etc/letsencrypt/live/${EXODUS_DOMAIN}"
 if [ -f "$live/fullchain.pem" ] && [ -f "$live/privkey.pem" ]; then

@@ -49,7 +49,7 @@ docker compose up --build     # first build: 10-20 min (downloads the Daml SDK)
 
 Open **http://localhost:8080**. Admin login: `admin@exodus.local` / `exodus-demo-admin` (demo only). The demo clock stays on Oct 1 2026 until you move it on `/lab` (logged in as the admin) as the Oracle. `docker compose down` then `up` gives a fresh demo. The [demo script](docs/demo/script.md) walks through the 3-minute story.
 
-**On a public server** (HTTPS with nginx on port 8443): follow **[docs/deploy.md](docs/deploy.md)**.
+**On a public server** (HTTPS with nginx and an auto-renewed certificate, as on https://exodus.markets): follow **[docs/deploy.md](docs/deploy.md)**.
 
 **By hand (for development):** follow **[docs/run-locally.md](docs/run-locally.md)**. Short version, from `exodus-app/`:
 
