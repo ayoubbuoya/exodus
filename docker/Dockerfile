@@ -26,7 +26,16 @@ RUN apt-get update \
 
 # The SDK version pinned in exodus-contract/multi-package.yaml.
 ARG DAML_SDK_VERSION=3.5.11
-RUN curl -sSL https://get.digitalasset.com/install/install.sh | sh -s "${DAML_SDK_VERSION}"
+# Download the installer to a file first, then run it, then check dpm is really
+# there. The installer can fail without failing the build: with `curl | sh`, a
+# failed download gives sh empty input (exit 0), and the script itself prints
+# "Successfully installed" even if its last step failed (for example a full
+# disk). Docker would then cache that empty layer and every later build would
+# stop with "dpm: not found". `dpm version` turns any of those into a clear error.
+RUN curl -fsSL https://get.digitalasset.com/install/install.sh -o /tmp/install-dpm.sh \
+  && sh /tmp/install-dpm.sh "${DAML_SDK_VERSION}" \
+  && rm /tmp/install-dpm.sh \
+  && /root/.dpm/bin/dpm version --active
 ENV PATH="/root/.dpm/bin:${PATH}"
 
 WORKDIR /exodus/exodus-contract

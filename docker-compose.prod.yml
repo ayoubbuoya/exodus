@@ -32,6 +32,9 @@ x-app: &app
     dockerfile: docker/Dockerfile
     target: app
   image: exodus-prod-app
+  # Built here, never on Docker Hub: don't try to pull it first (that only
+  # printed "pull access denied" warnings).
+  pull_policy: build
   environment: &app-env
     # The database is only reachable inside this compose network.
     DATABASE_URL: postgresql://exodus:exodus@db:5432/exodus
@@ -60,6 +63,9 @@ services:
       dockerfile: docker/Dockerfile
       target: ledger
     image: exodus-prod-ledger
+    # Built here, never on Docker Hub: don't try to pull it first (that only
+    # printed "pull access denied" warnings).
+    pull_policy: build
     # The sandbox (a Java process) gets a hard RAM ceiling. Without one, the JVM
     # sizes its heap from the WHOLE server's RAM, keeps growing (the in-memory
     # ledger keeps every transaction), and the kernel's OOM killer ends up
@@ -121,6 +127,9 @@ services:
       dockerfile: docker/Dockerfile
       target: proxy
     image: exodus-prod-proxy
+    # Built here, never on Docker Hub: don't try to pull it first (that only
+    # printed "pull access denied" warnings).
+    pull_policy: build
     environment:
       EXODUS_DOMAIN: ${EXODUS_DOMAIN:?Set EXODUS_DOMAIN in .env, for example exodus.markets}
       # Fill in only our variables, never nginx's own ($host, $uri, ...).
